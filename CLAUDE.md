@@ -88,6 +88,44 @@ Il mondo riceve la fabbrica per iniezione (`collegaFabbrica`), e va collegata
   vorrebbe dire ri-verificarli tutti, quindi è accesa da subito. **E costa**: va
   misurata, non data per buona.
 
+### ⚠ DENTRO IL GLSL INNESTATO I COMMENTI NON SONO INERTI (fase 3)
+Tre difetti in una giornata, tutti nati in una riga di **commento** dentro un
+innesto di `CustomMaterial`, e tutti e tre **muti**: il materiale non diventava
+mai pronto, la mesh spariva, e in console non c'era niente. Centomila istanze
+corrette, dati corretti, schermo vuoto.
+1. un **backtick** chiude il template JS (nove volte fra i due progetti);
+2. un'**espressione andata a capo** si rompe — il processore di shader di
+   Babylon lavora riga per riga (`0:320: '?' : syntax error`, su un ternario);
+3. una **direttiva di inclusione** scritta per esteso viene **eseguita**: il
+   preprocessore la cerca con una regex su tutto il testo. Il mio commento
+   citava per nome l'inclusione delle istanze e me l'ha espansa dentro la
+   variante NON istanziata, dove `world0..world3` non esistono.
+
+`test/glsl-backtick.test.mjs` e `test/glsl-una-riga.test.mjs` li presidiano.
+⚠ E l'errore vero **non** è in `forceCompilation` (che rispondeva «ok»): sta in
+`subMesh.effect.getCompilationError()`.
+
+### ⚠ ALTRE TRAPPOLE DI BABYLON già pagate
+- **`thinInstanceBufferUpdated` spedisce l'INTERO array**, cioè il tetto. Con
+  buffer allocati a 500.000 e 101.698 istanze vive: **12,4 ms**. La variante
+  giusta è `thinInstancePartialBufferUpdate(kind, n, 0)`. ⚠ È **la stessa
+  trappola di three** (`addUpdateRange`) su un altro motore e con un altro nome:
+  il carico parziale è sempre da chiedere, e il difetto non dà nessun segnale.
+- **La matrice delle thin instance è obbligatoria ma non deve costare.** Serve
+  solo perché `thinInstanceCount` si tara su `matrixData.length/16`. Usarla come
+  portatrice della posizione sembra furbo e non lo è: sono 16 float per istanza
+  (6,5 MB dei 10,5 per semina) per portare tre numeri che stanno già in `iPos`.
+  Qui resta **identità, statica, caricata una volta**.
+- **`world0..world3` esistono solo dentro `#ifdef INSTANCES`**, e Babylon compila
+  anche la variante non istanziata: meglio non dipenderne affatto.
+- **`CustomMaterial` non è uno `ShaderMaterial`**: niente `setFloat`. Le uniform
+  nostre stanno in una mappa interna e vengono rilegate a ogni disegno — si
+  passano OGGETTI e poi si mutano (zero allocazioni per fotogramma).
+- **L'Inspector v2 è React, e React su npm è CommonJS**: una import map non lo
+  carica. Si impacchetta una volta con `npm run ispettore` → `vendor/`, tenendo
+  `@babylonjs/core` **esterno** (se no l'ispettore guarda una scena che non è la
+  nostra). Il gioco resta zero-build.
+
 ## Cosa è già cambiato in meglio, con i numeri
 
 | | Lantern (three, a mano) | Shadows (Babylon) |
@@ -96,6 +134,9 @@ Il mondo riceve la fabbrica per iniezione (`collegaFabbrica`), e va collegata
 | culling | l'erba lo aveva **spento** (`frustumCulled = false`) | 30 mesh attive su 98, di serie |
 | normali | non esistevano (unlit) | piatte gratis: il mesher non condivide i vertici |
 | materiale del mondo | 2.839 righe di shader iniettato | sei righe di `StandardMaterial` |
+| erba: costo a schermo | — | **0,18 ms** per 101.698 lamelle |
+| erba: lo scambio | 3,6 ms (8,1 prima di `addUpdateRange`) | **0,8 ms** |
+| erba: lo shader | 346 righe di GLSL | 40, e solo il vento — luci, ombre e nebbia le fa il motore |
 
 ## Da fare, in ordine
 Vedi `docs/PIANO.md`. La fase 1 (scheletro + terreno vero a schermo) è **fatta**.

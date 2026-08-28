@@ -12,6 +12,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js'
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
+import { Prato } from './prato.js';
 
 // ⚠ ANCHE QUI GLI SHADER A MANO: con gli import profondi il sorgente del
 // materiale standard non arriva da solo, e il primo disegno fallisce con
@@ -162,6 +163,12 @@ export class Fabbrica {
   spegniVoxel() {}
   latoMassimoVoxel() { return 0; }
   mondoVelato() { return false; }
+
+  // ── il prato ──────────────────────────────────────────────────────────────
+  creaPrato(max) { return new Prato(this.scena, this.rig, max); }
+  scriviPrato(prato, n, erba) { prato.scrivi(n, erba); }
+  animaPrato(prato, erba) { prato.anima(erba); }
+  mostraPrato(prato, on) { prato.mostra(on); }
 
   // ── texture (serve alle stagioni sul fogliame dei modelli) ────────────────
   texturaDaCanvas(canvas) {

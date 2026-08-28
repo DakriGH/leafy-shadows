@@ -13,6 +13,7 @@ import { Mondo } from './world/world.js';
 import { Mesher, collegaFabbrica as fabbricaMesher } from './world/mesher.js';
 import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
 import { generaOpenWorld } from './world/worldgen.js';
+import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
 
 const tela = document.getElementById('tela');
 const stato = document.getElementById('stato');
@@ -23,6 +24,7 @@ const fabbrica = new Fabbrica(rig);
 // alla prima mesh: collegarla dopo dà un `null` in un punto lontano da qui.
 fabbricaMesher(fabbrica);
 fabbricaStagioni(fabbrica);
+fabbricaErba(fabbrica);
 
 const mondo = new Mondo();
 const mesher = new Mesher(rig.scena, mondo);
@@ -40,6 +42,12 @@ const tMesh = performance.now() - t1;
 let cima = 8;
 for (let y = 60; y > 0; y--) if (mondo.tipo(0, y, 0)) { cima = y + 1; break; }
 rig.camera.setTarget(new (rig.camera.target.constructor)(0, cima, 0));
+
+// ---- l'erba ----------------------------------------------------------------
+// ⚠ IL TETTO È QUELLO MISURATO SU LANTERN, non «il più alto che regge»: il caso
+// peggiore vero (anello a passo pieno tutto a erba, densità 8) sta sotto 450k.
+const erba = new Erba(rig.scena, { max: 500000, densita: 7.8, raggioChunk: 6 });
+const passeggero = { x: 0.5, y: cima, z: 0.5 };
 
 // ---- il contatore onesto ---------------------------------------------------
 // ⚠ NON GLI FPS: i MILLISECONDI. In Lantern ho passato una giornata a dire «va
@@ -60,11 +68,17 @@ function aggiornaStato() {
     `p50 ${p(0.5)} ms   p99 ${p(0.99)} ms\n` +
     `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}\n` +
     `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
+    `erba ${erba.fili.toLocaleString('it')} lamelle\n` +
     `alberi ${alberi.length} (ancora non posati)\n` +
     `I = ispettore`;
 }
 
-rig.avvia(() => aggiornaStato());
+rig.avvia((dt) => {
+  // la semina è a BILANCIO DI TEMPO, non a numero di chunk: i chunk non costano
+  // uguale, e contarli lasciava passare picchi da tre millisecondi e mezzo
+  erba.aggiorna(dt, mondo, passeggero, null, rig.camera.position);
+  aggiornaStato();
+});
 
 // una manina per lavorarci sopra dall'ispettore e dalla console
-globalThis.LEAFY = { rig, fabbrica, mondo, mesher, generaOpenWorld };
+globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, passeggero, generaOpenWorld };

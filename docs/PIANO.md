@@ -42,7 +42,31 @@ illuminazione del motore.
 
 ---
 
-## Fase 3 — Vegetazione e ombre, il banco di prova vero
+## Fase 3 — Vegetazione: il banco di prova ✅ *(28/08/2026, parziale)*
+
+**La domanda**: i picchi dell'erba spariscono?
+
+**Risposta**: sì. 101.698 lamelle costano **0,18 ms** a schermo, e lo scambio del
+campo — che in Lantern era il picco da 3,6 ms a ogni confine di chunk — sta a
+**0,8 ms**. Ci sono volute tre correzioni per arrivarci, tutte misurate:
+13,8 → 6,0 → 0,8.
+
+**Come, e cosa NON si è fatto.** Le regole di gioco (quali celle, quante
+lamelle, come si dirada) vengono da Lantern e non sanno che esiste una GPU. Il
+disegno è tutto nuovo: `CustomMaterial` invece di uno shader nostro, così l'erba
+prende luci, nebbia e **ombre a cascata** dal motore, e noi innestiamo solo il
+vento. La prima stesura era uno `ShaderMaterial` con dentro il vertex shader di
+Lantern ricopiato: funzionava e sbagliava — uno ShaderMaterial non riceve le
+luci della scena, cioè avrei rifatto a mano l'unica cosa per cui abbiamo
+cambiato motore.
+
+**Resta da fare in questa fase**: le foglie, e verificare l'ombra dell'erba
+sull'erba (oggi il prato riceve ombra ma non la proietta — è una scelta, vedi
+`prato.js`).
+
+---
+
+## Fase 3-bis — Il resto della vegetazione
 
 È qui che si misura se i picchi sono spariti davvero.
 

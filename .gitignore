@@ -2,3 +2,5 @@ node_modules/
 .pubblicazione/
 www/
 *.log
+# rigenerabile con `npm run ispettore` — 12,8 MB di attrezzo, non di gioco
+vendor/ispettore.js
