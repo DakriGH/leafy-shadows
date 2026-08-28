@@ -94,6 +94,72 @@ export function mira(mondo, origine, verso, portata = PORTATA) {
 }
 
 /**
+ * L'INCROCIO CON UNA SCATOLA ALLINEATA AGLI ASSI, in avanti.
+ *
+ * ⚠ SERVE PERCHÉ NON TUTTO È UN BLOCCO. Un lampione è un modello alto tre
+ * celle piantato in mezzo all'aria: la griglia lì è VUOTA, quindi il cammino
+ * gli passa attraverso e finisce sul terreno sotto. Cliccarlo era impossibile,
+ * ed è il difetto che il committente ha visto come «manca il modo di interagire
+ * con i lampioni».
+ *
+ * Il metodo è il classico «slab»: per ogni asse si trova l'intervallo di
+ * cammino in cui il raggio sta dentro la lastra, e si tiene l'intersezione dei
+ * tre. Se resta un intervallo, il raggio entra.
+ *
+ * @returns la distanza d'ingresso, o -1 se non la incrocia
+ */
+export function incrociaScatola(origine, verso, min, max, portata) {
+  let dentro = 0, fuori = portata;
+  for (const asse of ['x', 'y', 'z']) {
+    const d = verso[asse];
+    if (Math.abs(d) < 1e-9) {
+      // ⚠ RAGGIO PARALLELO ALLA LASTRA: o è già dentro per sempre, o è fuori
+      // per sempre. Dividere qui darebbe infiniti col segno sbagliato, che è il
+      // modo classico in cui questo algoritmo sbaglia in silenzio.
+      if (origine[asse] < min[asse] || origine[asse] > max[asse]) return -1;
+      continue;
+    }
+    let a = (min[asse] - origine[asse]) / d;
+    let b = (max[asse] - origine[asse]) / d;
+    if (a > b) { const t = a; a = b; b = t; }
+    if (a > dentro) dentro = a;
+    if (b < fuori) fuori = b;
+    if (dentro > fuori) return -1;
+  }
+  return dentro;
+}
+
+/**
+ * MIRA A TUTTO: prima le scatole, poi i blocchi, e vince chi è più vicino.
+ *
+ * ⚠ E L'ORDINE NON BASTA, SERVE IL CONFRONTO: un lampione dietro un muro non si
+ * deve poter accendere. Guardando solo «c'è una scatola sul raggio?» si
+ * accenderebbe attraverso la roccia.
+ *
+ * @param scatole elenco di `{ min:{x,y,z}, max:{x,y,z}, dato }`
+ * @returns `{ cella, faccia, prima }` come `mira`, oppure `{ scatola, dato }`
+ */
+export function miraCompleta(mondo, origine, verso, scatole, portata = PORTATA) {
+  const blocco = mira(mondo, origine, verso, portata);
+  // ⚠ LA DISTANZA DEL BLOCCO SI RICAVA DAL SUO CENTRO DI FACCIA, non dalla
+  // cella: due celle diverse possono stare alla stessa distanza di griglia e a
+  // distanze molto diverse dall'occhio.
+  let dBlocco = Infinity;
+  if (blocco) {
+    const c = blocco.cella;
+    const dx = c[0] + 0.5 - origine.x, dy = c[1] + 0.5 - origine.y, dz = c[2] + 0.5 - origine.z;
+    dBlocco = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+  let miglior = null, dMiglior = dBlocco;
+  for (const s of scatole || []) {
+    const d = incrociaScatola(origine, verso, s.min, s.max, portata);
+    if (d >= 0 && d < dMiglior) { dMiglior = d; miglior = s; }
+  }
+  if (miglior) return { scatola: miglior, dato: miglior.dato, distanza: dMiglior };
+  return blocco;
+}
+
+/**
  * SI PUÒ POSARE UN BLOCCO QUI?
  *
  * ⚠ E LA RISPOSTA DIPENDE DA DOVE STA CHI POSA. Murarsi dentro da soli è il

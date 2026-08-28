@@ -17,8 +17,13 @@ import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
 import { generaOpenWorld } from './world/worldgen.js';
 import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
-import { mira, posabile, raggiungibile, portataRaggio } from './gioco/mira.js';
-import { Cantiere, CASSETTA } from './gioco/cantiere.js';
+import { miraCompleta, posabile, raggiungibile, portataRaggio } from './gioco/mira.js';
+import { Cantiere, CASSETTA, NOME_AZIONE } from './gioco/cantiere.js';
+import { Lampioni } from './gioco/lampioni.js';
+import { ascoltaClic } from './gioco/puntatore.js';
+import { Barra } from './ui/barra.js';
+import { defDi } from './world/blocks.js';
+import { geometriaSingola } from './world/mesher.js';
 import { ScalaQualita, misuraHz } from './motore/qualita.js';
 
 const tela = document.getElementById('tela');
@@ -100,6 +105,8 @@ modelli.carica('albero').then(() => {
 // ⚠ LA LUCE STA UN PO' SOPRA IL PALO, non alla base: una sfera centrata a terra
 // illumina il terreno e non l'aria, e il lampione sembra spento.
 let lampioniPosati = 0;
+const lampioni_ = new Lampioni();
+const aloni = fabbrica.aloni(64);
 modelli.carica('lampione').then(() => {
   lampioniPosati = modelli.piazza('lampione', lampioni.map(([x, h, z]) => ({ x: x + 0.5, y: h, z: z + 0.5, giro: 0 })));
   for (const [x, h, z] of lampioni) {
@@ -107,13 +114,36 @@ modelli.carica('lampione').then(() => {
     // quattordici perché le lampade non si vedevano, e la causa non era il
     // raggio: era la mia formula di caduta (vedi `luci.js`). Curato il difetto,
     // il raggio torna a voler dire quanto illumina.
-    rig.luci.accendi({ x: x + 0.5, y: h + 2.6, z: z + 0.5, raggio: 8.5, forza: 1 });
+    const i = rig.luci.accendi({ x: x + 0.5, y: h + 2.6, z: z + 0.5, raggio: 8.5, forza: 1 });
+    lampioni_.aggiungi({ x: x + 0.5, y: h, z: z + 0.5, indiceLuce: i });
   }
+  applicaLampioni();
 }).catch((e) => { console.error('lampioni:', e); });
+
+/**
+ * DALLO STATO DEI LAMPIONI ALLE COSE CHE SI VEDONO — la luce e l'alone.
+ * ⚠ UN POSTO SOLO, e ci passa anche l'accensione iniziale: se lo stato di
+ * partenza prendesse un'altra strada sarebbe l'unico caso non provato dal
+ * codice che gestisce tutti gli altri.
+ */
+function applicaLampioni() {
+  const punti = [];
+  for (const l of lampioni_.elenco) {
+    // spegnere = raggio zero, che è come `Luci` segna uno slot morto
+    rig.luci.pos[l.indiceLuce * 4 + 3] = l.acceso ? 8.5 : 0;
+    // ⚠ L'ALONE STA DOVE STA LA LAMPADA, non ai piedi del palo: 2,6 sopra la
+    // base, lo stesso numero della luce. Due numeri per la stessa cosa sarebbe
+    // il modo di vederli divergere al primo ritocco.
+    punti.push({ x: l.x, y: l.y + 2.6, z: l.z, acceso: l.acceso });
+  }
+  fabbrica.muoviAloni(aloni, punti);
+}
 
 // ---- il cantiere: rompere, posare, illuminare -------------------------------
 const cantiere = new Cantiere(mondo, rig.luci);
+cantiere.scegli(1);                       // si parte con l'erba in mano
 const mirino = fabbrica.mirino();
+const anteprima = fabbrica.anteprima();
 /** Dov'è il puntatore, in pixel di tela. Null = mira al centro dello schermo. */
 let puntatore = { x: 0, y: 0 };
 /** Il bersaglio calcolato una volta per fotogramma, riusato da HUD e clic. */
@@ -124,33 +154,84 @@ let bersaglio = null;
 // introduce uno scarto: fra l'ultimo disegno e il clic la camera può essersi
 // mossa, e si rompe un blocco diverso da quello che aveva il mirino addosso.
 // Quello che si vede evidenziato è quello che si rompe, per costruzione.
+/** Cosa farà il prossimo clic: 'rompi' | 'posa' | 'interagisci' | null. */
+let cosaFa = null;
+
 function aggiornaMira() {
   const r = rig.raggioDaPuntatore(puntatore.x, puntatore.y);
   // ⚠ IL RAGGIO SI TIRA FINO A LÀ, il braccio si controlla dopo: vedi `mira.js`.
-  const b = mira(mondo, r.origine, r.verso, portataRaggio(rig.camera.radius));
-  bersaglio = b && raggiungibile(b.cella, passeggero) ? b : null;
+  // ⚠ E GUARDA ANCHE LE SCATOLE DEI LAMPIONI, che non sono blocchi: la griglia
+  // sotto di loro è vuota e il cammino ci passava attraverso.
+  const b = miraCompleta(mondo, r.origine, r.verso, lampioni_.scatole(), portataRaggio(rig.camera.radius));
+  bersaglio = null; cosaFa = null;
+  if (b && b.dato) {
+    // un lampione: si controlla la portata sul suo piede
+    if (raggiungibile([Math.floor(b.dato.x), Math.floor(b.dato.y) + 1, Math.floor(b.dato.z)], passeggero)) {
+      bersaglio = b; cosaFa = 'interagisci';
+    }
+  } else if (b && raggiungibile(b.cella, passeggero)) {
+    bersaglio = b;
+    cosaFa = cantiere.azione(null);
+    if (cosaFa === 'posa' && !posabile(mondo, b.prima, passeggero)) cosaFa = null;
+  }
+
   // ⚠ IL MIRINO DICE ANCHE COSA SUCCEDERÀ, col colore: bianco = si rompe,
-  // verde = si posa lì. È l'unico modo per non dover indovinare quale delle due
-  // celle (quella colpita o quella prima) sta per essere toccata.
-  const posa = bersaglio && posabile(mondo, bersaglio.prima, passeggero);
-  fabbrica.muoviMirino(mirino, bersaglio && bersaglio.cella, posa ? [0.55, 1, 0.6] : [1, 1, 1]);
+  // verde = si posa, giallo = si accende. È l'unico modo per non dover
+  // indovinare quale delle due celle sta per essere toccata.
+  const COLORE = { rompi: [1, 1, 1], posa: [0.55, 1, 0.6], interagisci: [1, 0.86, 0.45] };
+  fabbrica.muoviMirino(mirino, bersaglio && bersaglio.cella, COLORE[cosaFa] || [1, 1, 1]);
+  // ⚠ E L'ANTEPRIMA MOSTRA IL BLOCCO VERO, con la sua forma e i suoi colori:
+  // che un blocco d'erba abbia il cappello si vede prima di cliccare, non dopo.
+  fabbrica.muoviAnteprima(anteprima, cosaFa === 'posa' ? formaDi(cantiere.tipoScelto) : null,
+    cosaFa === 'posa' ? bersaglio.prima : null);
+}
+
+// ⚠ LE FORME SI TENGONO DA PARTE: `geometriaSingola` ricostruisce il blocco da
+// zero, e chiamarla a ogni fotogramma vorrebbe dire rifare la stessa geometria
+// sessanta volte al secondo per un cubo che non cambia mai.
+const _forme = new Map();
+function formaDi(tipo) {
+  if (!tipo) return null;
+  if (!_forme.has(tipo)) _forme.set(tipo, { ...geometriaSingola(tipo), tipo });
+  return _forme.get(tipo);
+}
+
+/** Fa quello che il mirino sta promettendo. */
+function agisci() {
+  if (!bersaglio || !cosaFa) return;
+  if (cosaFa === 'interagisci') { lampioni_.alterna(bersaglio.dato); applicaLampioni(); }
+  else if (cosaFa === 'rompi') cantiere.rompi(...bersaglio.cella);
+  else if (cosaFa === 'posa') cantiere.posa(...bersaglio.prima);
 }
 
 addEventListener('pointermove', (e) => { puntatore.x = e.clientX; puntatore.y = e.clientY; });
-addEventListener('pointerdown', (e) => {
-  if (e.target !== tela) return;
-  if (!bersaglio) return;
-  if (e.button === 0) cantiere.rompi(...bersaglio.cella);
-  else if (e.button === 2) { if (posabile(mondo, bersaglio.prima, passeggero)) cantiere.posa(...bersaglio.prima); }
-  else if (e.button === 1) {
+
+// ⚠ SOLO I CLIC VERI, e questa è la correzione al difetto che il committente ha
+// visto: «hai usato il tasto sinistro e destro per piazzare, ma è anche il modo
+// che uso per muovere la telecamera». Prima si agiva su `pointerdown`, quindi
+// ogni rotazione della camera rompeva anche il blocco da cui era partita. Vedi
+// `gioco/puntatore.js`: un clic è tale solo se il puntatore non si è spostato.
+ascoltaClic(tela, (e) => {
+  // ⚠ IL BERSAGLIO SI RICALCOLA SUL PUNTO DEL RILASCIO: su un telefono il dito
+  // non ha un «pointermove» prima di toccare, quindi il bersaglio calcolato nel
+  // giro precedente è quello di dove stava il dito PRIMA — cioè da nessuna parte.
+  puntatore.x = e.clientX; puntatore.y = e.clientY;
+  aggiornaMira();
+  if (e.button === 1) {
     // ⚠ IL TASTO CENTRALE COPIA IL BLOCCO che si sta guardando, come in
     // Minecraft: è il gesto che chiunque abbia costruito in un gioco a blocchi
     // prova per primo, e non trovarlo è una piccola frustrazione gratuita.
-    const t = mondo.tipo(...bersaglio.cella);
-    const i = CASSETTA.indexOf(t);
+    if (!bersaglio || bersaglio.dato) return;
+    const i = CASSETTA.indexOf(mondo.tipo(...bersaglio.cella));
     if (i >= 0) cantiere.scegli(i);
     e.preventDefault();
+    return;
   }
+  // ⚠ IL DESTRO ROMPE SEMPRE, ed è l'unica scorciatoia che resta legata a un
+  // tasto: serve a rompere senza svuotarsi le mani, e su un telefono non
+  // manca a nessuno perché lì si tocca la casella della mano vuota.
+  if (e.button === 2 && bersaglio && !bersaglio.dato) { cantiere.rompi(...bersaglio.cella); return; }
+  if (e.button === 0) agisci();
 });
 
 // ---- la scala di qualità ----------------------------------------------------
@@ -169,6 +250,14 @@ scala.avvia();
 // fotogrammi, che è comunque prima che la scala possa decidere qualcosa.
 misuraHz().then((hz) => scala.impostaHz(hz));
 
+// ---- la barra in mano -------------------------------------------------------
+const barra = new Barra({
+  cassetta: CASSETTA,
+  colorePer: (t) => '#' + defDi(t).cima.toString(16).padStart(6, '0'),
+  nomePer: (t) => defDi(t).nome,
+  onScegli: (i) => cantiere.scegli(i),
+});
+
 // ---- il ciclo del giorno ----------------------------------------------------
 const giorno = new Giorno(rig, { durata: 300, ora: 0.42 });
 
@@ -181,8 +270,8 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Comma') { giorno.auto = false; giorno.t = (giorno.t + 0.985) % 1; giorno.applica(); }
   else if (e.code === 'Period') { giorno.auto = false; giorno.t = (giorno.t + 0.015) % 1; giorno.applica(); }
   else if (e.code === 'KeyP') giorno.auto = !giorno.auto;
-  else if (e.code === 'KeyQ' && bersaglio) cantiere.rompi(...bersaglio.cella);
-  else if (e.code === 'KeyE' && bersaglio && posabile(mondo, bersaglio.prima, passeggero)) cantiere.posa(...bersaglio.prima);
+  else if (e.code === 'KeyQ' && bersaglio && !bersaglio.dato) cantiere.rompi(...bersaglio.cella);
+  else if (e.code === 'KeyE') agisci();
   else if (e.code === 'KeyR') cantiere.scegli(cantiere.scelto + (e.shiftKey ? -1 : 1));
   // ⚠ K FISSA LA QUALITÀ A MANO, e serve per PROVARE: senza, per vedere il
   // gradino più basso bisogna trovare una macchina che soffra davvero.
@@ -238,9 +327,9 @@ function aggiornaStato() {
     `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}   ` +
     `luci ${rig.luci.accese}   alberi ${alberiPosati}/${alberi.length}\n` +
     `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
-    `\n${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}   in mano: ${cantiere.nomeScelto}\n` +
-    `sinistro rompe · destro posa · centrale copia   1-9 / R sceglie\n` +
-    `, . ora   P ferma il ciclo   K qualità   I ispettore`;
+    `\n${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}\n` +
+    `clic = quello che hai in mano · destro rompe · centrale copia\n` +
+    `1-9 / R mano   , . ora   P ciclo   K qualità   I ispettore`;
 }
 
 rig.avvia((dt) => {
@@ -260,9 +349,15 @@ rig.avvia((dt) => {
   // mette in coda. Senza questa riga si poteva rompere quanto si voleva e a
   // schermo non cambiava niente — il mondo era giusto, l'immagine vecchia.
   mesher.aggiorna(mondo, passeggero);
+  // ⚠ I LAMPIONI SEGUONO LA NOTTE, come in Lantern: si accendono da soli quando
+  // il sole scende, e l'interruttore a mano vale fino al prossimo cambio.
+  if (lampioni_.aggiornaNotte(giorno.t < 0.24 || giorno.t > 0.80)) applicaLampioni();
   aggiornaMira();
+  barra.aggiorna(cantiere.scelto, cosaFa
+    ? `<b>${NOME_AZIONE[cosaFa]}</b> · ${cosaFa === 'interagisci' ? 'lampione' : cantiere.nomeScelto}`
+    : `— · ${cantiere.nomeScelto}`);
   aggiornaStato();
 });
 
 // una manina per lavorarci sopra dall'ispettore e dalla console
-globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeggero, cantiere, scala, generaOpenWorld };
+globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeggero, cantiere, scala, lampioni: lampioni_, barra, generaOpenWorld };

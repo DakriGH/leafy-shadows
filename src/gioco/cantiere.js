@@ -21,10 +21,37 @@ import { defDi } from '../world/blocks.js';
  * blocco e la stanza si illumina.
  */
 export const CASSETTA = [
+  // ⚠ IL PRIMO POSTO È LA MANO VUOTA, e non è un buco nell'elenco: è uno
+  // strumento. Con la mano vuota si ROMPE e si INTERAGISCE; con un blocco in
+  // mano si POSA. È la regola di Lantern («tocco = usa quello che hai in
+  // mano»), ed è l'unica che funziona uguale col mouse e col dito — su un
+  // telefono un «tasto destro» non esiste.
+  null,
   'erba', 'terra', 'pietra', 'mattoni', 'legno', 'sabbia', 'neve',
   'lanaRossa', 'lanaBlu', 'lanaGialla',
   'lampadaPesante', 'lampadaRossa', 'lampadaVerde', 'lampadaBlu', 'lucciola',
 ];
+
+/**
+ * COSA FARÀ IL PROSSIMO CLIC — e si decide qui, in un posto solo.
+ *
+ * ⚠ È LA CORREZIONE AL DIFETTO CHE IL COMMITTENTE HA VISTO: «hai usato il tasto
+ * sinistro e destro per piazzare, ma è anche il modo che uso per muovere la
+ * telecamera». Il problema vero non erano i tasti — era che l'azione dipendeva
+ * dal TASTO invece che da quello che si ha in mano. Con i tasti, su un telefono
+ * non c'è niente da premere; con la mano, la regola è una e vale ovunque.
+ *
+ * L'ordine conta: un lampione vince sempre, anche con un blocco in mano —
+ * altrimenti per accendere una luce bisognerebbe prima svuotarsi le mani, che è
+ * esattamente il genere di passaggio che nessuno indovina.
+ */
+export function azione(tipoInMano, bersaglioInterattivo) {
+  if (bersaglioInterattivo) return 'interagisci';
+  return tipoInMano ? 'posa' : 'rompi';
+}
+
+/** Come si chiama, per scriverlo accanto al mirino. */
+export const NOME_AZIONE = { interagisci: 'accendi', posa: 'posa', rompi: 'rompi' };
 
 /** 0xRRGGBB → [r, g, b] in 0..1. */
 export function daEsadecimale(n) {
@@ -48,7 +75,11 @@ export class Cantiere {
   }
 
   get tipoScelto() { return CASSETTA[this.scelto]; }
-  get nomeScelto() { return defDi(this.tipoScelto).nome; }
+  get nomeScelto() { return this.tipoScelto ? defDi(this.tipoScelto).nome : 'mano vuota'; }
+  get manoVuota() { return !this.tipoScelto; }
+
+  /** Cosa farà il prossimo clic, dato cosa si sta guardando. */
+  azione(bersaglioInterattivo) { return azione(this.tipoScelto, bersaglioInterattivo); }
 
   scegli(i) { this.scelto = ((i % CASSETTA.length) + CASSETTA.length) % CASSETTA.length; }
 
@@ -76,6 +107,7 @@ export class Cantiere {
    * si nota senza capire perché.
    */
   posa(x, y, z, tipo = this.tipoScelto) {
+    if (!tipo) return false;                 // ⚠ con la mano vuota non si posa
     if (this.mondo.pieno(x, y, z)) return false;
     this.mondo.metti(x, y, z, tipo);
     const def = defDi(tipo);

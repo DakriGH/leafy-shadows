@@ -291,6 +291,87 @@ export class Fabbrica {
     m.rotation.y = p.verso;
   }
 
+  // ── gli aloni delle lampade ───────────────────────────────────────────────
+  /**
+   * DUE GUSCI CONCENTRICI ADDITIVI, ed è la ricetta di Leafy-Lantern presa
+   * numero per numero — raggi 0,42 e 0,85, opacità 0,16 e 0,06.
+   *
+   * ⚠ «VELATURE, NON PALLE», che è testuale dal codice di Lantern e segnato lì
+   * come «richiesta esplicita dell'utente». Il guscio grande deve essere quasi
+   * invisibile: è quello che dà il CORPO all'alone senza che si legga come una
+   * sfera di vetro appesa al palo. Alzare quelle opacità è il modo di
+   * riottenere la palla che era stata bocciata.
+   *
+   * ⚠ IMMUNI ALLA NEBBIA (`applyFog = false`): una luce vista da lontano deve
+   * restare un punto luminoso, non sbiadire nel grigio. In Lantern è `fog:
+   * false` sul materiale, per la stessa ragione.
+   *
+   * ⚠ E NON SCRIVONO LA PROFONDITÀ: sono trasparenti additivi, e scrivendola si
+   * cancellerebbero a vicenda a seconda dell'ordine di disegno — due sfere
+   * concentriche sono il caso peggiore possibile per quel difetto.
+   *
+   * ⚠ A ISTANZE SOTTILI: una città di lampioni sono due mesh in tutto invece di
+   * due per lampione. Spegnerne uno vuol dire mandare la sua matrice a scala
+   * zero, che è il modo giusto qui — una mesh in meno non si può «nascondere»
+   * dentro un buffer di istanze.
+   */
+  aloni(quanti) {
+    const gusci = [
+      { r: 0.42, colore: new Color3(1.0, 0.874, 0.62), alfa: 0.16 },
+      { r: 0.85, colore: new Color3(1.0, 0.816, 0.44), alfa: 0.06 },
+    ];
+    const mesh = gusci.map((g, i) => {
+      const m = MeshBuilder.CreateSphere('alone' + i, { diameter: g.r * 2, segments: 12 }, this.scena);
+      const mat = new StandardMaterial('alone' + i, this.scena);
+      mat.disableLighting = true;
+      mat.emissiveColor = g.colore;
+      mat.diffuseColor = Color3.Black();
+      mat.specularColor = Color3.Black();
+      mat.alpha = g.alfa;
+      mat.alphaMode = 1;                 // ALPHA_ADD: si somma, non copre
+      mat.backFaceCulling = false;
+      mat.disableDepthWrite = true;
+      mat.applyFog = false;
+      m.material = mat;
+      m.isPickable = false;
+      m.receiveShadows = false;
+      m.alphaIndex = 3;                  // dopo il mondo e dopo l'acqua
+      m.doNotSyncBoundingInfo = true;
+      // ⚠ LA MATRICE È OBBLIGATORIA anche qui: `thinInstanceCount` si tara su
+      // `matrixData.length / 16`. Si alloca una volta e si muta.
+      m.thinInstanceSetBuffer('matrix', new Float32Array(quanti * 16), 16, false);
+      return m;
+    });
+    return { mesh, quanti };
+  }
+
+  /**
+   * Mette gli aloni dove stanno le lampade accese.
+   * ⚠ SPENTO = SCALA ZERO, non «saltato»: le istanze sottili non hanno buchi,
+   * quindi un alone spento è un alone grande zero. Costa lo stesso disegnarlo
+   * (è un vertice degenere) e costa molto meno che riscrivere il buffer.
+   */
+  muoviAloni(a, punti) {
+    const n = Math.min(punti.length, a.quanti);
+    for (const m of a.mesh) {
+      const buf = m._thinInstanceDataStorage.matrixData;
+      for (let i = 0; i < a.quanti; i++) {
+        const o = i * 16;
+        const p = i < n ? punti[i] : null;
+        const s = p && p.acceso ? 1 : 0;
+        buf[o] = s; buf[o + 1] = 0; buf[o + 2] = 0; buf[o + 3] = 0;
+        buf[o + 4] = 0; buf[o + 5] = s; buf[o + 6] = 0; buf[o + 7] = 0;
+        buf[o + 8] = 0; buf[o + 9] = 0; buf[o + 10] = s; buf[o + 11] = 0;
+        buf[o + 12] = p ? p.x : 0; buf[o + 13] = p ? p.y : 0; buf[o + 14] = p ? p.z : 0; buf[o + 15] = 1;
+      }
+      m.thinInstanceCount = a.quanti;
+      // ⚠ QUI L'AGGIORNAMENTO INTERO VA BENE, ed è l'eccezione: il tetto è il
+      // numero di lampioni, una dozzina, non mezzo milione come per l'erba.
+      // La variante parziale costerebbe più codice che byte risparmiati.
+      m.thinInstanceBufferUpdated('matrix');
+    }
+  }
+
   // ── il mirino ─────────────────────────────────────────────────────────────
   /**
    * IL CUBO DI SELEZIONE: dove sto per rompere o posare.
@@ -321,6 +402,69 @@ export class Fabbrica {
     m.receiveShadows = false;
     m.setEnabled(false);
     return m;
+  }
+
+  /**
+   * L'ANTEPREMA DI POSA — il blocco che comparirà, mostrato prima di cliccare.
+   *
+   * ⚠ MANCAVA, e senza si costruisce a indovinare: il mirino dice QUALE cella,
+   * ma non che faccia avrà il blocco lì dentro. E in Leafy la faccia cambia
+   * davvero — un blocco d'erba ha il cappello, l'acqua ha un livello, le forme
+   * speciali hanno la loro sagoma. Committente: «manca anche la preview di
+   * posizionamento».
+   *
+   * ⚠ LA GEOMETRIA LA DÀ IL MESHER (`geometriaSingola`), che è l'unico che sa
+   * come si costruisce un blocco. Il commento lì diceva già «per il ghost di
+   * anteprima» — era scritta per questo e non l'aveva mai chiamata nessuno.
+   *
+   * ⚠ E NON È NELLE OMBRE NÉ NELLA LUCE: un blocco che non esiste ancora non
+   * deve proiettare niente, e deve restare leggibile a qualunque ora.
+   */
+  anteprima() {
+    const m = new Mesh('anteprima', this.scena);
+    const mat = new StandardMaterial('anteprima', this.scena);
+    mat.disableLighting = true;
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = new Color3(1, 1, 1);
+    mat.alpha = 0.45;
+    mat.disableDepthWrite = true;
+    mat.backFaceCulling = false;
+    mat.applyFog = false;
+    m.material = mat;
+    // ⚠ I COLORI DEI VERTICI SI ACCENDONO SULLA MESH, NON SUL MATERIALE, ed è
+    // il genere di dettaglio che fa uscire un'anteprima bianca senza un errore.
+    // In Babylon `useVertexColors` sta su AbstractMesh (vale già true di
+    // fabbrica, ma scriverlo dice che ci contiamo): è la mesh a dichiarare di
+    // avere quel buffer, e da lì il materiale riceve il `#define VERTEXCOLOR`.
+    // Senza colori dei vertici l'anteprima sarebbe un cubo bianco generico,
+    // mentre serve che un blocco d'erba si veda verde col suo cappello chiaro.
+    m.useVertexColors = true;
+    m.isPickable = false;
+    m.receiveShadows = false;
+    m.alphaIndex = 4;
+    m.setEnabled(false);
+    return m;
+  }
+
+  /** Carica nell'anteprima la forma di questo tipo di blocco, e la mette lì. */
+  muoviAnteprima(m, dati, cella) {
+    if (!cella || !dati) { if (m.isEnabled()) m.setEnabled(false); return; }
+    if (m._tipo !== dati.tipo) {
+      m._tipo = dati.tipo;
+      const vd = new VertexData();
+      vd.positions = dati.pos;
+      vd.colors = dati.col;
+      const n = dati.pos.length / 3;
+      const idx = new Uint32Array(n);
+      // ⚠ STESSO GIRO DEI TRIANGOLI DEL MONDO: il mesher scrive antiorario, e
+      // qui vale la stessa regola — se no l'anteprima si vede solo da dentro.
+      for (let i = 0; i < n; i += 3) { idx[i] = i; idx[i + 1] = i + 2; idx[i + 2] = i + 1; }
+      vd.indices = idx;
+      vd.applyToMesh(m, true);
+    }
+    if (!m.isEnabled()) m.setEnabled(true);
+    m.position.set(cella[0], cella[1], cella[2]);
   }
 
   /** Sposta il mirino su una cella, o lo spegne se non c'è bersaglio. */
