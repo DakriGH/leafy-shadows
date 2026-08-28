@@ -1,0 +1,203 @@
+// IL MOTORE — l'UNICO file che sa che sotto c'è Babylon.
+//
+// PERCHÉ QUESTO CONFINE ESISTE, e perché è la prima riga scritta del progetto.
+// In Leafy-Lantern lo strato di resa era three.js sparso ovunque: `src/world/`
+// importava `../fx/materials.js`, il mesher costruiva `THREE.Mesh`, e cambiare
+// motore voleva dire toccare quaranta file. Misurato prima di partire: il mondo
+// (griglia, chunk, acqua, worldgen, stagioni — 4.310 righe) usava del motore
+// OTTO NOMI IN TUTTO. Otto. Il resto era già agnostico e non lo sapeva nessuno.
+//
+// Quindi qui la regola è secca: **fuori da `src/motore/` non si nomina Babylon.**
+// Il mondo produce array grezzi e li passa a una fabbrica; l'input parla di
+// intenzioni, non di eventi del motore. Se fra due anni Babylon non va più bene,
+// il conto da pagare è questa cartella e basta.
+//
+// ⚠ E GLI IMPORT SONO PROFONDI, non dal barile. `@babylonjs/core/index.js`
+// tira dentro 2.224 moduli: senza bundler sono 2.224 richieste al server di
+// sviluppo. Importando il singolo file si paga solo quello che si usa — ed è
+// anche il modo in cui si scopre subito cosa serve davvero.
+
+import { Engine } from '@babylonjs/core/Engines/engine.js';
+import { Scene } from '@babylonjs/core/scene.js';
+import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera.js';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
+import { CascadedShadowGenerator } from '@babylonjs/core/Lights/Shadows/cascadedShadowGenerator.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
+
+// ⚠ GLI SHADER VANNO IMPORTATI A MANO quando si importa in profondità. Babylon
+// registra i sorgenti dei suoi materiali come EFFETTI COLLATERALI di moduli
+// separati: con il barile arrivano da soli, con gli import profondi no, e il
+// materiale fallisce a runtime con «effect is not ready» invece che a build.
+// Le ombre a cascata ne vogliono di loro (il depth pass e il filtro PCF).
+import '@babylonjs/core/Shaders/shadowMap.vertex.js';
+import '@babylonjs/core/Shaders/shadowMap.fragment.js';
+import '@babylonjs/core/Shaders/depth.vertex.js';
+import '@babylonjs/core/Shaders/depth.fragment.js';
+import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js';
+
+/** Il cielo di Leafy, che è anche il colore del vuoto oltre l'orizzonte. */
+export const CIELO = { r: 0.62, g: 0.81, b: 0.91 };
+
+/**
+ * IL RIG: motore, scena, camera, sole e ombre in un oggetto solo.
+ *
+ * È l'equivalente del `rig` di Lantern e volutamente ha la stessa forma, così
+ * la regia (`main.js`) si legge uguale e il confronto fra i due progetti resta
+ * possibile riga per riga.
+ */
+export class Rig {
+  constructor(tela) {
+    this.tela = tela;
+
+    // ⚠ `antialias: true` QUI E NON PIÙ AVANTI. In Lantern l'MSAA era una
+    // manopola che si poteva spegnere per sbaglio, e spegnendola «era tutto
+    // seghettato» — un giorno intero per capirlo. Su Babylon l'antialiasing del
+    // canvas si decide alla creazione del contesto: o c'è o si ricrea il motore.
+    // Che è esattamente il posto giusto per una cosa che non si deve poter
+    // perdere in silenzio.
+    this.motore = new Engine(tela, true, {
+      preserveDrawingBuffer: true,   // serve agli scatti di confronto
+      stencil: false,
+      antialias: true,
+      powerPreference: 'high-performance',
+      // ⚠ IL MONDO GRANDE SI DECIDE QUI, ALLA CREAZIONE, O NON SI DECIDE PIÙ.
+      // `useLargeWorldRendering` fa due cose (verificate nella d.ts di 9.23):
+      // porta le matrici a 64 bit e accende l'ORIGINE MOBILE su tutte le scene —
+      // cioè sposta le posizioni prima di darle agli shader, tenendo la camera
+      // sull'origine e traslando il mondo. È la cura al tremolio dei vertici
+      // quando ci si allontana dal centro della mappa.
+      //
+      // Si accende ADESSO e non «quando servirà», perché l'origine mobile
+      // cambia il significato delle coordinate dentro gli shader: accenderla a
+      // materiali scritti vorrebbe dire ri-verificarli tutti. In Leafy-Lantern
+      // ogni materiale ragionava in coordinate MONDO (vPosMondo) — con l'origine
+      // mobile quella grandezza non è più la stessa, e va saputo da subito.
+      // ⚠ E COSTA: le matrici a 64 bit sono lavoro di CPU in più a ogni nodo.
+      // Va misurato, non dato per buono.
+      useLargeWorldRendering: true,
+    }, true);
+
+    this.scena = new Scene(this.motore);
+    this.scena.clearColor = new Color4(CIELO.r, CIELO.g, CIELO.b, 1);
+
+    // ⚠ MANO DESTRA, E VA DECISO ALLA PRIMA RIGA. Babylon è SINISTRORSO di
+    // fabbrica; three.js è destrorso. Tutto il mondo di Leafy — worldgen,
+    // mesher, l'avvolgimento dei triangoli, il verso delle facce — è scritto
+    // destrorso, e lo resterà: è quello il codice che sopravvive alla
+    // migrazione, non il motore.
+    //
+    // Senza questa riga il primo mondo a schermo era GRIGIO e vuoto, e ci ho
+    // messo tre schermate a capire perché: con l'avvolgimento invertito TUTTE
+    // le facce diventano di dietro, il culling le butta, e quello che si vede
+    // sono gli INTERNI del terreno. Le normali poi le calcola l'avvolgimento,
+    // quindi uscivano puntate al contrario e la luce non prendeva niente —
+    // due sintomi diversi, una causa sola. Misurato leggendo il buffer: una
+    // faccia rivolta in SU al fondo del mondo, che è impossibile.
+    this.scena.useRightHandedSystem = true;
+    // ⚠ NIENTE NEBBIA ANCORA: in Lantern la nebbia nascondeva il bordo del
+    // mondo caricato, e va rimessa DOPO aver deciso la distanza di resa. Messa
+    // prima diventa una scusa per non guardare quanto lontano si arriva.
+
+    // LA CAMERA A DIORAMA. Orbitale attorno a un bersaglio, come in Lantern:
+    // ArcRotateCamera è esattamente quel modello, ma già scritto e con i
+    // vincoli (limiti di beta, inerzia, pizzico su telefono) di serie.
+    this.camera = new ArcRotateCamera('camera', -Math.PI / 4, Math.PI / 3.2, 26,
+      new Vector3(0, 6, 0), this.scena);
+    this.camera.lowerBetaLimit = 0.15;
+    this.camera.upperBetaLimit = Math.PI / 2.05;   // mai sotto l'orizzonte
+    this.camera.lowerRadiusLimit = 4;
+    this.camera.upperRadiusLimit = 120;
+    this.camera.wheelDeltaPercentage = 0.02;
+    this.camera.pinchDeltaPercentage = 0.02;
+    this.camera.minZ = 0.5;
+    this.camera.maxZ = 900;
+    this.camera.attachControl(tela, true);
+
+    // ---- LA LUCE ------------------------------------------------------------
+    // ⚠ QUI SI PAGA (O SI INCASSA) LA SCELTA DI CAMPO. Leafy-Lantern era unlit
+    // fatto a mano: nessuna luce del motore, tutto dai nostri shader. Ha dato al
+    // gioco il suo aspetto e ci ha obbligati a riscrivere ombre, culling e
+    // istanziamento — cioè le tre cose che facevano i picchi. Qui accettiamo il
+    // modello del motore: una direzionale col suo N·L e le ombre a cascata di
+    // serie. Il look non sarà identico; il conto per fotogramma sì.
+    this.sole = new DirectionalLight('sole', new Vector3(-0.55, -0.72, -0.42), this.scena);
+    this.sole.position = new Vector3(60, 90, 60);
+    this.sole.intensity = 1.35;
+    this.sole.diffuse = new Color3(1.0, 0.97, 0.90);
+
+    // e una emisferica per l'ambiente: è il «cielo che rischiara» di Lantern,
+    // cioè il motivo per cui le facce in ombra non sono nere ma azzurrine
+    this.ambiente = new HemisphericLight('ambiente', new Vector3(0, 1, 0), this.scena);
+    this.ambiente.intensity = 0.55;
+    this.ambiente.diffuse = new Color3(1, 1, 1);
+    this.ambiente.groundColor = new Color3(0.42, 0.48, 0.40);
+
+    // ---- LE OMBRE, che in Lantern erano 1.090 righe nostre -------------------
+    // Tre sistemi scritti a mano (controluce, campoSole, marcia), una mappa
+    // 2048² ricostruita 11 volte al secondo, 95.176 ricostruzioni in una
+    // sessione e un picco da 3,8 ms. Qui sono quattro righe.
+    this.ombre = new CascadedShadowGenerator(2048, this.sole);
+    this.ombre.numCascades = 4;
+    this.ombre.lambda = 0.85;               // come si spartiscono le cascate
+    this.ombre.stabilizeCascades = true;    // il bordo non «striscia» camminando
+    this.ombre.filteringQuality = CascadedShadowGenerator.QUALITY_HIGH;
+    this.ombre.usePercentageCloserFiltering = true;
+    this.ombre.shadowMaxZ = 140;            // oltre, l'ombra non si vede più
+    this.ombre.depthClamp = true;
+    this.ombre.autoCalcDepthBounds = true;
+
+    // ⚠ IL BIAS È LA MANOPOLA CHE CI HA FATTO PENARE PER GIORNI in Lantern
+    // (acne sulle diagonali, ombre staccate da terra). Qui parte dai valori
+    // consigliati e si tara GUARDANDO, con il sole basso: è l'angolo che
+    // smaschera l'acne, ed è quello da cui non guardavo.
+    this.ombre.bias = 0.008;
+    this.ombre.normalBias = 0.02;
+
+    addEventListener('resize', () => this.motore.resize());
+    this._collegaIspettore();
+  }
+
+  /**
+   * L'ISPETTORE, MA A RICHIESTA.
+   *
+   * Il committente lo vuole per lavorarci sopra insieme a me: la gerarchia
+   * della scena, i materiali, i parametri delle ombre e le statistiche, tutto
+   * modificabile dal vivo mentre io scrivo codice. È la cosa che in Lantern è
+   * mancata di più — lì ogni manopola andava esposta a mano nel «Banco V2».
+   *
+   * ⚠ SI CARICA SOLO QUANDO SI PREME, e non è pigrizia: il pacchetto è 6,8 MB
+   * ed è una dipendenza di SVILUPPO. Con l'import statico finirebbe nel gioco
+   * pubblicato; con `import()` dentro il gestore del tasto non lo tocca nessuno
+   * finché non lo si chiede.
+   */
+  _collegaIspettore() {
+    addEventListener('keydown', async (e) => {
+      if (e.key !== 'i' && e.key !== 'I') return;
+      if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+      try {
+        const ins = await import('@babylonjs/inspector');
+        if (this._ispettoreAperto) { ins.HideInspector ? ins.HideInspector() : null; this._ispettoreAperto = false; }
+        else { ins.ShowInspector(this.scena); this._ispettoreAperto = true; }
+      } catch (err) {
+        console.error('ispettore:', err);
+      }
+    });
+  }
+
+  /** Un oggetto che proietta ombra. ⚠ È UN ELENCO, non «tutto meno qualcosa»:
+   *  in Lantern la polarità sbagliata metteva in mappa farfalle, nuvole e
+   *  pioggia, e se n'è accorto il committente guardando, non un errore. */
+  proietta(mesh) { this.ombre.addShadowCaster(mesh, true); return mesh; }
+
+  /** Il conto onesto del fotogramma: non gli fps, i millisecondi di lavoro. */
+  get ms() { return this.motore.getDeltaTime(); }
+
+  avvia(perFrame) {
+    this.motore.runRenderLoop(() => {
+      if (perFrame) perFrame(this.motore.getDeltaTime() / 1000);
+      this.scena.render();
+    });
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "leafy-shadows",
+  "version": "0.1.0",
+  "description": "Leafy-Shadows — il motore di Leafy rifatto su Babylon.js 8 + Havok, applicazione web zero-build",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "author": "Dakri",
+  "license": "ISC",
+  "dependencies": {
+    "@babylonjs/core": "^9.23.0",
+    "@babylonjs/havok": "^1.3.14"
+  },
+  "devDependencies": {
+    "@babylonjs/inspector": "^9.23.0"
+  }
+}
