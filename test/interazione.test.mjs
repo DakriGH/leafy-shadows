@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { miraCompleta, incrociaScatola, PORTATA } from '../src/gioco/mira.js';
 import { Decoro } from '../src/gioco/decoro.js';
-import { registraDecorazioni } from '../src/world/decorazioni.js';
+import { registraDecorazioni, DECORAZIONI } from '../src/world/decorazioni.js';
 import { azione, Cantiere, CASSETTA } from '../src/gioco/cantiere.js';
 import { Luci } from '../src/motore/luci.js';
 import { Mondo } from '../src/world/world.js';
@@ -145,4 +145,54 @@ test('un albero non si accende, un lampione sì', () => {
 test('le decorazioni sono blocchi, quindi stanno nella cassetta', () => {
   assert.ok(CASSETTA.includes('albero'));
   assert.ok(CASSETTA.includes('lampione'));
+});
+
+test('mirando a una decorazione si posa DAVANTI a lei, non dietro', () => {
+  // ⚠ IL DIFETTO CHE IL COMMITTENTE HA VISTO IN DUE MODI, ed erano lo stesso:
+  // «non riesco a piazzare i ciuffi» (dall'alto la cella usciva dentro il
+  // ciuffo stesso, occupata) e «mi piazza un blocco in diagonale» (di sbieco il
+  // raggio attraversava il ciuffo e colpiva il terreno più in là).
+  const m = piano(6);
+  m.metti(3, 7, 0, 'ciuffo', true);
+  const d = new Decoro(); d.scansiona(m);
+
+  // dall'alto, in verticale: si deve posare SOPRA il ciuffo
+  const alto = miraCompleta(m, { x: 3.5, y: 12, z: 0.5 }, vers(0, -1, 0), d.scatole(), 20);
+  assert.ok(alto.dato, 'deve colpire il ciuffo');
+  assert.equal(m.pieno(...alto.prima), false, 'la cella di posa dev\'essere VUOTA');
+  assert.deepEqual(alto.prima, [3, 8, 0], 'e sta sopra il ciuffo, non dentro');
+
+  // di sbieco: la cella di posa deve toccare il ciuffo, non stargli lontano
+  const sbieco = miraCompleta(m, { x: 0.5, y: 8.5, z: 0.5 }, vers(1, -0.2, 0), d.scatole(), 20);
+  assert.ok(sbieco.dato, 'deve colpire il ciuffo anche di sbieco');
+  const c = sbieco.dato.cella, pr = sbieco.prima;
+  const dist = Math.abs(pr[0] - c[0]) + Math.abs(pr[1] - c[1]) + Math.abs(pr[2] - c[2]);
+  assert.ok(dist <= 1, `la cella di posa deve confinare col ciuffo, non stare a ${dist} celle`);
+  assert.equal(m.pieno(...pr), false, 'e dev\'essere vuota');
+});
+
+test('una decorazione si rompe con la mano vuota', () => {
+  const m = piano(6);
+  m.metti(3, 7, 0, 'ciuffo', true);
+  const d = new Decoro();
+  m.onEvento = (e) => d.evento(e);
+  d.scansiona(m);
+  assert.equal(d.quanti, 1);
+  const c = new Cantiere(m, new Luci());
+  c.scegli(0);                                   // mano vuota
+  assert.equal(azione(c.tipoScelto, d.interattivo(d.per.get('3,7,0'))), 'rompi');
+  c.rompi(3, 7, 0);
+  assert.equal(d.quanti, 0, 'il ciuffo deve sparire dal registro');
+  assert.equal(m.tipo(3, 7, 0), null, 'e dal mondo');
+});
+
+test('le decorazioni piccole non proiettano ombra', () => {
+  // ⚠ Committente: «i ciuffi d'erba e i LOD in generale non devono fare ombre».
+  // Ed è giusto due volte: un ciuffo alto nove decimi proietta un trattino che
+  // nessuno guarda, e ogni proiettante è geometria disegnata in OGNI cascata
+  // della mappa — due su mobile, quattro su desktop.
+  assert.equal(DECORAZIONI.ciuffo.proietta, false);
+  // e le cose grandi sì: un albero senza ombra si stacca dal terreno
+  assert.notEqual(DECORAZIONI.albero.proietta, false);
+  assert.notEqual(DECORAZIONI.lampione.proietta, false);
 });

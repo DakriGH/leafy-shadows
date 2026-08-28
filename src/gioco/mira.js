@@ -108,9 +108,12 @@ export function mira(mondo, origine, verso, portata = PORTATA) {
  *
  * @returns la distanza d'ingresso, o -1 se non la incrocia
  */
-export function incrociaScatola(origine, verso, min, max, portata) {
+export function incrociaScatola(origine, verso, min, max, portata, faccia = null) {
   let dentro = 0, fuori = portata;
-  for (const asse of ['x', 'y', 'z']) {
+  let asseEntrata = -1, segnoEntrata = 0;
+  const ASSI = ['x', 'y', 'z'];
+  for (let i = 0; i < 3; i++) {
+    const asse = ASSI[i];
     const d = verso[asse];
     if (Math.abs(d) < 1e-9) {
       // ⚠ RAGGIO PARALLELO ALLA LASTRA: o è già dentro per sempre, o è fuori
@@ -121,10 +124,24 @@ export function incrociaScatola(origine, verso, min, max, portata) {
     }
     let a = (min[asse] - origine[asse]) / d;
     let b = (max[asse] - origine[asse]) / d;
-    if (a > b) { const t = a; a = b; b = t; }
-    if (a > dentro) dentro = a;
+    // ⚠ LA NORMALE DELLA FACCIA «min» PUNTA SEMPRE VERSO −ASSE, e si gira solo
+    // se le due distanze si scambiano (cioè se il raggio viaggia all'indietro
+    // su quest'asse e quindi entra dalla faccia «max»). Ricavarla dal SEGNO
+    // della direzione, come avevo fatto, dà la faccia opposta: per un raggio
+    // che viene dall'alto usciva la faccia di SOTTO, e il blocco si sarebbe
+    // posato dentro il terreno.
+    let seg = -1;
+    if (a > b) { const t = a; a = b; b = t; seg = 1; }
+    // ⚠ L'ASSE D'INGRESSO È QUELLO CON LA «a» PIÙ GRANDE: si entra davvero nella
+    // scatola solo quando si è entrati in TUTTE E TRE le lastre, quindi comanda
+    // l'ultima. È la stessa cosa che il cammino a voxel ricava dal passo.
+    if (a > dentro) { dentro = a; asseEntrata = i; segnoEntrata = seg; }
     if (b < fuori) fuori = b;
     if (dentro > fuori) return -1;
+  }
+  if (faccia && asseEntrata >= 0) {
+    faccia[0] = faccia[1] = faccia[2] = 0;
+    faccia[asseEntrata] = segnoEntrata;
   }
   return dentro;
 }
@@ -155,12 +172,34 @@ export function miraCompleta(mondo, origine, verso, scatole, portata = PORTATA) 
     const d = incrociaScatola(origine, verso, s.min, s.max, portata);
     if (d >= 0 && d < dMiglior) { dMiglior = d; miglior = s; }
   }
-  // ⚠ E QUANDO VINCE UNA SCATOLA SI TIENE ANCHE IL BLOCCO DIETRO, che serve a
-  // chi vuole POSARE: mirando a un albero con della terra in mano il blocco
-  // deve andare da qualche parte, e il posto giusto è dove il raggio tocca il
-  // terreno oltre l'albero. Tornando solo la scatola, quella cella non c'era e
-  // il clic non faceva niente — un bersaglio che si illumina e non risponde.
-  if (miglior) return { ...blocco, scatola: miglior, dato: miglior.dato, distanza: dMiglior };
+  // ⚠ E QUANDO VINCE UNA SCATOLA, LA CELLA DOVE POSARE SI RICAVA DAL RAGGIO,
+  // non dal blocco che sta dietro — e questa è la correzione a un difetto che
+  // il committente ha visto in due modi diversi che erano lo stesso:
+  //   · «non riesco a piazzare i ciuffi d'erba»: mirando dall'alto, il blocco
+  //     dietro il ciuffo è il terreno SOTTO, quindi la sua cella «prima» era il
+  //     ciuffo stesso — occupata, quindi non si posava niente;
+  //   · «mi piazza un blocco in diagonale»: mirando di sbieco, il raggio
+  //     attraversa il ciuffo e colpisce il terreno più in là, che da lì si vede
+  //     in diagonale.
+  // La cella giusta è quella in cui sta il raggio un attimo PRIMA di entrare
+  // nella scatola: è dove starebbe la mano di chi tocca l'oggetto.
+  if (miglior) {
+    // ⚠ LA FACCIA SI PRENDE DALLA CELLA, NON DALLA SCATOLA VISIVA, e la
+    // distinzione è costata una prova rossa. Un ciuffo d'erba è alto nove
+    // decimi: la sua scatola sta TUTTA DENTRO la sua cella, quindi «un attimo
+    // prima di entrare nella scatola» è ancora la cella del ciuffo — occupata,
+    // e quindi non si posava niente. La cella confinante la dà solo la faccia
+    // della CELLA, che è lo stesso conto che si fa per un blocco.
+    const c = miglior.dato && miglior.dato.cella;
+    let prima = blocco && blocco.prima;
+    if (c) {
+      const f = [0, 0, 0];
+      const d = incrociaScatola(origine, verso,
+        { x: c[0], y: c[1], z: c[2] }, { x: c[0] + 1, y: c[1] + 1, z: c[2] + 1 }, portata, f);
+      if (d >= 0) prima = [c[0] + f[0], c[1] + f[1], c[2] + f[2]];
+    }
+    return { ...blocco, scatola: miglior, dato: miglior.dato, distanza: dMiglior, prima };
+  }
   return blocco;
 }
 

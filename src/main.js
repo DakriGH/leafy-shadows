@@ -128,7 +128,7 @@ const aloni = fabbrica.aloni(96);
 /** Quali modelli sono già arrivati: si ridisegna solo quello che c'è. */
 const modelliPronti = new Set();
 for (const nome of Object.keys(DECORAZIONI)) {
-  modelli.carica(nome)
+  modelli.carica(nome, { proietta: DECORAZIONI[nome].proietta !== false })
     .then(() => { modelliPronti.add(nome); _versioneDisegnata = -1; })
     .catch((e) => { console.error(nome + ':', e); });
 }
@@ -497,8 +497,16 @@ function aggiornaStato() {
   // dispositivo, gradino, pixel veri — e non «chunk e blocchi», che è la prima
   // cosa che avevo messo perché era la prima che avevo scritto.
   stato.textContent =
+    // ⚠ E QUI C'È IL RAPPORTO FRA PIXEL RESI E PIXEL A SCHERMO, che è il numero
+    // che distingue «l'immagine è sporca» da «l'immagine è INGRANDITA». Se la
+    // tela CSS è più grande di quella resa, tutto viene stirato e ogni bordo
+    // diventa una scaletta — e a occhio si legge come acne, glitch, strisce,
+    // qualunque cosa. Senza questo numero le due ipotesi si somigliano, e ci ho
+    // già perso un giro cercando un'acne che non c'era.
     `${rig.dispositivo.mobile ? 'MOBILE' : 'desktop'}  q${scala.livello}/${scala.quanti - 1}` +
     `${scala.adatta.manuale ? '·mano' : ''}  ${rig.motore.getRenderWidth()}×${rig.motore.getRenderHeight()}` +
+    ` su ${tela.clientWidth}×${tela.clientHeight}` +
+    ` (×${(rig.motore.getRenderWidth() / Math.max(1, tela.clientWidth)).toFixed(2)})` +
     `  dpr ${devicePixelRatio}  ${p(0.5)}/${p(0.99)} ms\n` +
     `ombre ${rig.profilo.sole ? rig.ombre.numCascades + '×' + rig.profilo.mappa : 'no'}` +
     `  lampade ${rig.fissi.ombreLampade ? 'con ombra' : 'senza'}` +
@@ -559,8 +567,17 @@ rig.avvia((dt) => {
     },
     giorno: giorno.giorno, data: etichettaData(), stagione: stagioneCorrente(),
   });
+  // ⚠ L'ETICHETTA DEVE DIRE ANCHE **COSA**, non solo cosa si fa. Diceva «rompi ·
+  // mano vuota», che nomina la MANO: guardando un ciuffo in mezzo all'erba non
+  // si sapeva se si stesse per rompere lui o il blocco sotto. Adesso quando il
+  // bersaglio è una decorazione si chiama per nome.
+  const nomeBersaglio = bersaglio && bersaglio.dato
+    ? defDi(bersaglio.dato.tipo).nome
+    : (cosaFa === 'rompi' && bersaglio && bersaglio.cella && mondo.tipo(...bersaglio.cella)
+        ? defDi(mondo.tipo(...bersaglio.cella)).nome
+        : cantiere.nomeScelto);
   barra.aggiorna(cantiere.scelto, cosaFa
-    ? `<b>${NOME_AZIONE[cosaFa]}</b> · ${cosaFa === 'interagisci' ? 'lampione' : cantiere.nomeScelto}`
+    ? `<b>${NOME_AZIONE[cosaFa]}</b> · ${nomeBersaglio}`
     : `— · ${cantiere.nomeScelto}`);
   aggiornaStato();
 });

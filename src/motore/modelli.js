@@ -44,7 +44,7 @@ export class Modelli {
    * PRIMA e istanziare DOPO tiene il conto delle chiamate di disegno a uno per
    * TIPO di modello, non per pezzo.
    */
-  async carica(nome, { scala = 1, schiarisci = 1.6 } = {}) {
+  async carica(nome, { scala = 1, schiarisci = 1.6, proietta = true } = {}) {
     if (this._caricati.has(nome)) return this._caricati.get(nome);
     const cont = await LoadAssetContainerAsync(`${CARTELLA}${nome}.glb`, this.scena);
     const pezzi = cont.meshes.filter((m) => m.getTotalVertices() > 0);
@@ -123,7 +123,13 @@ export class Modelli {
     // prezzo è che un albero dentro l'ombra di un altro non si scurisce: si vede
     // pochissimo, e costa molto meno di un bosco a chiazze scure.
     fuso.receiveShadows = false;
-    this.rig.proietta(fuso);
+    // ⚠ NON TUTTO DEVE PROIETTARE, e chi decide è la tabella delle decorazioni.
+    // Committente: «i ciuffi d'erba e i LOD in generale non devono fare ombre,
+    // per alleggerire». Ed è giusto due volte: un ciuffo alto nove decimi
+    // proietta un'ombra che nessuno guarda, e ogni proiettante è geometria in
+    // PIÙ disegnata in ogni cascata della mappa — su mobile due volte, su
+    // desktop quattro. È la stessa ragione per cui il prato non proietta.
+    if (proietta) this.rig.proietta(fuso);
     fuso.setEnabled(false);              // finché non ha istanze non si disegna
 
     const voce = { mesh: fuso, matrici: null, n: 0 };

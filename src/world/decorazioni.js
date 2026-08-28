@@ -26,6 +26,9 @@ import { registraBlocco, CATEGORIA_OFFICINA } from './blocks.js';
  *    troppo sottile per prenderlo col dito (vedi sotto)
  *  · `quota`           di quanto alzare il modello rispetto alla cella
  *  · `luce`            se ce l'ha, e allora si accende e si spegne
+ *  · `proietta`        se entra nella mappa d'ombra — ⚠ di fabbrica SÌ, ma le
+ *    cose piccole devono dire di no: un'ombra che nessuno guarda è geometria
+ *    disegnata in ogni cascata per niente
  *  · `notte`           se segue il ciclo del giorno da solo
  */
 export const DECORAZIONI = {
@@ -61,6 +64,10 @@ export const DECORAZIONI = {
     // non si prende mai.
     altezza: 0.9, mezza: 0.45,
     cima: 0x64bb4f, lato: 0x4c9e40, fondo: 0x43943c,
+    // ⚠ NIENTE OMBRA: è alto nove decimi di blocco, la sua ombra è un trattino
+    // che nessuno guarda, e in cambio sarebbe geometria disegnata in ogni
+    // cascata della mappa. È la stessa scelta del prato, che non proietta.
+    proietta: false,
   },
 };
 
