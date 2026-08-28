@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
-    "ispettore": "node scripts/impacchetta-ispettore.mjs"
+    "ispettore": "node scripts/impacchetta-ispettore.mjs",
+    "pubblica": "node scripts/pubblica.mjs"
   },
   "author": "Dakri",
   "license": "ISC",

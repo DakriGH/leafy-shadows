@@ -76,6 +76,43 @@ const SENZA_CIMA = -32768;
 // arrivano dalla cache. Meglio seminare piu' piano che rubare tempo al frame.
 const BUDGET_MS = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? 0.25 : 0.5;
 
+/**
+ * IL MANTO: un rumore liscio su coordinate di MONDO, a tre scale.
+ *
+ * ⚠ SERVE PERCHÉ IL PRATO SI LEGGEVA COME UN TILESET, e il committente l'ha
+ * detto esatto: «è molto ripetitiva, si nota troppo che è un tileset». Aveva
+ * ragione, e la causa era che TUTTO variava con periodo di UN BLOCCO: il tipo di
+ * ciuffo, il numero di lamelle, l'altezza. Un campo di duecento blocchi fatto di
+ * variazione a un blocco È una texture ripetuta, per definizione — l'occhio ci
+ * mette due secondi a trovarne il passo.
+ *
+ * Il colore poi non variava affatto: «paletteBlocco» dà UN verde per quota,
+ * quindi un'intera terrazza era tinta unita.
+ *
+ * Qui si aggiunge la scala che mancava. Tre ottave con periodi che non stanno in
+ * rapporto semplice (2,7 · 9,3 · 31 blocchi): nessuno dei tre si allinea con gli
+ * altri, quindi la somma non ha un passo riconoscibile. Modula ALTEZZA, NUMERO e
+ * COLORE — le tre cose che l'occhio usa per trovare la ripetizione.
+ *
+ * ⚠ E SI CALCOLA UNA VOLTA PER CELLA, non per lamella: le chiazze che servono
+ * sono larghe blocchi, non centimetri, e per lamella costerebbe dodici hash
+ * invece di uno. La variazione fine fra lamelle vicine c'era già.
+ */
+function rumore(x, z, s) {
+  const x0 = Math.floor(x), z0 = Math.floor(z);
+  const fx = x - x0, fz = z - z0;
+  const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+  const a = hash(x0, z0, s), b = hash(x0 + 1, z0, s);
+  const c = hash(x0, z0 + 1, s), d = hash(x0 + 1, z0 + 1, s);
+  const u = a + (b - a) * sx, v = c + (d - c) * sx;
+  return u + (v - u) * sz;
+}
+function manto(x, z) {
+  return rumore(x / 2.7, z / 2.7, 131) * 0.50
+       + rumore(x / 9.3, z / 9.3, 137) * 0.32
+       + rumore(x / 31.0, z / 31.0, 139) * 0.18;
+}
+
 /** Il tipo di ciuffo di una cella. Deterministico come tutto il resto.
  *  Esportato per le prove: senza, la continuità del manto si può solo guardare. */
 export function tipoDi(x, z) { return TIPI[(hash(x, z, 3) * TIPI.length) | 0]; }
@@ -334,7 +371,10 @@ export class Erba {
         if (hash(x, z, 57) > fitto + (1 - fitto) * copertura) continue;
       }
       const tipo = tipoDi(x, z);
-      scriviVicini(x, z);       // il 3×3 che serve al campo continuo, una volta per cella
+      scriviVicini(x, z);
+      // il manto: una volta per cella, decide di quanto questa zolla è più alta,
+      // più fitta e più chiara della media. È quello che rompe la ripetizione.
+      const mm = manto(x, z);       // il 3×3 che serve al campo continuo, una volta per cella
       // ⚠ E ANCHE IL NUMERO DI LAMELLE SI AMMORBIDISCE. I tipi vanno da 3 a 7
       // lamelle: a densità 8 sono 24 contro 56 nella cella accanto, cioè più del
       // doppio di roba a un blocco di distanza — l'altra metà della griglia che
@@ -342,7 +382,10 @@ export class Erba {
       // no il tipo non conta più niente) dimezza il salto senza appiattire il
       // prato.
       const nMedio = (tipo.n * 2 + VICINI[1].n + VICINI[3].n + VICINI[5].n + VICINI[7].n) / 6;
-      const quante = Math.max(1, Math.round(nMedio * this.densita));
+      // ⚠ ANCHE LA QUANTITÀ SEGUE IL MANTO, ma poco (±18%): tanto basta a far
+      // respirare il prato, e di più riaprirebbe le radure che la densità alta
+      // esiste apposta per chiudere.
+      const quante = Math.max(1, Math.round(nMedio * this.densita * (0.82 + 0.36 * mm)));
       // IL COLORE DEL BLOCCO SOTTO: paletteBlocco conosce la rampa per quota e
       // la stagione, quindi il ciuffo è intonato senza saperne niente
       const p = paletteBlocco(cima.tipo, cima.y);
@@ -388,15 +431,33 @@ sPos[j + 1] = y;
         // chunk resta valida senza toccarla.
         sPos[j + 3] = liv;
         sDati[d] = h3 * Math.PI;
-        sDati[d + 1] = fraCelle(px, pz, 'alto', x, z) * (0.8 + 0.45 * h1);
+        // l'altezza: il campo continuo fra le celle PER il manto a scala larga.
+        // Il primo toglie il gradino fra una cella e l'altra, il secondo dà le
+        // ondulazioni larghe che un prato vero ha e un tileset no.
+        sDati[d + 1] = fraCelle(px, pz, 'alto', x, z) * (0.8 + 0.45 * h1) * (0.66 + 0.68 * mm);
         sDati[d + 2] = fraCelle(px, pz, 'largo', x, z) * (0.85 + 0.3 * h2);
         sDati[d + 3] = (h1 + h3) * 6.283;
         // ogni lamella un filo più chiara o più scura: senza, un ciuffo è una
         // macchia piatta
+        // ⚠ IL COLORE VARIA A DUE SCALE, e prima non variava affatto a quella
+        // larga: «paletteBlocco» dà un verde per quota, quindi tutta la terrazza
+        // era tinta unita e la ripetizione saltava all'occhio.
+        //   · «v» è la variazione FINE, per lamella (±6%): senza, un ciuffo è
+        //     una macchia piatta;
+        //   · «k» è quella LARGA, dal manto: sposta la zolla verso il verde più
+        //     chiaro della rampa (colCima), che è un colore che la palette HA
+        //     GIÀ. Così le chiazze restano dentro lo stile invece di essere un
+        //     verde inventato — è lo stesso principio della punta della lamella.
         const v = 0.94 + 0.12 * h2;
+        const k = (mm - 0.5) * 0.55;
+        const mesc = (a, b) => (k >= 0 ? a + (b - a) * k : a * (1 + k * 0.55));
         const jc = n * 3;
-        sCol[jc] = col.r * v; sCol[jc + 1] = col.g * v; sCol[jc + 2] = col.b * v;
-        sColCima[jc] = colCima.r * v; sColCima[jc + 1] = colCima.g * v; sColCima[jc + 2] = colCima.b * v;
+        sCol[jc] = mesc(col.r, colCima.r) * v;
+        sCol[jc + 1] = mesc(col.g, colCima.g) * v;
+        sCol[jc + 2] = mesc(col.b, colCima.b) * v;
+        sColCima[jc] = mesc(colCima.r, colCima.r * 1.12) * v;
+        sColCima[jc + 1] = mesc(colCima.g, colCima.g * 1.12) * v;
+        sColCima[jc + 2] = mesc(colCima.b, colCima.b * 1.12) * v;
         n++;
       }
     }
