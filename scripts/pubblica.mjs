@@ -38,13 +38,19 @@ mkdirSync(www, { recursive: true });
 const versione = zitto('git rev-parse --short HEAD', radice) || 'senza-versione';
 const quando = new Date().toLocaleString('it', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
+// ⚠ DUE INGRESSI: il gioco e lo ZOO. Lo zoo si pubblica insieme perché il suo
+// mestiere è farsi guardare — su questa macchina, sul telefono, sul Chromebook,
+// e da chiunque debba dire «qui c'è l'acne». Un banco di prova che vive solo in
+// locale non lo apre nessuno.
 const esito = await build({
-  entryPoints: [join(radice, 'src/main.js')],
+  entryPoints: [join(radice, 'src/main.js'), join(radice, 'src/zoo.js')],
+
   bundle: true,
   format: 'esm',
   minify: true,
   sourcemap: false,
-  outfile: join(www, 'leafy.js'),
+  outdir: join(www),
+  entryNames: '[name]',
   // ⚠ L'ISPETTORE RESTA FUORI. È 12,8 MB di attrezzo da sviluppo e lo si carica
   // con un `import()` dinamico dentro un try/catch: in rete quella risoluzione
   // fallisce, il catch la raccoglie, e il gioco non se ne accorge. Metterlo
@@ -56,17 +62,30 @@ const esito = await build({
   logLevel: 'info',
 });
 
-const peso = Object.values(esito.metafile.outputs)[0].bytes;
-console.log(`     leafy.js = ${(peso / 1048576).toFixed(2)} MB`);
+for (const [f, o] of Object.entries(esito.metafile.outputs)) {
+  console.log(`     ${f.split('/').pop()} = ${(o.bytes / 1048576).toFixed(2)} MB`);
+}
 
 // ── 2. la pagina ────────────────────────────────────────────────────────────
 // stessa di sviluppo, meno la import map (non serve più: è tutto dentro) e con
 // la versione a schermo, che è l'unico modo di sapere COSA si sta guardando
 const pagina = readFileSync(join(radice, 'index.html'), 'utf8')
   .replace(/<script type="importmap">[\s\S]*?<\/script>\s*/, '')
-  .replace("import('./src/main.js').catch(guasto);", "import('./leafy.js').catch(guasto);")
+  // ⚠ LA VERSIONE NELL'URL, e non è pignoleria: GitHub Pages tiene in cache i
+  // file per dieci minuti, e un ricaricamento normale ridà il bundle VECCHIO.
+  // Il committente ci ha perso un giro pensando che due correzioni non fossero
+  // state fatte — erano fatte, era la cache. Con la versione nel nome il
+  // browser non ha scelta: è un file che non ha mai visto.
+  .replace("import('./src/main.js').catch(guasto);", `import('./main.js?v=${versione}').catch(guasto);`)
   .replace('<div id="stato">avvio…</div>', `<div id="stato">avvio…</div>\n  <div id="versione" style="position:fixed;right:8px;bottom:6px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">${quando} · ${versione}</div>`);
 writeFileSync(join(www, 'index.html'), pagina);
+
+// la pagina dello zoo, dalla stessa sorgente
+const paginaZoo = readFileSync(join(radice, 'zoo.html'), 'utf8')
+  .replace(/<script type="importmap">[\s\S]*?<\/script>\s*/, '')
+  .replace("import('./src/zoo.js').catch(guasto);", `import('./zoo.js?v=${versione}').catch(guasto);`)
+  .replace('<div id="stato">avvio…</div>', `<div id="stato">avvio…</div>\n  <div id="versione" style="position:fixed;right:8px;bottom:6px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">${quando} · ${versione}</div>`);
+writeFileSync(join(www, 'zoo.html'), paginaZoo);
 writeFileSync(join(www, '.nojekyll'), '');
 cpSync(join(radice, 'modelli'), join(www, 'modelli'), { recursive: true });
 
@@ -78,7 +97,7 @@ if (!existsSync(join(lavoro, '.git'))) {
 } else {
   esegui('git fetch -q origin && git reset -q --hard origin/main', lavoro);
 }
-for (const n of ['index.html', 'leafy.js', '.nojekyll']) {
+for (const n of ['index.html', 'zoo.html', 'main.js', 'zoo.js', '.nojekyll']) {
   cpSync(join(www, n), join(lavoro, n));
 }
 // i modelli: sono dati, non codice, e vanno accanto alla pagina

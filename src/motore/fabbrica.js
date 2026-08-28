@@ -51,6 +51,7 @@ export class Fabbrica {
     this.matAcqua.backFaceCulling = false;
 
     this._conMappa = new Set();
+    this._materiali = [this.matMondo, this.matAcqua];
   }
 
   // ── il ciclo di vita di un chunk ───────────────────────────────────────────
@@ -186,8 +187,12 @@ export class Fabbrica {
     m.rotation.y = p.verso;
   }
 
+  // ⚠ LE LAMPADE NON HANNO BISOGNO DI ESSERE «AGGIORNATE»: ogni materiale se le
+  // rilegge da `rig.luci` a ogni disegno (vedi `stile.js`). Accendere una
+  // lampada è scrivere in quell'oggetto, e basta.
+
   // ── il prato ──────────────────────────────────────────────────────────────
-  creaPrato(max) { return new Prato(this.scena, this.rig, max); }
+  creaPrato(max) { const p = new Prato(this.scena, this.rig, max); this._materiali.push(p.materiale); return p; }
   scriviPrato(prato, n, erba) { prato.scrivi(n, erba); }
   animaPrato(prato, erba) { prato.anima(erba); }
   mostraPrato(prato, on) { prato.mostra(on); }

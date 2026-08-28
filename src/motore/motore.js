@@ -31,6 +31,7 @@ import '@babylonjs/core/Shaders/fxaa.vertex.js';
 import '@babylonjs/core/Shaders/postprocess.vertex.js';
 import '@babylonjs/core/Engines/Extensions/engine.renderTarget.js';
 import { ambienteDiFabbrica } from './stile.js';
+import { Luci } from './luci.js';
 
 // ⚠ GLI SHADER VANNO IMPORTATI A MANO quando si importa in profondità. Babylon
 // registra i sorgenti dei suoi materiali come EFFETTI COLLATERALI di moduli
@@ -88,6 +89,24 @@ export class Rig {
     this.scena = new Scene(this.motore);
     this.scena.clearColor = new Color4(CIELO.r, CIELO.g, CIELO.b, 1);
 
+    // ---- LA NEBBIA, che è metà del LOD --------------------------------------
+    // ⚠ E ADESSO SÌ, perché adesso c'è una distanza di resa da nascondere. Il
+    // commento che stava qui («niente nebbia ancora: messa prima diventa una
+    // scusa per non guardare quanto lontano si arriva») era giusto e ha fatto
+    // il suo lavoro: si è guardato, si è visto il bordo del mondo, e ora si
+    // decide dove finire invece di sfumare per non decidere.
+    //
+    // ⚠ IL COLORE DELLA NEBBIA È IL CIELO, sempre. Se differiscono anche di
+    // poco si vede una banda all'orizzonte dove il mondo finisce e il fondo
+    // comincia — e a quel punto la nebbia denuncia il confine invece di
+    // nasconderlo. Lo tiene allineato il ciclo del giorno, che li scrive
+    // insieme (`giorno.js`).
+    this.scena.fogMode = Scene.FOGMODE_LINEAR;
+    this.scena.fogColor = new Color3(CIELO.r, CIELO.g, CIELO.b);
+    this.distanzaResa = 150;
+    this.scena.fogStart = this.distanzaResa * 0.55;
+    this.scena.fogEnd = this.distanzaResa * 0.98;
+
     // ⚠ MANO DESTRA, E VA DECISO ALLA PRIMA RIGA. Babylon è SINISTRORSO di
     // fabbrica; three.js è destrorso. Tutto il mondo di Leafy — worldgen,
     // mesher, l'avvolgimento dei triangoli, il verso delle facce — è scritto
@@ -144,6 +163,11 @@ export class Rig {
     // e invece è un secondo termine che finisce dentro lo stesso accumulo da cui
     // leggiamo l'ombra: sporcherebbe il numero. L'ambiente qui è un COLORE che
     // moltiplica, non una luce — esattamente come in Leafy-Lantern.
+    // le lampade: sfere nostre, non luci del motore. Vedi `luci.js` per il
+    // perché — in due parole, il loro contributo sporcherebbe il numero da cui
+    // leggiamo l'ombra del sole.
+    this.luci = new Luci();
+
     const amb = ambienteDiFabbrica();
     this.ambienteCol = amb.ambiente;   // quanto luccica in pieno sole
     this.ombraTinta = amb.ombra;       // di che colore vira l'ombra (NON un grigio)
@@ -241,6 +265,25 @@ export class Rig {
    *  in Lantern la polarità sbagliata metteva in mappa farfalle, nuvole e
    *  pioggia, e se n'è accorto il committente guardando, non un errore. */
   proietta(mesh) { this.ombre.addShadowCaster(mesh, true); return mesh; }
+
+  /**
+   * LA DISTANZA DI RESA, e da lì tutto il resto.
+   *
+   * ⚠ PER UN DIORAMA IL LOD VERO È QUESTO. Un terrazzamento è alto UN blocco: a
+   * centocinquanta blocchi è un decimo di pixel, e un triangolo più piccolo del
+   * pixel non si «semplifica» — scompare e riappare mentre la camera si muove.
+   * È lo sfarfallio che si vedeva. Semplificare la maglia laggiù non lo cura:
+   * lo cura non disegnarla, e nascondere il confine con la nebbia.
+   *
+   * (Una maglia più grossa a distanza servirà il giorno che il mondo sarà
+   * abbastanza grande da volerne vedere due chilometri. Non è oggi.)
+   */
+  impostaDistanza(d) {
+    this.distanzaResa = d;
+    this.scena.fogStart = d * 0.55;
+    this.scena.fogEnd = d * 0.98;
+    this.camera.maxZ = d * 1.15;
+  }
 
   /** Dove guarda la camera, proiettato sul piano. È l'unica cosa che il
    *  giocatore ha bisogno di sapere della vista per muoversi coerentemente. */

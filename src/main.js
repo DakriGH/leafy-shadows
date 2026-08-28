@@ -75,12 +75,34 @@ modelli.carica('albero').then(() => {
   // NaN nelle matrici, cioè quarantotto alberi disegnati in nessun posto — e
   // senza un errore, perché una matrice di NaN è una matrice valida.
   alberiPosati = modelli.piazza('albero', alberi.map(([x, h, z]) => ({
-    x: x + 0.5, y: h + 1, z: z + 0.5,   // il blocco è a h: la sua faccia sopra sta a h+1
+    // ⚠ `h` È GIÀ LA SUPERFICIE, non la quota del blocco. Ci aggiungevo 1
+    // «perché la faccia sopra sta a h+1», e gli alberi galleggiavano di
+    // ESATTAMENTE un blocco — misurato: albero a quota 8, blocco più alto a 6,
+    // superficie a 7. Un difetto da un blocco tondo non è mai un errore di
+    // arrotondamento: è un +1 di troppo, e conviene cercarlo lì.
+    x: x + 0.5, y: h, z: z + 0.5,
     // ⚠ IL GIRO È DETERMINISTICO, non casuale: un albero deve stare girato
     // sempre allo stesso modo, o a ogni ricarica il bosco cambia faccia.
     giro: (((x * 73856093) ^ (z * 19349663)) >>> 0) / 4294967296 * Math.PI * 2,
   })));
 }).catch((e) => { console.error('alberi:', e); });
+
+// ---- i lampioni, e le loro luci ---------------------------------------------
+// ⚠ LA LUCE STA UN PO' SOPRA IL PALO, non alla base: una sfera centrata a terra
+// illumina il terreno e non l'aria, e il lampione sembra spento.
+let lampioniPosati = 0;
+modelli.carica('lampione').then(() => {
+  lampioniPosati = modelli.piazza('lampione', lampioni.map(([x, h, z]) => ({ x: x + 0.5, y: h, z: z + 0.5, giro: 0 })));
+  for (const [x, h, z] of lampioni) {
+    // ⚠ QUATTORDICI E NON OTTO E MEZZO. La pozza è quantizzata a tre gradini
+    // (`BANDE_LUCE`), quindi il primo gradino si azzera dove (1 - d/r)² scende
+    // sotto un sesto: con r = 8,5 succede a cinque blocchi, e la lampada era
+    // praticamente invisibile — misurato leggendo il pixel, non a occhio.
+    // Il raggio non è «quanto illumina»: è quanto illumina PRIMA che i gradini
+    // la spengano, ed è tre quarti del raggio scritto.
+    rig.luci.accendi({ x: x + 0.5, y: h + 2.6, z: z + 0.5, raggio: 14, forza: 1 });
+  }
+}).catch((e) => { console.error('lampioni:', e); });
 
 // ---- il ciclo del giorno ----------------------------------------------------
 const giorno = new Giorno(rig, { durata: 300, ora: 0.42 });
@@ -112,7 +134,7 @@ function aggiornaStato() {
     `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}\n` +
     `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
     `erba ${erba.fili.toLocaleString('it')} lamelle   ${giorno.orologio}\n` +
-    `alberi ${alberiPosati}/${alberi.length}\n` +
+    `alberi ${alberiPosati}/${alberi.length}   lampioni ${lampioniPosati}\n` +
     `I = ispettore`;
 }
 

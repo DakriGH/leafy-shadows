@@ -38,7 +38,7 @@ export class Modelli {
    * PRIMA e istanziare DOPO tiene il conto delle chiamate di disegno a uno per
    * TIPO di modello, non per pezzo.
    */
-  async carica(nome, { scala = 1 } = {}) {
+  async carica(nome, { scala = 1, schiarisci = 1.6 } = {}) {
     if (this._caricati.has(nome)) return this._caricati.get(nome);
     const cont = await LoadAssetContainerAsync(`${CARTELLA}${nome}.glb`, this.scena);
     const pezzi = cont.meshes.filter((m) => m.getTotalVertices() > 0);
@@ -89,7 +89,7 @@ export class Modelli {
     // si vede subito: due leggi diverse per la stessa luce. Il colore piatto qui
     // è quello del modello (texture o colori di vertice) — se il glTF non ne ha,
     // resta il diffuso del materiale.
-    const m = applicaStilePiatto(new CustomMaterial(`mat:${nome}`, this.scena), this.rig, 'baseColor.rgb', { facce: false });
+    const m = applicaStilePiatto(new CustomMaterial(`mat:${nome}`, this.scena), this.rig, 'baseColor.rgb', { facce: false, schiarisci });
     m.backFaceCulling = false;   // le chiome sono piani incrociati
     if (tex) {
       m.diffuseTexture = tex;

@@ -47,6 +47,11 @@
 
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+// ⚠ Le uniform NON vanno dichiarate a mano: `AddUniform` di CustomMaterial
+// emette lei la riga `uniform vec4 uLuciPos[24];` e la concatena alle
+// definizioni del fragment. Dichiararle anche in `Fragment_Definitions` darebbe
+// una doppia dichiarazione e lo shader non compila.
+import { LUCI_MAX, GLSL_LUCI_ACCUMULO } from './luci.js';
 
 /** I gradini dell'ombra. In Leafy-Lantern è `BANDE_LUCE` in config.js, e sono
  *  «i gradini che il committente ha indicato come metro della nettezza». */
@@ -66,7 +71,7 @@ export const BANDE = 3;
  *                     segnaposto del giocatore è uscito così. Per l'erba invece
  *                     si passa la sua sfumatura base→punta.
  */
-export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiffuseColor.rgb', { facce = true } = {}) {
+export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiffuseColor.rgb', { facce = true, schiarisci = 1 } = {}) {
   // niente riflesso speculare: su una faccia piatta si legge come vernice
   m.specularColor = Color3.Black();
   m.diffuseColor = Color3.White();
@@ -78,6 +83,27 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   m.AddUniform('uSoleVerso', 'vec3', rig.soleVerso);
   m.AddUniform('uAmbiente', 'vec3', rig.ambienteCol);
   m.AddUniform('uOmbraTinta', 'vec3', rig.ombraTinta);
+  // ⚠ GLI ARRAY SI DICHIARANO QUI E SI LEGANO A MANO SOTTO, e la distinzione
+  // costa un lampione spento. `AddUniform` fa DUE cose: scrive la riga
+  // «uniform vec4 uLuciPos[24];» nello shader, e — se gli si passa un valore —
+  // se lo rilega da solo a ogni disegno. La seconda però sa legare solo uniform
+  // SINGOLE: per un array chiamerebbe `setVector4` su un elenco, che non fa
+  // niente e non si lamenta. Quindi si dichiara senza valore (terzo argomento
+  // omesso: vedi il sorgente, il legame automatico è dentro un `if (param)`) e
+  // si lega nell'osservabile qui sotto.
+  m.AddUniform(`uLuciPos[${LUCI_MAX}]`, 'vec4');
+  m.AddUniform(`uLuciCol[${LUCI_MAX}]`, 'vec3');
+  m.AddUniform('uLuciNum', 'float');
+  m.onBindObservable.add(() => {
+    const e = m.getEffect();
+    if (!e) return;
+    // ⚠ RELATIVE ALLA CAMERA, non assolute: vedi `luci.js`. L'origine mobile
+    // trasla tutto, e una luce in coordinate di mondo finisce a chilometri di
+    // distanza da dove crede di essere.
+    e.setArray4('uLuciPos', rig.luci.perLoShader(rig.camera));
+    e.setArray3('uLuciCol', rig.luci.col);
+    e.setFloat('uLuciNum', rig.luci.quante);
+  });
 
   // ⚠ DUE RIGHE, E LA SECONDA È LA CURA ALL'ACNE.
   //
@@ -135,10 +161,41 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     normalW = normalize(-uSoleVerso);
   `);
 
+  // ⚠ `schiarisci` TOGLIE L'OMBREGGIATURA COTTA NELLE TEXTURE, e serve solo ai
+  // modelli. Misurato: l'albero rende (91,171,66) dove l'atlante è verde acceso,
+  // cioè la resa è FEDELE — il buio non lo mettiamo noi, è dipinto dentro il
+  // file. Chi ha modellato l'albero ci ha cotto dentro la sua ombreggiatura: la
+  // punta chiara, i fianchi blu-verdi scuri. È proprio quello che il nostro
+  // stile rifiuta («non esiste un colore diverso da ombra o non in ombra»), e
+  // sui modelli arrivava dalla porta di servizio: il committente l'ha vista
+  // come «i colori degli alberi e dei lampioni sono scurissimi e fuoristile».
+  //
+  // ⚠ SI ALZA COL GAMMA, NON MOLTIPLICANDO. Un fattore lineare schiarisce i
+  // toni chiari quanto gli scuri e li sbianca; l'esponente alza molto gli scuri
+  // e quasi niente i chiari, che è proprio togliere l'ombreggiatura lasciando i
+  // colori. Con 1,6: un 0,10 diventa 0,24, un 0,70 diventa 0,80.
+  const lift = schiarisci === 1
+    ? colorePiatto
+    : `pow(max(${colorePiatto}, vec3(0.0)), vec3(${(1 / schiarisci).toFixed(4)}))`;
+
   m.Fragment_Before_FragColor(`
     float sole = clamp(diffuseBase.r, 0.0, 1.0) * facciaAlSole;
     sole = floor(sole * ${BANDE.toFixed(1)} + 0.5) / ${BANDE.toFixed(1)};
-    color.rgb = ${colorePiatto} * (uAmbiente * mix(uOmbraTinta, vec3(1.0), sole));
+    ${GLSL_LUCI_ACCUMULO}
+    // ⚠ LE LAMPADE SI SOMMANO DOPO L'OMBRA, non dentro: una lampada accesa deve
+    // illuminare anche quello che sta all'ombra del sole. È il motivo per cui
+    // di notte, sotto un lampione, in Leafy si vede.
+    vec3 nostro = ${lift} * (uAmbiente * mix(uOmbraTinta, vec3(1.0), sole) + lampade);
+    // ⚠ E LA NEBBIA VA RIMESSA, perché questo innesto sta DOPO il suo. Babylon
+    // stampa il blocco della nebbia sopra di noi e poi noi riscriviamo
+    // «color.rgb» di sana pianta: la nebbia veniva calcolata e buttata via, e a
+    // schermo non se ne vedeva traccia. Il fattore però è ancora qui in ambito,
+    // quindi basta riusarlo — e usare LO STESSO, non ricalcolarlo, o le due
+    // nebbie divergono al primo ritocco.
+    #ifdef FOG
+      nostro = mix(vFogColor, nostro, fog);
+    #endif
+    color.rgb = nostro;
   `);
   return m;
 }

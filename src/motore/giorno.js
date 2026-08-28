@@ -85,6 +85,10 @@ export class Giorno {
     r.ambienteCol.set(amb[0], amb[1], amb[2]);
     r.ombraTinta.set(omb[0], omb[1], omb[2]);
     r.scena.clearColor.set(cielo[0], cielo[1], cielo[2], 1);
+    // ⚠ LA NEBBIA SEGUE IL CIELO NELLA STESSA RIGA. Tenerle in due posti vuol
+    // dire che prima o poi divergono, e quando divergono si vede una banda
+    // all'orizzonte: la nebbia denuncia il confine invece di nasconderlo.
+    r.scena.fogColor.set(cielo[0], cielo[1], cielo[2]);
 
     // IL SOLE gira su un arco inclinato: sorge a est, culmina a sud, tramonta a
     // ovest. L'inclinazione serve a non farlo passare per lo zenit — a picco le
