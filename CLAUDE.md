@@ -29,6 +29,13 @@ metà delle ragioni di stare qui cadono.
 
 ## Avvio
 - Dev: `python3 serve.py 8144` → http://localhost:8144
+- **Lo ZOO: http://localhost:8144/zoo.html** — dieci piazzole, una per difetto
+  (acne, ombre, luci, lampade con ombra e senza, forme delle luci, particelle,
+  distanza e LOD, erba, modelli, ciclo del giorno). Online insieme al gioco su
+  https://dakrigh.github.io/leafy-shadows/zoo.html
+  ⚠ **Ogni difetto grafico si cerca LÌ, non nel mondo vero.** Prima dello zoo
+  ogni volta bisognava costruire la scena giusta a mano, e spesso si finiva per
+  misurare la cosa sbagliata perché la scena non isolava niente.
 - Prove: `npm test`
 - **`I` apre l'Inspector** (si carica a richiesta: è una dipendenza di sviluppo,
   6,8 MB, e non deve finire nel gioco pubblicato).
@@ -182,6 +189,68 @@ cui normale, per giunta, dipende da quanto il vento lo sta piegando.
 ⚠ E l'origine di un `.glb` **non sta sui piedi**: si sposta l'array delle
 posizioni, non la mesh — con le thin instance la matrice locale non ha più voce.
 
+### ⚠ I CONTI DELLA LUCE SI FANNO IN SPAZIO LINEARE
+**Babylon scrive lineare in framebuffer; three.js codifica in sRGB.** Misurato
+con un ingresso noto: col cielo a (0,561 0,827 1,000) il pixel esce
+(143, 211, 255), cioè il valore per 255 esatto. Le costanti tarate su Lantern
+(ambiente, tinta dell'ombra, colori delle lampade) vivono quindi in un altro
+spazio, e trapiantarle tali e quali dà tutt'altra immagine.
+
+Per una **moltiplicazione** la differenza è solo un esponente (moltiplicare per
+k in lineare = moltiplicare per k^(1/2,2) in visualizzazione). Per una **somma**
+non c'è equivalente: due pozze di lampada sommate su valori già compressi
+saturano e sbiancano. Quindi `stile.js` fa come three — decodifica, calcola,
+ricodifica — e le costanti di Lantern valgono **letterali**.
+⚠ I due esponenti devono restare l'uno l'inverso dell'altro, o la nebbia
+all'orizzonte smette di combaciare col cielo (`clearColor` non passa da nessuno
+shader). `test/gamma-coerente.test.mjs` lo presidia, insieme alla gamma gemella
+in `luci.js` (importarla creerebbe un anello).
+
+### ⚠ LE LAMPADE PROIETTANO OMBRA, e la griglia era già qui
+`world/luce.js` costruisce la griglia dei muri, `world/mesher.js` la ricostruisce
+quando il mondo cambia e chiama `fabbrica.impostaVoxel`. Erano **stub vuoti**
+dalla migrazione: il sistema girava, misurava 275.427 celle in 18 ms, e buttava
+via il risultato — le pozze passavano attraverso l'isola e con tredici lampioni
+la notte diventava giorno. Adesso la griglia va in una `RawTexture3D` e il
+fragment la cammina (Amanatides-Woo). Il bordo cade **al pixel** sullo spigolo
+del cubo: niente mappa, niente bias, niente acne.
+- ⚠ `sampler3D` vuole la precisione dichiarata (`highp sampler3D`): in GLSL ES
+  3.0 non ne ha una di fabbrica, e `AddUniform` scrive la riga in TUTTI E DUE
+  gli shader — quindi l'errore arriva dal **vertex**, che la texture non la
+  tocca nemmeno.
+- ⚠ Il costo: a risoluzione doppia con 16 lampade da raggio 30 a schermo pieno,
+  **5,4 ms**. A raggio 8,5 non si misura. Si paga solo dentro la pozza e solo
+  per le lampade *pesanti*.
+- Due classi, come in Lantern: **pesante** cammina la griglia, **leggera**
+  trapassa e costa una distanza (fuochi fatui, effetti).
+
+### ⚠ NIENTE NOMI DI UNA LETTERA NEL GLSL INNESTATO
+Babylon, nel blocco della nebbia, emette `#define E 2.71828`. Il preprocessore
+non conosce ambiti: una variabile locale chiamata `E` è diventata
+`vec3 2.71828 = …`, schermo vuoto e un errore di sintassi su un numero mai
+scritto. Il nostro codice vive in mezzo a duemila righe altrui piene di macro.
+⚠ E le prove sul GLSL **non l'avrebbero preso**: cercavano solo gli innesti
+scritti sul posto (`Fragment_*(\`…\`)`), mentre il GLSL più delicato del
+progetto vive in **costanti esportate**. Adesso l'estrattore è condiviso.
+
+### ⚠ `Fragment_Definitions` È UN SETTORE, NON UN ACCUMULATORE
+`prato.js` lo chiamava dopo `applicaStilePiatto` e cancellava il cammino nella
+griglia, lasciando in piedi la chiamata: errore su **un materiale solo**, l'erba,
+mentre il mondo compilava. Si passa da `aggiungiDefinizioniFragment` (stile.js),
+e una prova presidia che nessuno lo chiami più a mano.
+
+### ⚠ FERMARE UN SISTEMA DI PARTICELLE NON LO FERMA
+Dalla documentazione di Babylon: `isStarted()` «will still be true after stop is
+called», e su GPU «rendering is still happening but the system is frozen». Il
+meccanismo vero sta nel sorgente della scena — un sistema è attivo se
+`isStarted() && (!emitter.position || emitter.isEnabled())`: con un `Vector3`
+come emittente la prima è sempre vera e la seconda non si valuta mai. Con una
+**mesh vuota** come emittente, `setEnabled(false)` lo toglie dall'aggiornamento
+e dal disegno.
+⚠ E `GPUParticleSystem.IsSupported` risponde sì anche senza aver importato
+`Particles/webgl2ParticleSystem.js`: dice che la scheda regge, non che il codice
+sia caricato. Stessa famiglia della trappola degli shader.
+
 ### ⚠ ALTRE TRAPPOLE DI BABYLON già pagate
 - **`thinInstanceBufferUpdated` spedisce l'INTERO array**, cioè il tetto. Con
   buffer allocati a 500.000 e 101.698 istanze vive: **12,4 ms**. La variante
@@ -214,6 +283,20 @@ posizioni, non la mesh — con le thin instance la matrice locale non ha più vo
 | erba: costo a schermo | — | **0,18 ms** per 101.698 lamelle |
 | erba: lo scambio | 3,6 ms (8,1 prima di `addUpdateRange`) | **0,8 ms** |
 | erba: lo shader | 346 righe di GLSL | 40, e solo il vento — luci, ombre e nebbia le fa il motore |
+
+## Si gioca
+Sinistro rompe, destro posa, centrale copia il blocco guardato; 1-9 e R
+scelgono; virgola e punto muovono l'ora, P ferma il ciclo. Posare una lampada
+l'accende — il blocco **dichiara** la sua luce in `world/blocks.js`, qui non
+c'è nessun elenco di cosa illumina.
+⚠ Il raggio lo calcola Babylon (`CreatePickingRay`), la **griglia la camminiamo
+noi** (`gioco/mira.js`): `scene.pick` dovrebbe intersecare centomila triangoli
+per dire quale cubo si sta guardando, il DDA ci arriva in dieci passi e dà anche
+la faccia. ⚠ E l'origine del raggio si prende dalla camera, non dal raggio:
+l'origine mobile toglie la traslazione dalla matrice di vista.
+⚠ Il **braccio** non è il **raggio**: in vista a diorama il raggio parte dalla
+camera, venticinque blocchi indietro. Con sette di portata non arrivava
+nemmeno al terreno, e il mirino era sempre spento.
 
 ## Da fare, in ordine
 Vedi `docs/PIANO.md`. La fase 1 (scheletro + terreno vero a schermo) è **fatta**.
