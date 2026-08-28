@@ -19,6 +19,21 @@
     background: rgba(255,255,255,.72); padding: 6px 9px; border-radius: 6px;
     white-space: pre; pointer-events: none;
   }
+  /* ⚠ SUL TELEFONO IL PANNELLO SI MANGIAVA UN TERZO DELLO SCHERMO, e non è una
+     questione estetica: è un pannello che DEVE restare, perché su un telefono
+     non c'è una console e senza quei numeri «va piano» resta un'opinione. Se
+     però copre il gioco, la prima cosa che si fa è chiuderlo — e allora non
+     serve più a niente. Quindi si rimpicciolisce e si arrotola alle prime due
+     righe: si tocca per aprirlo tutto.
+     ⚠ E QUI VA RIACCESO «pointer-events», che sul pannello è spento apposta (se
+     no ruberebbe i trascinamenti alla camera). Senza questa riga il gestore del
+     tocco non riceve NIENTE, e sembra che il tocco non funzioni. */
+  @media (max-width: 700px) {
+    #stato { font-size: 10px; line-height: 1.35; padding: 4px 6px; max-width: 62vw;
+             max-height: 2.55em; overflow: hidden; pointer-events: auto; cursor: pointer; }
+    #stato.aperto { max-height: 72vh; overflow: auto; }
+    #fps { font-size: 11px; padding: 3px 6px; }
+  }
   #guasto {
     position: fixed; inset: 12px; z-index: 100; display: none;
     font: 13px/1.55 ui-monospace, monospace; color: #fff; background: #8b1d1d;
@@ -54,6 +69,11 @@
     window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
     window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
     import('./src/main.js').catch(guasto);
-  </script>
+
+    // ⚠ SI APRE TOCCANDOLO. Il gestore sta sul PANNELLO e non sulla tela: se no
+    // il tocco che apre il pannello sarebbe anche quello che ruota la camera.
+    const _st = document.getElementById('stato');
+    _st.addEventListener('click', () => _st.classList.toggle('aperto'));
+</script>
 </body>
 </html>

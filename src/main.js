@@ -222,21 +222,22 @@ function aggiornaStato() {
   // in Lantern mi ha fatto dire «va bene» per una giornata intera.
   scala.osserva(fps, ora);
   spia.textContent = `${fps} fps\n${p(0.5)} / ${p(0.99)} ms`;
+  // ⚠ L'ORDINE CONTA, e conta SUL TELEFONO: là il pannello sta arrotolato alle
+  // prime due righe e si apre col tocco (vedi il CSS in `index.html`). Quindi la
+  // prima riga dev'essere quella che serve a capire perché va piano — classe del
+  // dispositivo, gradino, pixel veri — e non «chunk e blocchi», che è la prima
+  // cosa che avevo messo perché era la prima che avevo scritto.
   stato.textContent =
-    `p50 ${p(0.5)} ms   p99 ${p(0.99)} ms\n` +
-    `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}\n` +
-    `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
-    `erba ${(erba.attiva ? erba.fili : 0).toLocaleString('it')} lamelle   luci ${rig.luci.accese}\n` +
-    `alberi ${alberiPosati}/${alberi.length}   lampioni ${lampioniPosati}\n` +
-    // ⚠ QUESTE TRE RIGHE SERVONO SUL TELEFONO, dove non c'è una console: la
-    // classe del dispositivo, la scheda, i pixel veri e il gradino. Senza, «va
-    // piano» resta un'opinione e io lavoro alla cieca.
-    `\n${rig.dispositivo.mobile ? 'MOBILE' : 'desktop'}  q${scala.livello}/${scala.quanti - 1}` +
-    `${scala.adatta.manuale ? ' (a mano)' : ''}  ${rig.motore.getRenderWidth()}×${rig.motore.getRenderHeight()}` +
-    `  dpr ${devicePixelRatio}\n` +
+    `${rig.dispositivo.mobile ? 'MOBILE' : 'desktop'}  q${scala.livello}/${scala.quanti - 1}` +
+    `${scala.adatta.manuale ? '·mano' : ''}  ${rig.motore.getRenderWidth()}×${rig.motore.getRenderHeight()}` +
+    `  dpr ${devicePixelRatio}  ${p(0.5)}/${p(0.99)} ms\n` +
     `ombre ${rig.profilo.sole ? rig.ombre.numCascades + '×' + rig.profilo.mappa : 'no'}` +
     `  lampade ${rig.fissi.ombreLampade ? 'con ombra' : 'senza'}` +
-    `  ${rig.scheda.software ? '⚠ SOFTWARE' : rig.scheda.nome.slice(0, 28)}\n` +
+    `  erba ${(erba.attiva ? erba.fili : 0).toLocaleString('it')}\n` +
+    `${rig.scheda.software ? '⚠ DISEGNA IN SOFTWARE' : rig.scheda.nome.slice(0, 40)}\n` +
+    `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}   ` +
+    `luci ${rig.luci.accese}   alberi ${alberiPosati}/${alberi.length}\n` +
+    `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
     `\n${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}   in mano: ${cantiere.nomeScelto}\n` +
     `sinistro rompe · destro posa · centrale copia   1-9 / R sceglie\n` +
     `, . ora   P ferma il ciclo   K qualità   I ispettore`;
