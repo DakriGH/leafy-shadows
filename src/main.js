@@ -9,6 +9,7 @@
 
 import { Rig } from './motore/motore.js';
 import { Fabbrica } from './motore/fabbrica.js';
+import { Giorno } from './motore/giorno.js';
 import { Mondo } from './world/world.js';
 import { Mesher, collegaFabbrica as fabbricaMesher } from './world/mesher.js';
 import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
@@ -49,6 +50,9 @@ rig.camera.setTarget(new (rig.camera.target.constructor)(0, cima, 0));
 const erba = new Erba(rig.scena, { max: 500000, densita: 7.8, raggioChunk: 6 });
 const passeggero = { x: 0.5, y: cima, z: 0.5 };
 
+// ---- il ciclo del giorno ----------------------------------------------------
+const giorno = new Giorno(rig, { durata: 300, ora: 0.42 });
+
 // ---- il contatore onesto ---------------------------------------------------
 // ⚠ NON GLI FPS: i MILLISECONDI. In Lantern ho passato una giornata a dire «va
 // bene» guardando le medie, mentre il committente sentiva i picchi. Qui si
@@ -68,12 +72,13 @@ function aggiornaStato() {
     `p50 ${p(0.5)} ms   p99 ${p(0.99)} ms\n` +
     `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}\n` +
     `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
-    `erba ${erba.fili.toLocaleString('it')} lamelle\n` +
+    `erba ${erba.fili.toLocaleString('it')} lamelle   ${giorno.orologio}\n` +
     `alberi ${alberi.length} (ancora non posati)\n` +
     `I = ispettore`;
 }
 
 rig.avvia((dt) => {
+  giorno.aggiorna(dt);
   // la semina è a BILANCIO DI TEMPO, non a numero di chunk: i chunk non costano
   // uguale, e contarli lasciava passare picchi da tre millisecondi e mezzo
   erba.aggiorna(dt, mondo, passeggero, null, rig.camera.position);
@@ -81,4 +86,4 @@ rig.avvia((dt) => {
 });
 
 // una manina per lavorarci sopra dall'ispettore e dalla console
-globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, passeggero, generaOpenWorld };
+globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, passeggero, generaOpenWorld };

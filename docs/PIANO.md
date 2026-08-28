@@ -43,7 +43,21 @@ prato, e la nebbia — ma solo **dopo** aver deciso la distanza di resa.
 
 ---
 
-## Fase 2-bis — Il ciclo del giorno e la nebbia
+## Fase 2-bis — Il ciclo del giorno ✅ *(28/08/2026)*
+
+346 righe in Leafy-Lantern, **110** qui, e non è bravura: con lo stile piatto il
+colore di ogni cosa esce da tre grandezze, quindi il ciclo è muovere quelle tre
+più il sole. Le ore chiave sono una **tabella** — regola della casa, e qui si
+vede perché: chi vuole ritoccare l'alba tocca una riga.
+
+⚠ **L'ombra non è grigia in nessuna riga della tabella.** Di giorno vira
+azzurra, all'alba rosata, di notte blu. È la regola che tiene insieme lo stile.
+
+**Resta**: la nebbia, ma solo dopo aver deciso la distanza di resa.
+
+---
+
+## Fase 2-ter — La nebbia e le stagioni
 
 Il look non è ancora quello: manca la personalità di Leafy sopra il modello di
 illuminazione del motore.
