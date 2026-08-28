@@ -38,6 +38,7 @@ import { CreatePickingRay } from '@babylonjs/core/Culling/ray.core.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { ambienteDiFabbrica } from './stile.js';
 import { Luci } from './luci.js';
+import { classeDispositivo, schedaDi, fissiDiAvvio, DPR_MAX, LIVELLI } from './qualita.js';
 
 // ⚠ GLI SHADER VANNO IMPORTATI A MANO quando si importa in profondità. Babylon
 // registra i sorgenti dei suoi materiali come EFFETTI COLLATERALI di moduli
@@ -64,6 +65,23 @@ export class Rig {
   constructor(tela) {
     this.tela = tela;
 
+    // ---- CHE MACCHINA È, e si decide PRIMA di creare qualunque cosa ---------
+    // ⚠ DUE COSE SI DECIDONO QUI E NON SI CAMBIANO PIÙ: l'antialiasing del
+    // canvas (sta nel contesto WebGL: o c'è o si ricrea il motore) e se il
+    // cammino nei voxel delle lampade viene COMPILATO. La seconda è la lezione
+    // mobile di Leafy-Lantern — su una GPU mobile un `if` non spegne niente,
+    // perché il compilatore riserva i registri per il ramo che non esegue e con
+    // tanti registri per thread scendono i thread in volo. Lì abbassare la
+    // risoluzione non spostava gli fps: non erano i pixel, era l'occupancy.
+    this.dispositivo = classeDispositivo();
+    this.fissi = fissiDiAvvio(this.dispositivo);
+    this.dprMax = DPR_MAX[this.dispositivo.mobile ? 'mobile' : 'desktop'];
+    // ⚠ IL PRIMO GRADINO SERVE GIÀ QUI. Costruire una mappa d'ombra 2048² a
+    // quattro cascate e poi ridurla vuol dire allocare 16 MB di texture su un
+    // telefono per buttarli un fotogramma dopo — e su alcuni chip
+    // l'allocazione stessa è un singhiozzo visibile. Meglio non farla nascere.
+    this.profilo = LIVELLI[this.dispositivo.mobile ? 'mobile' : 'desktop'][0];
+
     // ⚠ `antialias: true` QUI E NON PIÙ AVANTI. In Lantern l'MSAA era una
     // manopola che si poteva spegnere per sbaglio, e spegnendola «era tutto
     // seghettato» — un giorno intero per capirlo. Su Babylon l'antialiasing del
@@ -71,9 +89,17 @@ export class Rig {
     // Che è esattamente il posto giusto per una cosa che non si deve poter
     // perdere in silenzio.
     this.motore = new Engine(tela, true, {
-      preserveDrawingBuffer: true,   // serve agli scatti di confronto
+      // ⚠ SPENTO SU MOBILE, ED È UNA TRAPPOLA CLASSICA. Serve solo a poter
+      // leggere il canvas dopo il disegno (gli scatti di confronto). In cambio
+      // dice al driver che il contenuto del framebuffer va CONSERVATO a fine
+      // fotogramma — e su una GPU a tile, cioè su tutte quelle dei telefoni,
+      // quello impedisce di scartarlo e costringe a una copia per fotogramma.
+      // Su desktop non si sente; su mobile è banda buttata via.
+      preserveDrawingBuffer: !this.dispositivo.mobile,
       stencil: false,
-      antialias: true,
+      // ⚠ SPENTO SU MOBILE: quadruplica il riempimento su un chip che è già il
+      // collo di bottiglia, e a DPR alto non si vede la differenza.
+      antialias: this.fissi.antialias,
       powerPreference: 'high-performance',
       // ⚠ IL MONDO GRANDE SI DECIDE QUI, ALLA CREAZIONE, O NON SI DECIDE PIÙ.
       // `useLargeWorldRendering` fa due cose (verificate nella d.ts di 9.23):
@@ -92,6 +118,24 @@ export class Rig {
       useLargeWorldRendering: true,
     }, true);
 
+    // ⚠ IL TETTO DEL RAPPORTO DEI PIXEL, e questa riga da sola vale più di
+    // tutto il resto del file su un telefono. Il quarto argomento qui sopra è
+    // `adaptToDeviceRatio`: acceso, Babylon renderizza al DPR PIENO del
+    // dispositivo. Su un telefono con DPR 3 sono NOVE VOLTE i pixel di un
+    // desktop — e per tutto questo progetto è stato acceso senza nessun tetto.
+    // Da Leafy-Lantern: «il cap del pixel ratio è il singolo fattore che pesa
+    // di più sui fps».
+    // ⚠ E `setHardwareScalingLevel` NON RIDIMENSIONA DA SOLO: senza `resize()`
+    // non succede niente, e non si lamenta. Ci ho perso una misura intera —
+    // tutti i numeri uscivano identici e credevo fosse il vsync.
+    // ⚠ LA PERDITA DEL CONTESTO LA GESTISCE BABYLON DA SÉ (verificato nel
+    // sorgente: registra `webglcontextlost` e chiama `preventDefault`, che è la
+    // riga senza la quale il contesto non torna più e la tela resta NERA per
+    // sempre). In Leafy-Lantern quel gestore era nostro; qui non serve.
+    this.scheda = schedaDi(this.motore);
+    this._scala = 1;
+    this.applicaScala(1);
+
     this.scena = new Scene(this.motore);
     this.scena.clearColor = new Color4(CIELO.r, CIELO.g, CIELO.b, 1);
 
@@ -109,7 +153,7 @@ export class Rig {
     // insieme (`giorno.js`).
     this.scena.fogMode = Scene.FOGMODE_LINEAR;
     this.scena.fogColor = new Color3(CIELO.r, CIELO.g, CIELO.b);
-    this.distanzaResa = 150;
+    this.distanzaResa = this.profilo.dist;
     this._osservatoriDistanza = [];
     this.scena.fogStart = this.distanzaResa * 0.55;
     this.scena.fogEnd = this.distanzaResa * 0.98;
@@ -202,16 +246,17 @@ export class Rig {
     // Tre sistemi scritti a mano (controluce, campoSole, marcia), una mappa
     // 2048² ricostruita 11 volte al secondo, 95.176 ricostruzioni in una
     // sessione e un picco da 3,8 ms. Qui sono quattro righe.
-    this.ombre = new CascadedShadowGenerator(2048, this.sole);
-    this.ombre.numCascades = 4;
+    this.ombre = new CascadedShadowGenerator(this.profilo.mappa, this.sole);
+    this.ombre.numCascades = this.profilo.cascate;
     // ⚠ `lambda` VICINO A 1 = TESSITURA DENSA DOVE SI GUARDA. Spartisce le
     // cascate in modo logaritmico invece che lineare: la prima copre pochi metri
     // con tutti i suoi texel, l'ultima copre il resto. È la manopola che decide
     // se il bordo dell'ombra è netto o a scalini.
     this.ombre.lambda = 0.94;
     this.ombre.stabilizeCascades = true;    // il bordo non «striscia» camminando
-    this.ombre.filteringQuality = CascadedShadowGenerator.QUALITY_HIGH;
-    this.ombre.usePercentageCloserFiltering = true;
+    this.ombre.filteringQuality = this.profilo.pcf
+      ? CascadedShadowGenerator.QUALITY_HIGH : CascadedShadowGenerator.QUALITY_LOW;
+    this.ombre.usePercentageCloserFiltering = this.profilo.pcf;
     // ⚠ NOVANTA E NON CENTOQUARANTA: la distanza d'ombra è il denominatore della
     // risoluzione. Ogni metro in più che si pretende di ombreggiare toglie texel
     // a quelli vicini — e l'ombra a novanta blocchi non la guarda nessuno,
@@ -253,7 +298,9 @@ export class Rig {
     // ⚠ NON È UN SOSTITUTO DEL LOD, ed è bene dirlo: il LOD toglie i triangoli
     // che non si vedono, FXAA rende sopportabili quelli che restano. Servono
     // tutt'e due, e il LOD è il prossimo pezzo.
-    this.fxaa = new FxaaPostProcess('fxaa', 1, this.camera);
+    // ⚠ E SU MOBILE NON NASCE: un post-process è una passata a schermo intero,
+    // e su un chip che è già a corto di banda è proprio quello che non serve.
+    this.fxaa = this.profilo.fxaa ? new FxaaPostProcess('fxaa', 1, this.camera) : null;
 
     addEventListener('resize', () => this.motore.resize());
     this._collegaIspettore();
@@ -284,6 +331,74 @@ export class Rig {
         console.error('ispettore:', err);
       }
     });
+  }
+
+  /**
+   * QUANTI PIXEL DISEGNARE, e il conto è uno solo per non avere due verità.
+   * `s` moltiplica il tetto: 1 = il tetto pieno, 0,5 = metà lato.
+   */
+  applicaScala(s) {
+    this._scala = s;
+    const dpr = Math.min(typeof devicePixelRatio === 'number' ? devicePixelRatio : 1, this.dprMax) * s;
+    this.motore.setHardwareScalingLevel(1 / Math.max(0.25, dpr));
+    this.motore.resize();
+  }
+
+  /**
+   * APPLICA UN GRADINO DELLA SCALA DI QUALITÀ.
+   *
+   * ⚠ QUI DENTRO C'È SOLO CIÒ CHE SI PUÒ CAMBIARE A CALDO. Le cose che vivono
+   * nello shader (il cammino nei voxel) stanno in `fissi` e si decidono alla
+   * creazione: verificato che `CustomMaterial` mette il sorgente in cache e non
+   * lo rigenera, e che svuotare quella cache non basta perché l'effetto
+   * compilato resta nel motore.
+   *
+   * ⚠ E L'ERBA E LE PARTICELLE NON SONO SUE: il rig le chiama attraverso
+   * `bersagli`, che la regia gli passa. Se no il motore dovrebbe conoscere la
+   * vegetazione, e non è affar suo.
+   */
+  applicaProfilo(p, bersagli = {}) {
+    this.applicaScala(p.scala);
+    this.impostaDistanza(p.dist);
+
+    // le ombre del sole. ⚠ `shadowEnabled = false` toglie la mappa dai render
+    // target (verificato nel sorgente della scena): non è solo il
+    // campionamento, è tutta la passata di profondità che sparisce.
+    this.sole.shadowEnabled = p.sole;
+    if (p.sole) {
+      // ⚠ IL MINIMO DI BABYLON È DUE CASCATE (MIN_CASCADES_COUNT): sotto non si
+      // scende, si spegne l'ombra e basta — ed è quello che fanno gli ultimi
+      // gradini. Misurato qui a 17,4 Mpixel: da quattro cascate a due valgono
+      // 1,5 ms, il filtro PCF solo 0,5. Non è il campionamento a costare: ogni
+      // cascata è un RENDER della scena in una mappa di profondità.
+      if (this.ombre.numCascades !== p.cascate) this.ombre.numCascades = p.cascate;
+      if (this.ombre.mapSize !== p.mappa) this.ombre.mapSize = p.mappa;
+      this.ombre.usePercentageCloserFiltering = p.pcf;
+      this.ombre.filteringQuality = p.pcf
+        ? CascadedShadowGenerator.QUALITY_HIGH
+        : CascadedShadowGenerator.QUALITY_LOW;
+    }
+
+    // FXAA: si crea e si distrugge, non si «spegne» — un post-process spento
+    // resta una passata a schermo intero.
+    if (p.fxaa && !this.fxaa) this.fxaa = new FxaaPostProcess('fxaa', 1, this.camera);
+    else if (!p.fxaa && this.fxaa) { this.fxaa.dispose(); this.fxaa = null; }
+
+    const { erba, particelle } = bersagli;
+    if (erba) {
+      erba.imposta(p.erba > 0);
+      if (p.erba > 0 && (erba.densita !== p.erba || erba.raggioChunk !== p.erbaR)) {
+        erba.densita = p.erba;
+        erba.raggioChunk = p.erbaR;
+        // ⚠ E VA RISEMINATA: la cache dei ciuffi ha la densità nella chiave,
+        // quindi si invalida da sola, ma il raggio no — senza questa riga i
+        // chunk già seminati restano com'erano e il gradino non si vede.
+        erba.risemina();
+      }
+    }
+    if (particelle) particelle.mostra(p.particelle);
+    this.profilo = p;
+    return p;
   }
 
   /** Un oggetto che proietta ombra. ⚠ È UN ELENCO, non «tutto meno qualcosa»:

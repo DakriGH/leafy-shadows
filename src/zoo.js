@@ -11,6 +11,7 @@ import { Fabbrica } from './motore/fabbrica.js';
 import { Giorno } from './motore/giorno.js';
 import { Modelli } from './motore/modelli.js';
 import { Particelle } from './motore/particelle.js';
+import { ScalaQualita, misuraHz } from './motore/qualita.js';
 import { Mondo } from './world/world.js';
 import { Mesher, collegaFabbrica as fabbricaMesher } from './world/mesher.js';
 import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
@@ -32,10 +33,28 @@ const mesher = new Mesher(rig.scena, mondo);
 generaZoo(mondo);
 mesher.ricostruisciTutto(mondo);
 
-const erba = new Erba(rig.scena, { max: 300000, densita: 7.8, raggioChunk: 5 });
+const erba = new Erba(rig.scena, {
+  max: rig.dispositivo.mobile ? 120000 : 300000,
+  densita: rig.profilo.erba, raggioChunk: rig.profilo.erbaR,
+});
 const giorno = new Giorno(rig, { durata: 240, ora: 0.42 });
 const modelli = new Modelli(rig.scena, rig);
 const particelle = new Particelle(rig.scena, rig);
+
+// ⚠ E STA QUI, DOPO le particelle: l'`applica` le nomina, e in JS una const
+// non esiste prima della sua riga — chiamarla sopra dà un errore di zona morta.
+// ⚠ NELLO ZOO LA SCALA PARTE A MANO, ferma sul gradino migliore: qui si guarda,
+// non si gioca, e una scala che si muove da sola cambierebbe la scena sotto gli
+// occhi mentre si sta confrontando due scatti. K la fa scendere di un gradino.
+const scala = new ScalaQualita({
+  mobile: rig.dispositivo.mobile,
+  applica: (p) => rig.applicaProfilo(p, { erba, particelle }),
+});
+scala.fissa(0);
+// ⚠ E QUANTO VA LO SCHERMO SI MISURA, non si chiede: `screen.refreshRate` non
+// esiste in Chrome e tornava `undefined`. Arriva dopo una quarantina di
+// fotogrammi, che è comunque prima che la scala possa decidere qualcosa.
+misuraHz().then((hz) => scala.impostaHz(hz));
 
 // ---- le luci delle piazzole -------------------------------------------------
 // ⚠ SI ACCENDONO DA UNA TABELLA, e le mobili si ricordano da sole dove stavano:
@@ -105,6 +124,7 @@ addEventListener('keydown', (e) => {
   // Senza un interruttore così, «funziona» resta un'opinione.
   else if (e.code === 'KeyV') rig.voxel.attiva = !rig.voxel.attiva;
   else if (e.code === 'KeyN') particelle.mostra(!particelle.accese);
+  else if (e.code === 'KeyK') scala.fissa((scala.livello + 1) % scala.quanti);
 });
 let raggiSalvati = null;
 function scambiaLuci(accese) {
@@ -143,11 +163,13 @@ rig.avvia((dt) => {
   stato.textContent =
     `ZOO — ${quale + 1}/${PIAZZOLE.length}  ${pz.nome}\n` +
     `${pz.nota}\n\n` +
-    `${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}   erba ${erba.fili.toLocaleString('it')}   ` +
+    `${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}   erba ${(erba.attiva ? erba.fili : 0).toLocaleString('it')}   ` +
     `luci ${rig.luci.accese}   particelle ${particelle.vive}${particelle.suGPU ? ' (GPU)' : ''}\n` +
-    `griglia muri ${rig.voxel.attiva ? `${rig.voxel.larghezza}×${rig.voxel.altezza}×${rig.voxel.profondita}` : 'staccata'}\n` +
+    `griglia muri ${rig.voxel.attiva ? `${rig.voxel.larghezza}×${rig.voxel.altezza}×${rig.voxel.profondita}` : 'staccata'}   ` +
+    `${rig.dispositivo.mobile ? 'MOBILE' : 'desktop'} q${scala.livello}/${scala.quanti - 1}   ` +
+    `${rig.motore.getRenderWidth()}×${rig.motore.getRenderHeight()}\n` +
     `← → piazzola   ↑ ↓ ora   spazio ciclo   G erba   L luci   O ombre del sole\n` +
-    `V ombre delle lampade   N particelle   I ispettore`;
+    `V ombre delle lampade   N particelle   K qualità   I ispettore`;
 });
 
-globalThis.ZOO = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, particelle, PIAZZOLE, vaiA };
+globalThis.ZOO = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, particelle, scala, PIAZZOLE, vaiA };

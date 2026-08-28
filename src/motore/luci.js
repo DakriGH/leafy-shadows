@@ -301,45 +301,59 @@ export const GLSL_OMBRA_VOXEL = `
   }
 `;
 
-export const GLSL_LUCI_ACCUMULO = `
+/**
+ * L'ACCUMULO DELLE LAMPADE, in due varianti.
+ *
+ * ⚠ E SONO DUE STRINGHE, NON UN `if`, ed è la lezione mobile di Leafy-Lantern
+ * scritta là per esteso: «SPEGNERE UNA COSA CON UN if NON LA SPEGNE». Su una
+ * GPU MOBILE il compilatore riserva i registri per il caso peggiore anche nei
+ * rami che non esegue, e con tanti registri per thread scendono i thread in
+ * volo: lo shader va piano ANCHE quando non fa niente. È il motivo per cui
+ * laggiù abbassare la risoluzione non spostava gli fps — non erano i pixel, era
+ * l'occupancy. E il cammino nei voxel è il termine più caro del nostro
+ * fragment: misurato su Mali-G68, in Lantern, ~30% degli fps.
+ *
+ * Quindi con `conOmbre = false` il cammino non c'è proprio: niente `texelFetch`,
+ * niente ciclo da ventotto passi, niente registri riservati.
+ *
+ * ⚠ E SI DECIDE ALLA CREAZIONE DEL MATERIALE, non a caldo. Verificato leggendo
+ * il sorgente e provandolo: `CustomMaterial.Builder` mette il sorgente in cache
+ * e torna subito se lo trova; e anche svuotando quella cache il motore tiene
+ * l'effetto già compilato — misurato, il sorgente a schermo non cambia.
+ */
+export function glslAccumuloLuci(conOmbre) {
+  return `
   vec3 lampade = vec3(0.0);
-  // ⚠ LA GRIGLIA C'È? Il ripiego è ONESTO e non un caso da nascondere: senza
-  // griglia le sfere tornano ad attraversare i muri esattamente come prima che
-  // l'occlusione esistesse — mondo vuoto, scheda che non regge il lato della
-  // texture, o zoo con l'interruttore spento.
-  bool conOmbre = uVoxMin.w > 0.5;
   for (int i = 0; i < ${LUCI_MAX}; i++) {
     if (float(i) >= uLuciNum) break;
     vec4 lampada = uLuciPos[i];
     if (lampada.w <= 0.0) continue;
     vec3 dv = vPositionW - lampada.xyz;
-    // ⚠ LA DISTANZA È DALLA SCATOLA, NON DAL CENTRO, ed è tutto quello che
-    // serve per le luci ad area e quadrate: coi semi-lati a zero il conto
-    // ritorna «length(dv)», cioè la lampada a punto di sempre, senza un ramo.
-    // ⚠ MAI NOMI DI UNA LETTERA IN GLSL INNESTATO, e questo è costato uno
-    // «'2.71828' : syntax error» a schermo vuoto. Avevo chiamato questa
-    // variabile «E»; Babylon, nel blocco della NEBBIA, emette
-    // «#define E 2.71828». Il preprocessore l'ha sostituita ovunque e la riga è
-    // diventata «vec3 2.71828 = ...». Lo shader innestato vive in mezzo a
-    // duemila righe altrui piene di macro: qui i nomi si prefissano.
+    // ⚠ MAI NOMI DI UNA LETTERA IN GLSL INNESTATO: Babylon, nel blocco della
+    // nebbia, emette «#define E 2.71828». Il preprocessore non conosce ambiti.
     vec3 semiLati = uLuciEst[i].xyz;
+    // ⚠ LA DISTANZA È DALLA SCATOLA, NON DAL CENTRO: coi semi-lati a zero il
+    // conto ritorna «length(dv)», cioè la lampada a punto, senza un ramo. È
+    // così che si fanno le luci ad area, i neon e quelle quadrate con una
+    // primitiva sola.
     vec3 fuori = max(abs(dv) - semiLati, vec3(0.0));
     float d2 = dot(fuori, fuori);
     if (d2 >= lampada.w * lampada.w) continue;
     float d = sqrt(d2);
-    // ⚠ IL CAMMINO SI PAGA SOLO DENTRO LA SFERA E SOLO SE LA LAMPADA È PESANTE:
-    // è per questo che il costo segue la SOVRAPPOSIZIONE delle pozze e non il
-    // numero di lampade a schermo — un pixel dentro una sola pozza cammina una
-    // volta sola, per lunga che sia la fila di lampioni.
-    // ⚠ E PARTE DAL PUNTO PIÙ VICINO DELLA SCATOLA, non dal centro: da una luce
-    // ad area il raggio d'ombra deve nascere sul pannello, se no un neon lungo
-    // sei blocchi proietterebbe come se fosse tutto nel suo punto di mezzo.
-    // Con i semi-lati a zero il «clamp» non fa niente e si torna al centro.
-    vec3 sorgente = lampada.xyz + clamp(dv, -semiLati, semiLati);
-    if (conOmbre && uLuciOmbra[i] > 0.5 && d > 1e-4
-        && ombraVoxel(sorgente + uCamPos, (vPositionW - sorgente) / d, d)) continue;
+${conOmbre ? `    // ⚠ IL CAMMINO SI PAGA SOLO DENTRO LA SFERA E SOLO SE LA LAMPADA È PESANTE:
+    // il costo segue la SOVRAPPOSIZIONE delle pozze, non il numero di lampade a
+    // schermo — un pixel dentro una sola pozza cammina una volta sola, per lunga
+    // che sia la fila di lampioni.
+    // ⚠ E PARTE DAL PUNTO PIÙ VICINO DELLA SCATOLA: da una luce ad area il
+    // raggio d'ombra deve nascere sul pannello, se no un neon lungo sei blocchi
+    // proietterebbe come se fosse tutto nel suo punto di mezzo.
+    if (uVoxMin.w > 0.5 && uLuciOmbra[i] > 0.5 && d > 1e-4) {
+      vec3 sorgente = lampada.xyz + clamp(dv, -semiLati, semiLati);
+      if (ombraVoxel(sorgente + uCamPos, (vPositionW - sorgente) / d, d)) continue;
+    }` : '    // (qui vive il cammino nei voxel: su mobile non viene compilato)'}
     float caduta = 1.0 - d / lampada.w;
     float banda = ceil(caduta * ${BANDE_LUCE.toFixed(1)}) / ${BANDE_LUCE.toFixed(1)};
     lampade += uLuciCol[i] * banda;
   }
 `;
+}

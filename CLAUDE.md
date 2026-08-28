@@ -272,6 +272,85 @@ sia caricato. Stessa famiglia della trappola degli shader.
   `@babylonjs/core` **esterno** (se no l'ispettore guarda una scena che non è la
   nostra). Il gioco resta zero-build.
 
+## ⚠ MOBILE: perché faceva 6 fps, e cosa lo decide adesso
+
+Il committente, sul suo telefono: **6–7 fps**, mentre sul PC andava meglio di
+Leafy-Lantern. Non era un difetto: era una configurazione da desktop — l'unica
+che esistesse — fatta girare su un chip con un decimo della banda e tre volte i
+pixel. Non c'era **nessuna** distinzione per dispositivo.
+
+⚠ **E il telefono non si misura da questa macchina.** Qui il vsync copre tutto:
+per vedere una differenza ho dovuto salire a 17,4 milioni di pixel. Quindi i
+numeri di partenza NON vengono da misure mie — vengono da Lantern, che una scala
+mobile ce l'ha, tarata su hardware vero.
+
+**Le tre cose che costano, in ordine:**
+1. **I pixel.** Un telefono ha DPR 2,5–3,5: a schermo intero sono 6–12× i pixel
+   di un desktop. Da Lantern: *«il cap del pixel ratio è il singolo fattore che
+   pesa di più sui fps»*. Qui non c'era **nessun cap** — `adaptToDeviceRatio`
+   acceso e basta, cioè si renderizzava a DPR pieno.
+2. **Le cascate d'ombra.** Misurato qui a 17,4 Mpixel: da 4 cascate a 2 valgono
+   **1,5 ms**, il filtro PCF solo 0,5. Non è il campionamento — ogni cascata è
+   un *render* della scena in una mappa di profondità. 4 × 2048² sono 16,8 M
+   pixel di profondità per fotogramma, oltre alla scena.
+3. **Le ombre delle lampade.** Da Lantern, misurato su Mali-G68: **~30% di fps**.
+
+### ⚠ SU MOBILE UN `if` NON SPEGNE NIENTE
+È la lezione più importante, e viene da Lantern: su una GPU mobile il
+compilatore riserva i registri per il caso peggiore **anche nei rami che non
+esegue**, e con tanti registri per thread scendono i thread in volo. Lo shader va
+piano *anche quando non fa niente* — è il motivo per cui laggiù abbassare la
+risoluzione non spostava gli fps: non erano i pixel, era l'*occupancy*.
+Quindi il cammino nei voxel non sta dentro un `if`: su mobile **non viene
+compilato** (`glslAccumuloLuci(conOmbre)` in `luci.js`). Verificato leggendo il
+sorgente compilato: niente `ombraVoxel`, niente `texelFetch`, niente `uLuciOmbra`.
+
+⚠ **E si decide all'AVVIO, non a caldo.** `CustomMaterial.Builder` mette il
+sorgente in cache e torna subito se lo trova; e anche svuotando quella cache il
+motore tiene l'effetto già compilato — **misurato**: cambiando l'innesto e
+sporcando il materiale, il sorgente a schermo non cambia.
+
+### Le opzioni di Babylon che si usano (e quelle che NON vanno bene)
+- `engine.setHardwareScalingLevel(n)` — la leva principale. ⚠ **Vuole un
+  `resize()` esplicito**: senza, non fa niente e non si lamenta. Ci ho perso una
+  misura intera credendo fosse il vsync.
+- `ShadowGenerator.mapSize` e `CascadedShadowGenerator.numCascades` — settabili
+  a caldo, ricreano la mappa. ⚠ Il minimo è **2** (`MIN_CASCADES_COUNT`) e il
+  setter fa `Math.max` in silenzio: sotto si spegne l'ombra, non si scende.
+- `preserveDrawingBuffer` — ⚠ **spento su mobile**: dice al driver di conservare
+  il framebuffer a fine fotogramma, e su una GPU a tile (tutte quelle dei
+  telefoni) impedisce di scartarlo. Serve solo agli scatti di confronto.
+- La perdita del contesto WebGL la gestisce **Babylon da sé** (registra
+  `webglcontextlost` e chiama `preventDefault`, la riga senza cui la tela resta
+  nera per sempre). In Lantern era codice nostro; qui non serve.
+- ⚠ **`ScenePerformancePriority` NON va bene qui**, e vale la pena dire perché:
+  `Aggressive` accende `skipFrustumClipping`, cioè spegne il culling — e noi ci
+  viviamo sopra (30 mesh attive su 98). E *tutti e due* i livelli spengono
+  `autoClear`, mentre il nostro cielo **è** il colore di sfondo: senza clear si
+  spalma. È un pacchetto, e due dei suoi pezzi sono sbagliati per un gioco così.
+- `SceneOptimizer` esiste ed è lo scheletro giusto (misura, scala per priorità),
+  ma i suoi passi sono grossolani — ombre sì/no, particelle sì/no — e non sa
+  niente delle tre cose che ci costano davvero. La scala qui fa lo stesso
+  mestiere con le manopole nostre, e la sua parte difficile (quando scendere e
+  quando risalire) è provata in Node: `test/adatta.test.mjs`.
+
+### La scala (`motore/qualita.js` + `gioco/adatta.js`)
+Sei gradini su mobile, cinque su desktop, in **tabella**. Il bersaglio è
+`min(schermo, 60)`: puntare al tetto di un pannello a 144 Hz vorrebbe dire non
+arrivarci mai e scendere per sempre. Si scende dopo 3 misure, si risale dopo 8, e
+**si ricorda il gradino che non ha retto** per un minuto — senza quella memoria
+la scala oscilla, che è il difetto che nasce insieme alla cura.
+⚠ E i primi 4 secondi non si giudicano: all'avvio ci sono worldgen, mesh (456
+ms) e compilazione degli shader, e una scala che guardasse lì precipiterebbe in
+fondo su qualunque macchina.
+⚠ `screen.refreshRate` **non esiste in Chrome**: tornava `undefined` e il
+ripiego a 60 funzionava per caso. Adesso si misura dal ritmo dei fotogrammi.
+
+**K** cicla la qualità a mano (nel gioco e nello zoo). L'HUD dice classe del
+dispositivo, gradino, pixel veri, cascate, se le lampade hanno l'ombra e il nome
+della scheda — perché sul telefono non c'è una console, e senza quei numeri
+«va piano» resta un'opinione.
+
 ## Cosa è già cambiato in meglio, con i numeri
 
 | | Lantern (three, a mano) | Shadows (Babylon) |

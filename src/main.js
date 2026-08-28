@@ -19,6 +19,7 @@ import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
 import { mira, posabile, raggiungibile, portataRaggio } from './gioco/mira.js';
 import { Cantiere, CASSETTA } from './gioco/cantiere.js';
+import { ScalaQualita, misuraHz } from './motore/qualita.js';
 
 const tela = document.getElementById('tela');
 const stato = document.getElementById('stato');
@@ -52,7 +53,13 @@ rig.camera.setTarget(new (rig.camera.target.constructor)(0, cima, 0));
 // ---- l'erba ----------------------------------------------------------------
 // ⚠ IL TETTO È QUELLO MISURATO SU LANTERN, non «il più alto che regge»: il caso
 // peggiore vero (anello a passo pieno tutto a erba, densità 8) sta sotto 450k.
-const erba = new Erba(rig.scena, { max: 500000, densita: 7.8, raggioChunk: 6 });
+// ⚠ MA SU MOBILE IL TETTO SI ABBASSA, e non è la stessa cosa della densità: il
+// tetto è quanto BUFFER si alloca, cioè memoria di GPU che si paga anche se non
+// la si riempie mai. Mezzo milione di lamelle sono 10,5 MB di attributi.
+const erba = new Erba(rig.scena, {
+  max: rig.dispositivo.mobile ? 120000 : 500000,
+  densita: rig.profilo.erba, raggioChunk: rig.profilo.erbaR,
+});
 
 // ---- chi cammina ------------------------------------------------------------
 const passeggero = new Passeggero(mondo, { x: 0.5, y: cima + 1, z: 0.5 });
@@ -146,6 +153,22 @@ addEventListener('pointerdown', (e) => {
   }
 });
 
+// ---- la scala di qualità ----------------------------------------------------
+// ⚠ ESISTE PERCHÉ IL TELEFONO FACEVA SEI FOTOGRAMMI AL SECONDO mentre il PC
+// andava meglio di Leafy-Lantern. Non era un difetto: era una configurazione da
+// desktop su un chip con un decimo della banda e tre volte i pixel.
+// ⚠ E SI MISURA CON `screen` PERCHÉ IL BERSAGLIO NON È IL TETTO DEL PANNELLO:
+// vedi `gioco/adatta.js`.
+const scala = new ScalaQualita({
+  mobile: rig.dispositivo.mobile,
+  applica: (p) => rig.applicaProfilo(p, { erba }),
+});
+scala.avvia();
+// ⚠ E QUANTO VA LO SCHERMO SI MISURA, non si chiede: `screen.refreshRate` non
+// esiste in Chrome e tornava `undefined`. Arriva dopo una quarantina di
+// fotogrammi, che è comunque prima che la scala possa decidere qualcosa.
+misuraHz().then((hz) => scala.impostaHz(hz));
+
 // ---- il ciclo del giorno ----------------------------------------------------
 const giorno = new Giorno(rig, { durata: 300, ora: 0.42 });
 
@@ -161,6 +184,12 @@ addEventListener('keydown', (e) => {
   else if (e.code === 'KeyQ' && bersaglio) cantiere.rompi(...bersaglio.cella);
   else if (e.code === 'KeyE' && bersaglio && posabile(mondo, bersaglio.prima, passeggero)) cantiere.posa(...bersaglio.prima);
   else if (e.code === 'KeyR') cantiere.scegli(cantiere.scelto + (e.shiftKey ? -1 : 1));
+  // ⚠ K FISSA LA QUALITÀ A MANO, e serve per PROVARE: senza, per vedere il
+  // gradino più basso bisogna trovare una macchina che soffra davvero.
+  else if (e.code === 'KeyK') {
+    if (scala.adatta.manuale && scala.livello >= scala.quanti - 1) scala.libera();
+    else scala.fissa(scala.adatta.manuale ? scala.livello + 1 : 0);
+  }
   else if (e.code.startsWith('Digit')) {
     const n = Number(e.code.slice(5));
     if (n >= 1 && n <= 9) cantiere.scegli(n - 1);
@@ -188,16 +217,29 @@ function aggiornaStato() {
   // più niente — sessanta fps sono sessanta sia che si lavori un millisecondo
   // sia che se ne lavorino quindici. Il ms del p99 è quello che si SENTE.
   const fps = Math.round(1000 / s[s.length >> 1]);
+  // ⚠ LA SCALA GUARDA IL p50, NON LA MEDIA: una media si lascia tirare su da
+  // una raffica di fotogrammi buoni mentre il gioco singhiozza — è l'errore che
+  // in Lantern mi ha fatto dire «va bene» per una giornata intera.
+  scala.osserva(fps, ora);
   spia.textContent = `${fps} fps\n${p(0.5)} / ${p(0.99)} ms`;
   stato.textContent =
     `p50 ${p(0.5)} ms   p99 ${p(0.99)} ms\n` +
     `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}\n` +
     `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
-    `erba ${erba.fili.toLocaleString('it')} lamelle   luci ${rig.luci.accese}\n` +
+    `erba ${(erba.attiva ? erba.fili : 0).toLocaleString('it')} lamelle   luci ${rig.luci.accese}\n` +
     `alberi ${alberiPosati}/${alberi.length}   lampioni ${lampioniPosati}\n` +
+    // ⚠ QUESTE TRE RIGHE SERVONO SUL TELEFONO, dove non c'è una console: la
+    // classe del dispositivo, la scheda, i pixel veri e il gradino. Senza, «va
+    // piano» resta un'opinione e io lavoro alla cieca.
+    `\n${rig.dispositivo.mobile ? 'MOBILE' : 'desktop'}  q${scala.livello}/${scala.quanti - 1}` +
+    `${scala.adatta.manuale ? ' (a mano)' : ''}  ${rig.motore.getRenderWidth()}×${rig.motore.getRenderHeight()}` +
+    `  dpr ${devicePixelRatio}\n` +
+    `ombre ${rig.profilo.sole ? rig.ombre.numCascades + '×' + rig.profilo.mappa : 'no'}` +
+    `  lampade ${rig.fissi.ombreLampade ? 'con ombra' : 'senza'}` +
+    `  ${rig.scheda.software ? '⚠ SOFTWARE' : rig.scheda.nome.slice(0, 28)}\n` +
     `\n${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}   in mano: ${cantiere.nomeScelto}\n` +
     `sinistro rompe · destro posa · centrale copia   1-9 / R sceglie\n` +
-    `, . ora   P ferma il ciclo   I ispettore`;
+    `, . ora   P ferma il ciclo   K qualità   I ispettore`;
 }
 
 rig.avvia((dt) => {
@@ -222,4 +264,4 @@ rig.avvia((dt) => {
 });
 
 // una manina per lavorarci sopra dall'ispettore e dalla console
-globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeggero, cantiere, generaOpenWorld };
+globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeggero, cantiere, scala, generaOpenWorld };

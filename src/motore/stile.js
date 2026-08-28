@@ -51,7 +51,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 // emette lei la riga `uniform vec4 uLuciPos[24];` e la concatena alle
 // definizioni del fragment. Dichiararle anche in `Fragment_Definitions` darebbe
 // una doppia dichiarazione e lo shader non compila.
-import { LUCI_MAX, GLSL_LUCI_ACCUMULO, GLSL_OMBRA_VOXEL } from './luci.js';
+import { LUCI_MAX, glslAccumuloLuci, GLSL_OMBRA_VOXEL } from './luci.js';
 
 /** I gradini dell'ombra. In Leafy-Lantern è `BANDE_LUCE` in config.js, e sono
  *  «i gradini che il committente ha indicato come metro della nettezza». */
@@ -124,7 +124,6 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   // si lega nell'osservabile qui sotto.
   m.AddUniform(`uLuciPos[${LUCI_MAX}]`, 'vec4');
   m.AddUniform(`uLuciCol[${LUCI_MAX}]`, 'vec3');
-  m.AddUniform(`uLuciOmbra[${LUCI_MAX}]`, 'float');
   m.AddUniform(`uLuciEst[${LUCI_MAX}]`, 'vec4');   // semi-lati: area, neon, cubo
   m.AddUniform('uLuciNum', 'float');
   // ---- la griglia dei muri, per le lampade che proiettano -------------------
@@ -132,8 +131,17 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   // shader che non compila fa sparire la mesh in silenzio (è già successo tre
   // volte in questo progetto). Senza griglia le lampade tornano ad attraversare
   // i muri: brutto, ma è un ripiego che si vede, non un guasto muto.
-  const conVoxel = rig.motore.webGLVersion >= 2;
+  // ⚠ DUE CONDIZIONI, NON UNA. WebGL2 è un requisito tecnico (`sampler3D` e
+  // `texelFetch` in WebGL1 non esistono, e uno shader che non compila fa
+  // sparire la mesh in silenzio). `fissi.ombreLampade` è invece una SCELTA di
+  // qualità, presa all'avvio dalla classe del dispositivo: su mobile il cammino
+  // non si compila proprio, perché lì un `if` non lo spegnerebbe (vedi
+  // `qualita.js` e `luci.js`).
+  const conVoxel = rig.motore.webGLVersion >= 2 && rig.fissi.ombreLampade;
   if (conVoxel) {
+    // ⚠ QUESTA SI DICHIARA SOLO COL CAMMINO: senza, sarebbe una uniform che
+    // nessuno legge, e legarla a ogni disegno sarebbe lavoro per niente.
+    m.AddUniform(`uLuciOmbra[${LUCI_MAX}]`, 'float');
     // ⚠ «highp», E NON È PIGNOLERIA: in GLSL ES 3.0 un `sampler3D` NON ha una
     // precisione di fabbrica (il `sampler2D` sì, ma solo nel fragment), e
     // `AddUniform` scrive la riga in TUTTI E DUE gli shader — quindi l'errore
@@ -163,13 +171,13 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
       // Un `sampler3D` dichiarato e mai legato dà nero — cioè «niente muri», che
       // è il ripiego giusto ma non quello che si voleva.
       if (v.texture) e.setTexture('uVox', v.texture);
+      e.setArray('uLuciOmbra', rig.luci.ombra);
     }
     // ⚠ RELATIVE ALLA CAMERA, non assolute: vedi `luci.js`. L'origine mobile
     // trasla tutto, e una luce in coordinate di mondo finisce a chilometri di
     // distanza da dove crede di essere.
     e.setArray4('uLuciPos', rig.luci.perLoShader(rig.camera));
     e.setArray3('uLuciCol', rig.luci.col);
-    e.setArray('uLuciOmbra', rig.luci.ombra);
     e.setArray4('uLuciEst', rig.luci.est);
     e.setFloat('uLuciNum', rig.luci.quante);
   });
@@ -281,7 +289,7 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   m.Fragment_Before_FragColor(`
     float sole = clamp(diffuseBase.r, 0.0, 1.0) * facciaAlSole;
     sole = floor(sole * ${BANDE.toFixed(1)} + 0.5) / ${BANDE.toFixed(1)};
-    ${GLSL_LUCI_ACCUMULO}
+    ${glslAccumuloLuci(conVoxel)}
     // ⚠ LE LAMPADE SI SOMMANO DOPO L'OMBRA, non dentro: una lampada accesa deve
     // illuminare anche quello che sta all'ombra del sole. È il motivo per cui
     // di notte, sotto un lampione, in Leafy si vede.
