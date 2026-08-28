@@ -51,24 +51,6 @@ export const DECORAZIONI = {
     altezza: 4.2, mezza: 0.7,
     cima: 0x4f9e46, lato: 0x7a5230, fondo: 0x6a4526,
   },
-  // ⚠ IL CIUFFO È L'ERBA CHE SI PIAZZA A MANO, ed è una cosa DIVERSA dal prato:
-  // committente, «manca la possibilità di piazzare e togliere l'erba (inteso
-  // erba erba, non il blocco)». Il prato lo semina il motore attorno al
-  // giocatore, è procedurale e non si tocca: nasce dove c'è un blocco d'erba e
-  // muore col blocco. Questo invece è un oggetto — si posa dove si vuole, anche
-  // sulla pietra, e resta lì.
-  ciuffo: {
-    nome: 'Ciuffo d\'erba', modello: 'ciuffo',
-    // ⚠ BASSO E LARGHETTO: la scatola per mirarlo deve essere presa col dito,
-    // e un ciuffo alto trenta centimetri con una scatola alta trenta centimetri
-    // non si prende mai.
-    altezza: 0.9, mezza: 0.45,
-    cima: 0x64bb4f, lato: 0x4c9e40, fondo: 0x43943c,
-    // ⚠ NIENTE OMBRA: è alto nove decimi di blocco, la sua ombra è un trattino
-    // che nessuno guarda, e in cambio sarebbe geometria disegnata in ogni
-    // cascata della mappa. È la stessa scelta del prato, che non proietta.
-    proietta: false,
-  },
 };
 
 /**

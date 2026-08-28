@@ -18,7 +18,7 @@ import { generaOpenWorld } from './world/worldgen.js';
 import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
 import { miraCompleta, posabile, raggiungibile, portataRaggio } from './gioco/mira.js';
-import { Cantiere, CASSETTA, NOME_AZIONE } from './gioco/cantiere.js';
+import { Cantiere, CASSETTA, NOME_AZIONE, ATTREZZI } from './gioco/cantiere.js';
 import { Decoro } from './gioco/decoro.js';
 import { registraDecorazioni, DECORAZIONI } from './world/decorazioni.js';
 import { ascoltaClic } from './gioco/puntatore.js';
@@ -248,8 +248,10 @@ let bersaglio = null;
 // introduce uno scarto: fra l'ultimo disegno e il clic la camera può essersi
 // mossa, e si rompe un blocco diverso da quello che aveva il mirino addosso.
 // Quello che si vede evidenziato è quello che si rompe, per costruzione.
-/** Cosa farà il prossimo clic: 'rompi' | 'posa' | 'interagisci' | null. */
+/** Cosa farà il prossimo clic: 'rompi' | 'posa' | 'interagisci' | 'pianta' | 'rasa' | null. */
 let cosaFa = null;
+/** La cella su cui agisce l'erbetta: quella d'aria sopra il blocco puntato. */
+let cellaErba = null;
 
 function aggiornaMira() {
   const r = rig.raggioDaPuntatore(puntatore.x, puntatore.y);
@@ -266,7 +268,14 @@ function aggiornaMira() {
                               : b.cella && raggiungibile(b.cella, passeggero));
   if (dentro) {
     bersaglio = b;
-    cosaFa = cantiere.azione(decoro.interattivo(b.dato), demolisce());
+    // ⚠ L'ERBETTA VIVE SOPRA IL BLOCCO, non dentro: si punta un blocco e si
+    // agisce sulla cella d'aria che ha sopra, che è dove i fili crescono.
+    // Vale qualunque faccia si stia colpendo — puntare il fianco di una
+    // terrazza e vedersi piantare l'erba di lato sarebbe incomprensibile.
+    cellaErba = b.dato ? b.dato.cella
+      : (b.cella ? [b.cella[0], b.cella[1] + 1, b.cella[2]] : null);
+    const fili = cellaErba && erba.haFili(cellaErba[0], cellaErba[1], cellaErba[2], mondo);
+    cosaFa = cantiere.azione(decoro.interattivo(b.dato), demolisce(), fili);
     // ⚠ E «posa» SI DECLASSA A NIENTE SE NON C'È DOVE POSARE: la cella davanti
     // può essere occupata, o può essere addosso al giocatore (murarsi da soli è
     // il primo modo in cui un gioco a blocchi si rompe). Meglio un mirino che
@@ -278,7 +287,8 @@ function aggiornaMira() {
   // ⚠ IL MIRINO DICE ANCHE COSA SUCCEDERÀ, col colore: bianco = si rompe,
   // verde = si posa, giallo = si accende. È l'unico modo per non dover
   // indovinare quale delle due celle sta per essere toccata.
-  const COLORE = { rompi: [1, 1, 1], posa: [0.55, 1, 0.6], interagisci: [1, 0.86, 0.45] };
+  const COLORE = { rompi: [1, 1, 1], posa: [0.55, 1, 0.6], interagisci: [1, 0.86, 0.45],
+                   pianta: [0.45, 1, 0.4], rasa: [1, 0.6, 0.35] };
   // ⚠ IL MIRINO VA SULLA CELLA DELLA DECORAZIONE quando è lei il bersaglio: se
   // no evidenzia il terreno DIETRO l'albero e sembra che si stia per rompere
   // quello — cioè mente proprio nel momento in cui deve chiarire.
@@ -288,6 +298,11 @@ function aggiornaMira() {
   // che un blocco d'erba abbia il cappello si vede prima di cliccare, non dopo.
   fabbrica.muoviAnteprima(anteprima, cosaFa === 'posa' ? formaDi(cantiere.tipoScelto) : null,
     cosaFa === 'posa' ? bersaglio.prima : null);
+  // ⚠ E IL MIRINO SI SPOSTA SULLA CELLA DELL'ERBETTA quando è lei il bersaglio:
+  // se restasse sul blocco sotto direbbe il posto sbagliato di un'unità.
+  if ((cosaFa === 'pianta' || cosaFa === 'rasa') && cellaErba) {
+    fabbrica.muoviMirino(mirino, cellaErba, COLORE[cosaFa]);
+  }
 }
 
 // ⚠ LE FORME SI TENGONO DA PARTE: `geometriaSingola` ricostruisce il blocco da
@@ -336,6 +351,10 @@ function agisci() {
   if (cosaFa === 'interagisci') { decoro.alterna(bersaglio.dato); applicaLuciDecoro(); tocca(); }
   else if (cosaFa === 'rompi') cantiere.rompi(...(bersaglio.dato ? bersaglio.dato.cella : bersaglio.cella));
   else if (cosaFa === 'posa') cantiere.posa(...bersaglio.prima);
+  // ⚠ L'ERBETTA NON TOCCA IL MONDO: è vegetazione, non un blocco. Il mondo non
+  // sa che esista, ed è giusto così — sono due cose diverse.
+  else if (cosaFa === 'pianta' && cellaErba) { erba.togliRasa(cellaErba[0], cellaErba[2]); erba.posa(...cellaErba); tocca(); }
+  else if (cosaFa === 'rasa' && cellaErba) { erba.rasa(cellaErba[0], cellaErba[2]); tocca(); }
 }
 
 /**
@@ -434,8 +453,10 @@ misuraHz().then((hz) => scala.impostaHz(hz));
 // ---- la barra in mano -------------------------------------------------------
 const barra = new Barra({
   cassetta: CASSETTA,
-  colorePer: (t) => '#' + defDi(t).cima.toString(16).padStart(6, '0'),
-  nomePer: (t) => defDi(t).nome,
+  // ⚠ UN ATTREZZO NON È UN BLOCCO: nome e colore vengono dalla sua tabella,
+  // non da `defDi`, che per «erbetta» non saprebbe niente.
+  colorePer: (t) => '#' + (ATTREZZI[t] ? ATTREZZI[t].colore : defDi(t).cima).toString(16).padStart(6, '0'),
+  nomePer: (t) => (ATTREZZI[t] ? ATTREZZI[t].nome : defDi(t).nome),
   onScegli: (i) => cantiere.scegli(i),
 });
 
@@ -606,7 +627,8 @@ rig.avvia((dt) => {
   // mano vuota», che nomina la MANO: guardando un ciuffo in mezzo all'erba non
   // si sapeva se si stesse per rompere lui o il blocco sotto. Adesso quando il
   // bersaglio è una decorazione si chiama per nome.
-  const nomeBersaglio = bersaglio && bersaglio.dato
+  const nomeBersaglio = (cosaFa === 'pianta' || cosaFa === 'rasa') ? 'erbetta'
+    : bersaglio && bersaglio.dato
     ? defDi(bersaglio.dato.tipo).nome
     : (cosaFa === 'rompi' && bersaglio && bersaglio.cella && mondo.tipo(...bersaglio.cella)
         ? defDi(mondo.tipo(...bersaglio.cella)).nome

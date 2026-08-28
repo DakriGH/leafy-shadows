@@ -186,6 +186,16 @@ export function fissiDiAvvio(dispositivo) {
     // Lantern, misurato su Mali-G68, il cammino nei voxel costa ~30% degli fps.
     // E non basta spegnerlo con un `if` — non deve essere compilato.
     ombreLampade: !dispositivo.mobile,
+    // ⚠ L'ACQUA RICCA È UNA LETTURA IN PIÙ PER FRAMMENTO, e la sua compagnia:
+    // la deriva che rompe il ripetersi della tessitura, il riflesso della luna
+    // e la scintilla delle lampade. Su mobile si compila la variante povera —
+    // una lettura sola, solo il sole — e non è un `if`: è un altro sorgente.
+    // Stessa ragione del cammino nei voxel qui sopra, e stessa misura di
+    // Lantern dietro: su una GPU a tile il ramo non eseguito costa lo stesso.
+    // ⚠ E LA SCINTILLA DELLE LAMPADE SI SPEGNE INSIEME ALLE LORO OMBRE, che su
+    // mobile sono già spente: sarebbe l'unico punto in cui tornerebbero a
+    // costare, per un effetto che su uno schermo da sei pollici non si vede.
+    acquaRicca: !dispositivo.mobile,
     // ⚠ L'MSAA DEL CANVAS RESTA SPENTO SU MOBILE (quadruplica il riempimento),
     // MA FXAA NO — e la distinzione è tutta la partita. FXAA è UNA passata a
     // schermo intero: a 0,68 Mpixel non si sente. L'avevo spento «perché è una

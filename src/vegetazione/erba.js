@@ -37,6 +37,7 @@
 // FABBRICA, che ne fa istanze; il vento e il colore vivono nel materiale.
 import { paletteBlocco, coloreRampaChiaro } from '../world/stagioni.js';
 import { CHUNK } from '../world/world.js';
+import { defDi } from '../world/blocks.js';
 
 // la fabbrica di resa, iniettata da main
 let _r = null;
@@ -241,7 +242,26 @@ export class Erba {
     // quello fatto a mano era il peggiore dei due. Adesso il furni registra la
     // sua cella qui e a disegnarla e' questo sistema — stesse lamelle, stesso
     // vento, stessa ombra del sole, stesse luci, stesso congedo con la distanza.
-    this._posati = new Map();  // chiave(x,z) → { y }
+    /**
+     * L'ERBETTA È UNO STRATO SUO, SEPARATO DAL BLOCCO — ed è la correzione più
+     * importante di questo file. Committente: «è sbagliato che il blocco d'erba
+     * e l'erbetta siano la stessa cosa, sono 2 cose diverse».
+     *
+     * Fino a ora i fili ERANO il blocco: crescevano su ogni blocco d'erba e
+     * sparivano solo rompendolo. Quindi non si poteva né rasare un prato né
+     * piantare erba sulla pietra — due cose che in un gioco dove «tutto è un
+     * furniture» devono potersi fare.
+     *
+     * Adesso una cella può stare in tre stati:
+     *   · AUTOMATICA  (il caso normale: cresce se il blocco sotto è d'erba)
+     *   · POSATA      forzata SÌ, anche su pietra e anche a densità bassa
+     *   · RASATA      forzata NO, anche se il blocco sotto è d'erba
+     * Il mondo non sa niente di tutto questo: la vegetazione è un'altra cosa.
+     */
+    this._posati = new Map();  // chiave(x,z) → { y }   forzate SÌ
+    this._rasati = new Set();  // chiave(x,z)           forzate NO
+    /** ⚠ SALE A OGNI CAMBIO ED È NELLA CHIAVE DELLA CACHE: senza, i chunk già
+     *  seminati tornerebbero fuori identici e rasare non si vedrebbe. */
     this._verPosati = 0;
 
     // DUE BUFFER: si semina in quello di SCORTA e si scambia a lavoro finito.
@@ -370,7 +390,11 @@ export class Erba {
     for (let i = 0; i < qy.length; i++) {
       if (n >= this.max - LAMELLE_MAX) break;
       const x = ox + ((i / CHUNK) | 0), z = oz + (i % CHUNK);
-      const posato = this._posati.get(chiaveCella(x, z));
+      const kc2 = chiaveCella(x, z);
+      // ⚠ LA RASATURA VINCE SU TUTTO, anche su un ciuffo posato a mano: è
+      // l'ordine che ci si aspetta da un gesto che dice «via di qui».
+      if (this._rasati.has(kc2)) continue;
+      const posato = this._posati.get(kc2);
       let cima;
       if (posato) {
         // MESSO A MANO: sta dove l'hanno messo, su qualunque blocco e senza
@@ -702,6 +726,53 @@ sPos[j + 1] = y;
     if (!this._posati.delete(chiaveCella(x, z))) return;
     this._verPosati++;
     this.risemina();
+  }
+
+  /**
+   * RASA questa cella: niente fili, anche se il blocco sotto è d'erba.
+   * ⚠ È IL VERSO CHE MANCAVA. `posa` e `togliPosa` erano arrivate da Lantern e
+   * non le chiamava nessuno; ma sapevano solo AGGIUNGERE, e non c'era modo di
+   * togliere l'erbetta senza rompere il blocco.
+   */
+  rasa(x, z) {
+    const k = chiaveCella(x, z);
+    this._posati.delete(k);
+    if (this._rasati.has(k)) return false;
+    this._rasati.add(k);
+    this._verPosati++;
+    this.risemina();
+    return true;
+  }
+
+  /** Ricresca pure. */
+  togliRasa(x, z) {
+    if (!this._rasati.delete(chiaveCella(x, z))) return false;
+    this._verPosati++;
+    this.risemina();
+    return true;
+  }
+
+  /** In che stato è la vegetazione di questa cella: 'posato' | 'rasato' | 'auto'. */
+  statoCella(x, z) {
+    const k = chiaveCella(x, z);
+    if (this._rasati.has(k)) return 'rasato';
+    if (this._posati.has(k)) return 'posato';
+    return 'auto';
+  }
+
+  /**
+   * CI SONO FILI QUI? — la domanda che serve a chi deve decidere se piantare o
+   * rasare. ⚠ È un'APPROSSIMAZIONE dichiarata: il diradamento vero dipende
+   * anche dalla distanza e dal passo, che qui non si guardano. Vale per il caso
+   * che conta — sono davanti a un prato, ci clicco sopra — e sbagliare in
+   * lontananza non fa danno, perché rasare una cella senza fili non fa niente
+   * di visibile e piantarne una che li aveva già nemmeno.
+   */
+  haFili(x, y, z, mondo) {
+    const st = this.statoCella(x, z);
+    if (st !== 'auto') return st === 'posato';
+    const sotto = mondo.tipo(x, y - 1, z);
+    return !!(sotto && defDi(sotto).cappello);
   }
 
   risemina() { this._ccx = 1e9; this._ccz = 1e9; }

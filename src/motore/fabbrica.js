@@ -15,6 +15,7 @@ import { RawTexture3D } from '@babylonjs/core/Materials/Textures/rawTexture3D.js
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Prato } from './prato.js';
+import { Acqua } from './acqua.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { Mesh as MeshCostanti } from '@babylonjs/core/Meshes/mesh.js';
 import '@babylonjs/core/Meshes/Builders/capsuleBuilder.js';
@@ -84,9 +85,13 @@ export class Fabbrica {
     this.matMondo = applicaStilePiatto(new CustomMaterial('mondo', this.scena), rig, 'baseColor.rgb');
     this.matMondo.backFaceCulling = true;
 
-    this.matAcqua = applicaStilePiatto(new CustomMaterial('acqua', this.scena), rig, 'baseColor.rgb');
-    this.matAcqua.alpha = 0.72;
-    this.matAcqua.backFaceCulling = false;
+    // ---- L'ACQUA ------------------------------------------------------------
+    // ⚠ FINO A IERI ERA IL MATERIALE DEL MONDO CON L'ALFA A 0,72, cioè l'acqua
+    // NON aveva un aspetto suo: era terreno semitrasparente. E intanto il
+    // mesher le calcolava già corrente, tipo di faccia e distanza dalla sponda,
+    // che questa fabbrica buttava via a ogni chunk. Vedi `acqua.js`.
+    this.acqua = new Acqua(rig, { ricca: rig.fissi.acquaRicca });
+    this.matAcqua = this.acqua.materiale;
 
     this._conMappa = new Set();
     this._materiali = [this.matMondo, this.matAcqua];
@@ -194,6 +199,20 @@ export class Fabbrica {
     VertexData.ComputeNormals(vd.positions, vd.indices, nor);
     vd.normals = nor;
     vd.applyToMesh(mesh, true);         // `true` = aggiornabile: serve alla ritinta stagionale
+    // ---- I CANALI DELL'ACQUA -------------------------------------------------
+    // ⚠ QUESTI DUE ARRAY ESISTEVANO DA SEMPRE E NON SONO MAI ARRIVATI ALLA
+    // SCHEDA. Il mesher li riempie per ogni vertice d'acqua — corrente, tipo di
+    // faccia, distanza dalla sponda, apertura dello specchio — e qui si
+    // caricavano posizioni, colori e normali e basta. Nessun errore, nessun
+    // avviso: semplicemente l'acqua non poteva avere un aspetto suo, e il conto
+    // della riva (25 celle scandite per ogni cella d'acqua) si pagava per
+    // niente, a ogni rifacimento di chunk.
+    // ⚠ E SI CARICANO SOLO SE CI SONO: le mesh dei solidi non hanno questi
+    // canali, e dichiararli vuoti darebbe un buffer di lunghezza zero contro un
+    // attributo dichiarato nello shader — cioè il tipo di guasto muto che in
+    // questo progetto è già costato tre giornate.
+    if (dati.acq) mesh.setVerticesData('aAcqua', dati.acq, false, 3);
+    if (dati.riv) mesh.setVerticesData('aRiva', dati.riv, false, 2);
     mesh.setEnabled(true);
     // ⚠ IL LOD SI RIFÀ QUI E NON SOLO ALLA CREAZIONE: la sua soglia dipende dal
     // RAGGIO della mesh, e alla creazione la mesh è vuota — il raggio sarebbe
@@ -570,6 +589,10 @@ export class Fabbrica {
   // ⚠ LE LAMPADE NON HANNO BISOGNO DI ESSERE «AGGIORNATE»: ogni materiale se le
   // rilegge da `rig.luci` a ogni disegno (vedi `stile.js`). Accendere una
   // lampada è scrivere in quell'oggetto, e basta.
+
+  // ── l'acqua ───────────────────────────────────────────────────────────────
+  /** Una volta per fotogramma: il disegno che scorre, il cielo riflesso, la luna. */
+  animaAcqua(t) { this.acqua.anima(t); }
 
   // ── il prato ──────────────────────────────────────────────────────────────
   creaPrato(max) { const p = new Prato(this.scena, this.rig, max); this._materiali.push(p.materiale); return p; }

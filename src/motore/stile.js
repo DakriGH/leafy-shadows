@@ -101,8 +101,22 @@ export function aggiungiDefinizioniFragment(m, glsl) {
  *                     vertice esce BIANCA qualunque tinta le si dia — il
  *                     segnaposto del giocatore è uscito così. Per l'erba invece
  *                     si passa la sua sfumatura base→punta.
+ * @param luceExtra    GLSL (vec3) di LUCE AGGIUNTA, in spazio LINEARE, sommata
+ *                     dopo l'ombra e prima della nebbia. Serve all'acqua, e la
+ *                     distinzione fra «sommare» e «mescolare nel colore» non è
+ *                     un dettaglio: un luccichio del sole è luce che ARRIVA
+ *                     all'occhio, non tinta della superficie. Mescolandolo nel
+ *                     colore piatto verrebbe poi moltiplicato per l'ambiente e
+ *                     per il fattore d'ombra — cioè un riflesso dentro l'ombra
+ *                     di un albero uscirebbe grigio invece che bianco.
+ *                     ⚠ È in ambito con `sole` e con `lampade`: chi lo scrive
+ *                     decide da sé cosa l'ombra deve spegnere.
+ * @param alfa         GLSL (float) che PRENDE IL POSTO di `color.a`. Di fabbrica
+ *                     non si tocca. ⚠ Chi lo usa scavalca anche `visibility` e
+ *                     l'alfa del materiale: quella resta buona solo a dire a
+ *                     Babylon che la mesh va nella coda dei trasparenti.
  */
-export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiffuseColor.rgb', { facce = true, schiarisci = 1 } = {}) {
+export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiffuseColor.rgb', { facce = true, schiarisci = 1, luceExtra = null, alfa = null } = {}) {
   // niente riflesso speculare: su una faccia piatta si legge come vernice
   m.specularColor = Color3.Black();
   m.diffuseColor = Color3.White();
@@ -295,6 +309,7 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     // di notte, sotto un lampione, in Leafy si vede.
     vec3 lineare = pow(max(${lift}, vec3(0.0)), vec3(${GAMMA.toFixed(1)}));
     vec3 nostro = lineare * (uAmbiente * mix(uOmbraTinta, vec3(1.0), sole) + lampade);
+    ${luceExtra ? `nostro += ${luceExtra};` : '// (niente luce aggiunta: la somma serve solo al brillio dell acqua)'}
     // ⚠ E LA NEBBIA VA RIMESSA, perché questo innesto sta DOPO il suo. Babylon
     // stampa il blocco della nebbia sopra di noi e poi noi riscriviamo
     // «color.rgb» di sana pianta: la nebbia veniva calcolata e buttata via, e a
@@ -305,6 +320,7 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
       nostro = mix(pow(max(vFogColor, vec3(0.0)), vec3(${GAMMA.toFixed(1)})), nostro, fog);
     #endif
     color.rgb = pow(max(nostro, vec3(0.0)), vec3(${(1 / GAMMA).toFixed(6)}));
+    ${alfa ? `color.a = ${alfa};` : '// (alfa del materiale: la scrive per pixel solo l acqua)'}
   `);
   return m;
 }

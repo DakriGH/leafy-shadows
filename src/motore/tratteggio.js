@@ -49,15 +49,23 @@ export const LATO = 128;
  *
  *  · R «tratti»    6 × 22 → losanghe larghe il triplo di quanto sono alte,
  *                  orientate lungo u. È il disegno principale del pelo.
- *  · G «deriva»    3 × 3  → campo largo e lento: non si vede mai da solo, serve
+ *  · G «deriva»    5 × 5  → campo largo e lento: non si vede mai da solo, serve
  *                  a SPOSTARE il punto in cui si legge R. È il trucco che
  *                  rompe il ripetersi della tessitura: senza, a schermo si
  *                  legge la griglia da 128 e si vede il reticolo (è lo stesso
  *                  difetto dell'erba, «il tiling era un hash riusato»).
- *  · B «scintille» 30 × 30 → punti fini e fitti: il luccichio del sole non è
+ *  · B «scintille» 18 × 18 → punti fini e fitti: il luccichio del sole non è
  *                  una macchia, è polvere di luce.
  *  · A «chiazze»   9 × 9  → medio e isotropo: rompe il bordo della schiuma, che
  *                  se no sarebbe una curva di livello geometrica e si vedrebbe.
+ *
+ * ⚠ E QUESTI DUE NUMERI VENGONO DA UNA GUARDATA, non da un ragionamento: la
+ * prima stesura aveva la deriva a 3 (una macchia sola su tutta la tessitura:
+ * spostava tutto il campo insieme invece di deformarlo) e le scintille a 30 —
+ * cioè celle di rumore da quattro texel, che è rumore per pixel. Un campo così
+ * fine non si può filtrare: a distanza ogni pixel pesca una cella diversa a
+ * ogni fotogramma e l'acqua SFARFALLA. Le ho stampate come immagine e si vedeva
+ * subito; dedurlo dai numeri non mi era riuscito.
  *
  * ⚠ I PERIODI DEVONO DIVIDERE `LATO`, o il campo non si richiude: la cella a
  * cavallo della cucitura leggerebbe due angoli diversi e resterebbe una riga
@@ -68,8 +76,8 @@ export const LATO = 128;
  */
 const CANALI = [
   { pu: 6, pv: 22, ottave: 2, seme: 1 },     // R — i tratti
-  { pu: 3, pv: 3, ottave: 1, seme: 2 },      // G — la deriva
-  { pu: 30, pv: 30, ottave: 1, seme: 3 },    // B — le scintille
+  { pu: 5, pv: 5, ottave: 1, seme: 2 },      // G — la deriva
+  { pu: 18, pv: 18, ottave: 1, seme: 3 },    // B — le scintille
   { pu: 9, pv: 9, ottave: 2, seme: 4 },      // A — le chiazze
 ];
 

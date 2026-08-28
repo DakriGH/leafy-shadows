@@ -33,8 +33,28 @@ export const CASSETTA = [
   // ⚠ E ANCHE LE DECORAZIONI, perché sono blocchi come gli altri: da quando
   // alberi e lampioni vivono nel mondo (`world/decorazioni.js`) non c'è nessuna
   // ragione per cui debbano avere una strada tutta loro per essere posati.
-  'albero', 'lampione', 'ciuffo',
+  'albero', 'lampione',
+  // ⚠ E UN ATTREZZO, che non è un blocco: vedi `ATTREZZI`.
+  'erbetta',
 ];
+
+/**
+ * GLI ATTREZZI — cose che si tengono in mano e NON sono blocchi.
+ *
+ * ⚠ L'ERBETTA È IL PRIMO, ed esiste per una correzione del committente: «è
+ * sbagliato che il blocco d'erba e l'erbetta siano la stessa cosa, sono 2 cose
+ * diverse». Vero: fino a ora i fili ERANO il blocco — crescevano su ogni blocco
+ * d'erba e sparivano solo rompendolo. Non si poteva né rasare un prato né
+ * piantare erba sulla pietra.
+ *
+ * ⚠ E FA LE DUE COSE CON UN GESTO SOLO: se la cella ha i fili li rasa, se non
+ * li ha li pianta. Un attrezzo per piantare e uno per rasare sarebbero due
+ * caselle e una scelta in più da fare ogni volta; così l'etichetta dice sempre
+ * cosa succederà («pianta» o «rasa») e non c'è niente da ricordare.
+ */
+export const ATTREZZI = {
+  erbetta: { nome: 'Erbetta', colore: 0x64bb4f, agisce: 'erba' },
+};
 
 /**
  * COSA FARÀ IL PROSSIMO CLIC — e si decide qui, in un posto solo.
@@ -60,14 +80,19 @@ export const CASSETTA = [
  * più rompere, perché si accenderebbe e basta. È l'unico modo di togliere una
  * cosa interattiva.
  */
-export function azione(tipoInMano, bersaglioInterattivo, demolisci = false) {
+export function azione(tipoInMano, bersaglioInterattivo, demolisci = false, ciSonoFili = false) {
   if (demolisci) return 'rompi';
+  // ⚠ UN ATTREZZO VIENE PRIMA DELL'INTERAZIONE: chi ha in mano l'erbetta e
+  // clicca un lampione vuole piantare l'erba ai suoi piedi, non accenderlo.
+  const a = ATTREZZI[tipoInMano];
+  if (a && a.agisce === 'erba') return ciSonoFili ? 'rasa' : 'pianta';
   if (bersaglioInterattivo) return 'interagisci';
   return tipoInMano ? 'posa' : 'rompi';
 }
 
 /** Come si chiama, per scriverlo accanto al mirino. */
-export const NOME_AZIONE = { interagisci: 'accendi', posa: 'posa', rompi: 'rompi' };
+export const NOME_AZIONE = { interagisci: 'accendi', posa: 'posa', rompi: 'rompi',
+                             pianta: 'pianta', rasa: 'rasa' };
 
 /** 0xRRGGBB → [r, g, b] in 0..1. */
 export function daEsadecimale(n) {
@@ -91,11 +116,19 @@ export class Cantiere {
   }
 
   get tipoScelto() { return CASSETTA[this.scelto]; }
-  get nomeScelto() { return this.tipoScelto ? defDi(this.tipoScelto).nome : 'mano vuota'; }
+  get nomeScelto() {
+    const t = this.tipoScelto;
+    if (!t) return 'mano vuota';
+    return ATTREZZI[t] ? ATTREZZI[t].nome : defDi(t).nome;
+  }
   get manoVuota() { return !this.tipoScelto; }
+  /** ⚠ Un attrezzo NON si posa: `posa` lo rifiuta, e chi decide l'azione lo sa. */
+  get attrezzo() { return ATTREZZI[this.tipoScelto] || null; }
 
   /** Cosa farà il prossimo clic, dato cosa si sta guardando. */
-  azione(bersaglioInterattivo, demolisci) { return azione(this.tipoScelto, bersaglioInterattivo, demolisci); }
+  azione(bersaglioInterattivo, demolisci, ciSonoFili) {
+    return azione(this.tipoScelto, bersaglioInterattivo, demolisci, ciSonoFili);
+  }
 
   scegli(i) { this.scelto = ((i % CASSETTA.length) + CASSETTA.length) % CASSETTA.length; }
 
@@ -123,7 +156,7 @@ export class Cantiere {
    * si nota senza capire perché.
    */
   posa(x, y, z, tipo = this.tipoScelto) {
-    if (!tipo) return false;                 // ⚠ con la mano vuota non si posa
+    if (!tipo || ATTREZZI[tipo]) return false;   // ⚠ né con la mano vuota né con un attrezzo
     if (this.mondo.pieno(x, y, z)) return false;
     this.mondo.metti(x, y, z, tipo);
     const def = defDi(tipo);

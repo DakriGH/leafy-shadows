@@ -9,8 +9,9 @@ import assert from 'node:assert/strict';
 import { miraCompleta, incrociaScatola, PORTATA } from '../src/gioco/mira.js';
 import { Decoro } from '../src/gioco/decoro.js';
 import { registraDecorazioni, DECORAZIONI } from '../src/world/decorazioni.js';
-import { azione, Cantiere, CASSETTA } from '../src/gioco/cantiere.js';
+import { azione, Cantiere, CASSETTA, ATTREZZI } from '../src/gioco/cantiere.js';
 import { Luci } from '../src/motore/luci.js';
+import { readFileSync } from 'node:fs';
 import { Mondo } from '../src/world/world.js';
 
 // ⚠ VANNO REGISTRATE PRIMA DI POSARLE, come nel gioco: sono blocchi veri, e un
@@ -147,24 +148,48 @@ test('le decorazioni sono blocchi, quindi stanno nella cassetta', () => {
   assert.ok(CASSETTA.includes('lampione'));
 });
 
+test('l\'erbetta è un ATTREZZO, non un blocco: non si posa', () => {
+  // ⚠ È LA CORREZIONE DEL COMMITTENTE: «è sbagliato che il blocco d'erba e
+  // l'erbetta siano la stessa cosa, sono 2 cose diverse». L'erbetta non entra
+  // nel mondo: vive in uno strato suo, dentro la vegetazione.
+  assert.ok(ATTREZZI.erbetta, 'deve esistere come attrezzo');
+  assert.equal(CASSETTA.includes('erbetta'), true, 'e stare nella cassetta');
+  const c = new Cantiere(piano(6), new Luci());
+  c.scegli(CASSETTA.indexOf('erbetta'));
+  assert.equal(c.nomeScelto, 'Erbetta');
+  assert.equal(c.posa(0, 8, 0), false, 'un attrezzo non posa blocchi');
+});
+
+test('un solo gesto: pianta dove non c\'è, rasa dove c\'è', () => {
+  // ⚠ UN ATTREZZO SOLO E NON DUE: due caselle vorrebbero dire una scelta in più
+  // da fare ogni volta. L'etichetta dice sempre cosa succederà.
+  assert.equal(azione('erbetta', null, false, false), 'pianta');
+  assert.equal(azione('erbetta', null, false, true), 'rasa');
+  // ⚠ E VIENE PRIMA DELL'INTERAZIONE: chi ha l'erbetta in mano e clicca un
+  // lampione vuole piantare ai suoi piedi, non accenderlo.
+  assert.equal(azione('erbetta', {}, false, false), 'pianta');
+  // ma demolire vince su tutto, se no non si toglierebbe più niente
+  assert.equal(azione('erbetta', {}, true, false), 'rompi');
+});
+
 test('mirando a una decorazione si posa DAVANTI a lei, non dietro', () => {
   // ⚠ IL DIFETTO CHE IL COMMITTENTE HA VISTO IN DUE MODI, ed erano lo stesso:
   // «non riesco a piazzare i ciuffi» (dall'alto la cella usciva dentro il
   // ciuffo stesso, occupata) e «mi piazza un blocco in diagonale» (di sbieco il
   // raggio attraversava il ciuffo e colpiva il terreno più in là).
   const m = piano(6);
-  m.metti(3, 7, 0, 'ciuffo', true);
+  m.metti(3, 7, 0, 'albero', true);
   const d = new Decoro(); d.scansiona(m);
 
-  // dall'alto, in verticale: si deve posare SOPRA il ciuffo
-  const alto = miraCompleta(m, { x: 3.5, y: 12, z: 0.5 }, vers(0, -1, 0), d.scatole(), 20);
-  assert.ok(alto.dato, 'deve colpire il ciuffo');
+  // dall'alto, in verticale: si deve posare SOPRA la decorazione
+  const alto = miraCompleta(m, { x: 3.5, y: 20, z: 0.5 }, vers(0, -1, 0), d.scatole(), 30);
+  assert.ok(alto.dato, 'deve colpire la decorazione');
   assert.equal(m.pieno(...alto.prima), false, 'la cella di posa dev\'essere VUOTA');
-  assert.deepEqual(alto.prima, [3, 8, 0], 'e sta sopra il ciuffo, non dentro');
+  assert.deepEqual(alto.prima, [3, 8, 0], 'e sta sopra, non dentro');
 
-  // di sbieco: la cella di posa deve toccare il ciuffo, non stargli lontano
+  // di sbieco: la cella di posa deve toccare la decorazione, non stargli lontano
   const sbieco = miraCompleta(m, { x: 0.5, y: 8.5, z: 0.5 }, vers(1, -0.2, 0), d.scatole(), 20);
-  assert.ok(sbieco.dato, 'deve colpire il ciuffo anche di sbieco');
+  assert.ok(sbieco.dato, 'deve colpire la decorazione anche di sbieco');
   const c = sbieco.dato.cella, pr = sbieco.prima;
   const dist = Math.abs(pr[0] - c[0]) + Math.abs(pr[1] - c[1]) + Math.abs(pr[2] - c[2]);
   assert.ok(dist <= 1, `la cella di posa deve confinare col ciuffo, non stare a ${dist} celle`);
@@ -173,7 +198,7 @@ test('mirando a una decorazione si posa DAVANTI a lei, non dietro', () => {
 
 test('una decorazione si rompe con la mano vuota', () => {
   const m = piano(6);
-  m.metti(3, 7, 0, 'ciuffo', true);
+  m.metti(3, 7, 0, 'albero', true);
   const d = new Decoro();
   m.onEvento = (e) => d.evento(e);
   d.scansiona(m);
@@ -186,13 +211,19 @@ test('una decorazione si rompe con la mano vuota', () => {
   assert.equal(m.tipo(3, 7, 0), null, 'e dal mondo');
 });
 
-test('le decorazioni piccole non proiettano ombra', () => {
+test('l\'erbetta non proietta ombra, gli alberi sì', () => {
   // ⚠ Committente: «i ciuffi d'erba e i LOD in generale non devono fare ombre».
-  // Ed è giusto due volte: un ciuffo alto nove decimi proietta un trattino che
-  // nessuno guarda, e ogni proiettante è geometria disegnata in OGNI cascata
-  // della mappa — due su mobile, quattro su desktop.
-  assert.equal(DECORAZIONI.ciuffo.proietta, false);
+  // Ed è giusto due volte: un filo d'erba proietta un trattino che nessuno
+  // guarda, e ogni proiettante è geometria disegnata in OGNI cascata della
+  // mappa — due su mobile, quattro su desktop.
+  // Il prato non ci è MAI entrato, e questa prova lo tiene vero leggendo il
+  // sorgente: è l'unico modo di provarlo senza una GPU.
+  const prato = readFileSync(new URL('../src/motore/prato.js', import.meta.url), 'utf8');
+  assert.equal(/proietta\s*\(/.test(prato), false, 'il prato non deve entrare nella mappa d\'ombra');
   // e le cose grandi sì: un albero senza ombra si stacca dal terreno
   assert.notEqual(DECORAZIONI.albero.proietta, false);
   assert.notEqual(DECORAZIONI.lampione.proietta, false);
+  // ⚠ E IL MECCANISMO RESTA, anche se ora nessuna decorazione lo usa: serve al
+  // primo fiore o sasso che aggiungeremo, ed è già collegato.
+  assert.equal(typeof DECORAZIONI.albero.proietta, 'undefined', 'di fabbrica si proietta');
 });
