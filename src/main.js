@@ -296,8 +296,38 @@ function aggiornaMira() {
 const _forme = new Map();
 function formaDi(tipo) {
   if (!tipo) return null;
-  if (!_forme.has(tipo)) _forme.set(tipo, { ...geometriaSingola(tipo), tipo });
+  if (!_forme.has(tipo)) {
+    let g = geometriaSingola(tipo);
+    // ⚠ UNA DECORAZIONE NON HA GEOMETRIA, e l'anteprima usciva VUOTA: zero
+    // vertici, cioè nessun segno di dove sarebbe finito il ciuffo. Il
+    // committente l'ha visto come «non riesco a piazzarla dove voglio» — e
+    // aveva ragione, perché senza anteprima si posa alla cieca.
+    // La forma la disegna un MODELLO, che qui non c'è; quindi si disegna la sua
+    // SCATOLA, con la sua misura vera e il suo colore. Non è il ciuffo, ma dice
+    // le due cose che servono: dove va e quanto è grande.
+    if (!g.pos.length && DECORAZIONI[tipo]) g = scatolaAnteprima(DECORAZIONI[tipo]);
+    _forme.set(tipo, { ...g, tipo });
+  }
   return _forme.get(tipo);
+}
+
+/**
+ * UNA SCATOLA, in coordinate CENTRATE SULLA CELLA — come le costruisce il
+ * mesher (`cx = x + 0.5`), se no l'anteprima esce spostata di mezzo blocco.
+ * ⚠ E POGGIA SUL FONDO DELLA CELLA: un ciuffo alto nove decimi centrato darebbe
+ * una scatola mezza sottoterra, che è esattamente il contrario di «dove va».
+ */
+function scatolaAnteprima(d) {
+  const mx = d.mezza, h = d.altezza;
+  const y0 = -0.5, y1 = -0.5 + h;
+  const V = [[-mx, y0, -mx], [mx, y0, -mx], [mx, y0, mx], [-mx, y0, mx],
+             [-mx, y1, -mx], [mx, y1, -mx], [mx, y1, mx], [-mx, y1, mx]];
+  const F = [[0,1,2],[0,2,3],[4,6,5],[4,7,6],[0,4,5],[0,5,1],
+             [1,5,6],[1,6,2],[2,6,7],[2,7,3],[3,7,4],[3,4,0]];
+  const pos = [], col = [];
+  const c = [((d.cima >> 16) & 255) / 255, ((d.cima >> 8) & 255) / 255, (d.cima & 255) / 255];
+  for (const t of F) for (const i of t) { pos.push(...V[i]); col.push(...c); }
+  return { pos: new Float32Array(pos), col: new Float32Array(col) };
 }
 
 /** Fa quello che il mirino sta promettendo. */
@@ -548,6 +578,11 @@ rig.avvia((dt) => {
   if (decoro.aggiornaNotte(giorno.t < 0.24 || giorno.t > 0.80)) applicaLuciDecoro();
   aggiornaDecoro();
   aggiornaMira();
+  // ⚠ E IL COLPETTO VA CHIAMATO, che sembra ovvio e invece era la riga
+  // mancante: la funzione era scritta, provata e mai eseguita. Il committente
+  // l'ha visto come «non hai integrato l'interagire con l'animazione» — ed era
+  // esatto, perché il pezzo che mancava era l'integrazione, non il pezzo.
+  aggiornaColpetto();
   // il quadrante del cielo: dove sta il sole, dove guardo io
   const d = rig.sole.direction;
   cielo.aggiorna({
