@@ -125,6 +125,7 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   m.AddUniform(`uLuciPos[${LUCI_MAX}]`, 'vec4');
   m.AddUniform(`uLuciCol[${LUCI_MAX}]`, 'vec3');
   m.AddUniform(`uLuciOmbra[${LUCI_MAX}]`, 'float');
+  m.AddUniform(`uLuciEst[${LUCI_MAX}]`, 'vec4');   // semi-lati: area, neon, cubo
   m.AddUniform('uLuciNum', 'float');
   // ---- la griglia dei muri, per le lampade che proiettano -------------------
   // ⚠ SOLO SU WebGL2: `sampler3D` e `texelFetch` non esistono in WebGL1, e uno
@@ -169,6 +170,7 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     e.setArray4('uLuciPos', rig.luci.perLoShader(rig.camera));
     e.setArray3('uLuciCol', rig.luci.col);
     e.setArray('uLuciOmbra', rig.luci.ombra);
+    e.setArray4('uLuciEst', rig.luci.est);
     e.setFloat('uLuciNum', rig.luci.quante);
   });
 

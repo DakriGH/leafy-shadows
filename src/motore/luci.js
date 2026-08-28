@@ -64,6 +64,24 @@ export class Luci {
      * buio era esatto (79 contro 96 previsti).
      */
     this.ombra = new Float32Array(LUCI_MAX);
+    /**
+     * I SEMI-LATI DELLA SORGENTE — ed è così che si fanno le luci «ad area» e
+     * «quadrate» senza aggiungere nemmeno una primitiva.
+     *
+     * ⚠ UNA SOLA FORMA, QUATTRO USI. La distanza da una SCATOLA con semi-lati
+     * (hx, hy, hz) degrada in tutto quello che serve:
+     *   · (0, 0, 0)   un punto      → la lampada di sempre
+     *   · (L, 0, 0)   un segmento   → un neon, una striscia
+     *   · (L, 0, W)   un rettangolo → una luce ad AREA, un lucernario
+     *   · (a, b, c)   una scatola   → una luce QUADRATA, un blocco che brilla
+     * Tre primitive separate sarebbero stati tre rami nel ciclo più caldo del
+     * fragment; così è un `max` e una sottrazione, che il punto paga uguale.
+     *
+     * ⚠ E SONO ALLINEATE AGLI ASSI, dichiarato: in un mondo di cubi tutto è
+     * allineato, e una rotazione costerebbe una matrice per luce per pixel. Il
+     * giorno che servirà un neon in diagonale, quel giorno si paga.
+     */
+    this.est = new Float32Array(LUCI_MAX * 4);
     /** Quanti slot sono in uso (compresi i buchi): è il limite del ciclo. */
     this.quante = 0;
     /** chiave → indice, per chi deve poter spegnere quella che ha acceso. */
@@ -81,7 +99,8 @@ export class Luci {
    * uno slot spento resta lì con raggio zero (lo shader lo salta con un
    * confronto) e il prossimo `accendi` lo riusa.
    */
-  accendi({ x, y, z, raggio = 7, colore = [1.0, 0.86, 0.62], forza = 1, ombra = true, chiave = null }) {
+  accendi({ x, y, z, raggio = 7, colore = [1.0, 0.86, 0.62], forza = 1, ombra = true,
+            semiLati = null, chiave = null }) {
     let i = -1;
     for (let k = 0; k < this.quante; k++) if (this.pos[k * 4 + 3] <= 0) { i = k; break; }
     if (i < 0) {
@@ -101,6 +120,7 @@ export class Luci {
       Math.pow(colore[2], GAMMA_LUCI) * forza,
     ], i * 3);
     this.ombra[i] = ombra ? 1 : 0;
+    this.est.set(semiLati ? [semiLati[0], semiLati[1], semiLati[2], 0] : [0, 0, 0, 0], i * 4);
     if (chiave !== null) this._perChiave.set(chiave, i);
     return i;
   }
@@ -128,7 +148,7 @@ export class Luci {
   haChiave(k) { return this._perChiave.has(k); }
 
   spegniTutte() {
-    this.pos.fill(0); this.col.fill(0); this.ombra.fill(0);
+    this.pos.fill(0); this.col.fill(0); this.ombra.fill(0); this.est.fill(0);
     this.quante = 0;
     this._perChiave.clear();
   }
@@ -290,20 +310,36 @@ export const GLSL_LUCI_ACCUMULO = `
   bool conOmbre = uVoxMin.w > 0.5;
   for (int i = 0; i < ${LUCI_MAX}; i++) {
     if (float(i) >= uLuciNum) break;
-    vec4 L = uLuciPos[i];
-    if (L.w <= 0.0) continue;
-    vec3 dv = vPositionW - L.xyz;
-    float d2 = dot(dv, dv);
-    if (d2 >= L.w * L.w) continue;
+    vec4 lampada = uLuciPos[i];
+    if (lampada.w <= 0.0) continue;
+    vec3 dv = vPositionW - lampada.xyz;
+    // ⚠ LA DISTANZA È DALLA SCATOLA, NON DAL CENTRO, ed è tutto quello che
+    // serve per le luci ad area e quadrate: coi semi-lati a zero il conto
+    // ritorna «length(dv)», cioè la lampada a punto di sempre, senza un ramo.
+    // ⚠ MAI NOMI DI UNA LETTERA IN GLSL INNESTATO, e questo è costato uno
+    // «'2.71828' : syntax error» a schermo vuoto. Avevo chiamato questa
+    // variabile «E»; Babylon, nel blocco della NEBBIA, emette
+    // «#define E 2.71828». Il preprocessore l'ha sostituita ovunque e la riga è
+    // diventata «vec3 2.71828 = ...». Lo shader innestato vive in mezzo a
+    // duemila righe altrui piene di macro: qui i nomi si prefissano.
+    vec3 semiLati = uLuciEst[i].xyz;
+    vec3 fuori = max(abs(dv) - semiLati, vec3(0.0));
+    float d2 = dot(fuori, fuori);
+    if (d2 >= lampada.w * lampada.w) continue;
     float d = sqrt(d2);
     // ⚠ IL CAMMINO SI PAGA SOLO DENTRO LA SFERA E SOLO SE LA LAMPADA È PESANTE:
     // è per questo che il costo segue la SOVRAPPOSIZIONE delle pozze e non il
     // numero di lampade a schermo — un pixel dentro una sola pozza cammina una
     // volta sola, per lunga che sia la fila di lampioni.
+    // ⚠ E PARTE DAL PUNTO PIÙ VICINO DELLA SCATOLA, non dal centro: da una luce
+    // ad area il raggio d'ombra deve nascere sul pannello, se no un neon lungo
+    // sei blocchi proietterebbe come se fosse tutto nel suo punto di mezzo.
+    // Con i semi-lati a zero il «clamp» non fa niente e si torna al centro.
+    vec3 sorgente = lampada.xyz + clamp(dv, -semiLati, semiLati);
     if (conOmbre && uLuciOmbra[i] > 0.5 && d > 1e-4
-        && ombraVoxel(L.xyz + uCamPos, dv / d, d)) continue;
-    float f = 1.0 - d / L.w;
-    float banda = ceil(f * ${BANDE_LUCE.toFixed(1)}) / ${BANDE_LUCE.toFixed(1)};
+        && ombraVoxel(sorgente + uCamPos, (vPositionW - sorgente) / d, d)) continue;
+    float caduta = 1.0 - d / lampada.w;
+    float banda = ceil(caduta * ${BANDE_LUCE.toFixed(1)}) / ${BANDE_LUCE.toFixed(1)};
     lampade += uLuciCol[i] * banda;
   }
 `;

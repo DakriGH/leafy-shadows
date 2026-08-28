@@ -110,6 +110,7 @@ export class Rig {
     this.scena.fogMode = Scene.FOGMODE_LINEAR;
     this.scena.fogColor = new Color3(CIELO.r, CIELO.g, CIELO.b);
     this.distanzaResa = 150;
+    this._osservatoriDistanza = [];
     this.scena.fogStart = this.distanzaResa * 0.55;
     this.scena.fogEnd = this.distanzaResa * 0.98;
 
@@ -307,7 +308,13 @@ export class Rig {
     this.scena.fogStart = d * 0.55;
     this.scena.fogEnd = d * 0.98;
     this.camera.maxZ = d * 1.15;
+    for (const fn of this._osservatoriDistanza) fn(d);
   }
+
+  /** Chi deve rifare i conti quando la distanza di resa cambia (la fabbrica,
+   *  per i livelli di LOD dei chunk). ⚠ Un elenco e non un solo posto: il
+   *  giorno che anche l'erba vorrà saperlo, non si litiga per la casella. */
+  osservaDistanza(fn) { this._osservatoriDistanza.push(fn); }
 
   /**
    * IL RAGGIO SOTTO IL PUNTATORE, in coordinate di MONDO.

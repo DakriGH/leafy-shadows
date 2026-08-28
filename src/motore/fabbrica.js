@@ -30,6 +30,9 @@ export class Fabbrica {
   constructor(rig) {
     this.rig = rig;
     this.scena = rig.scena;
+    /** Le mesh dei chunk, per rifare i livelli di LOD quando la distanza cambia. */
+    this._chunkMesh = new Set();
+    rig.osservaDistanza(() => this.applicaDistanza());
 
     // ---- IL MATERIALE DEL MONDO ---------------------------------------------
     // In Leafy-Lantern era 2.839 righe di shader iniettato a mano. Qui sono
@@ -58,6 +61,41 @@ export class Fabbrica {
 
   // ── il ciclo di vita di un chunk ───────────────────────────────────────────
 
+  /**
+   * IL LOD DEI CHUNK, e lo fa Babylon.
+   *
+   * ⚠ UN LIVELLO DI LOD «NESSUNA MESH» È IL MODO DEL MOTORE per dire «oltre
+   * questa distanza non disegnare»: `addLODLevel(d, null)`. Sta dentro la
+   * selezione delle mesh attive, quindi non costa un giro nostro per fotogramma
+   * e non c'è un secondo elenco da tenere allineato. Scriverlo a mano avrebbe
+   * voluto dire ricalcolare distanze per cento chunk per fotogramma per ottenere
+   * la stessa cosa, peggio.
+   *
+   * ⚠ E PER UN DIORAMA È QUESTO IL LOD, non una maglia più grossa. Un
+   * terrazzamento è alto UN blocco: a centocinquanta blocchi è un decimo di
+   * pixel, e un triangolo più piccolo del pixel non si «semplifica» — scompare e
+   * riappare mentre la camera si muove. Non lo cura semplificare: lo cura non
+   * disegnarlo, e nascondere il confine con la nebbia.
+   *
+   * ⚠ E SI TAGLIA OLTRE IL RAGGIO DEL CHUNK, non alla distanza di resa secca.
+   * Babylon misura il LOD dal CENTRO della sfera di contenimento: un chunk il
+   * cui centro sta a centocinquanta ha il bordo vicino a centotrenta, cioè
+   * dentro la nebbia ma non ancora sparito — e sparire lì è un POP. Sommando il
+   * raggio, quando un chunk viene tolto il suo punto più vicino è comunque
+   * oltre la fine della nebbia, dove non si vede niente per costruzione.
+   *
+   * ⚠ E IL RAGGIO SI CHIEDE ALLA MESH, non si indovina: i chunk di Leafy non
+   * sono cubi — sono sedici per sedici in pianta e alti quanto il terreno, che
+   * sull'open world va da due a trenta blocchi. Un numero scritto a mano
+   * sarebbe giusto per la pianura e sbagliato per la montagna.
+   */
+  _lod(mesh) {
+    const bi = mesh.getBoundingInfo && mesh.getTotalVertices() > 0 ? mesh.getBoundingInfo() : null;
+    const raggio = bi ? bi.boundingSphere.radiusWorld : 20;
+    mesh.removeLODLevel(null);
+    mesh.addLODLevel(this.rig.scena.fogEnd + raggio, null);
+  }
+
   creaChunk(kc) {
     const solidi = new Mesh('solidi:' + kc, this.scena);
     const acqua = new Mesh('acqua:' + kc, this.scena);
@@ -78,6 +116,8 @@ export class Fabbrica {
     solidi.receiveShadows = true;
     acqua.receiveShadows = true;
     this.rig.proietta(solidi);          // ⚠ elenco, non «tutto meno qualcosa»
+    this._lod(solidi); this._lod(acqua);
+    this._chunkMesh.add(solidi); this._chunkMesh.add(acqua);
     return { solidi, acqua };
   }
 
@@ -122,10 +162,21 @@ export class Fabbrica {
     vd.normals = nor;
     vd.applyToMesh(mesh, true);         // `true` = aggiornabile: serve alla ritinta stagionale
     mesh.setEnabled(true);
+    // ⚠ IL LOD SI RIFÀ QUI E NON SOLO ALLA CREAZIONE: la sua soglia dipende dal
+    // RAGGIO della mesh, e alla creazione la mesh è vuota — il raggio sarebbe
+    // quello di ripiego. Rifacendolo a ogni scrittura la soglia segue anche i
+    // chunk che cambiano forma, cioè quelli in cui si sta scavando.
+    this._lod(mesh);
   }
+
+  /** La distanza di resa è cambiata: si rifanno i livelli di LOD. */
+  applicaDistanza() { for (const m of this._chunkMesh) this._lod(m); }
 
   rimuoviChunk(e) {
     this.rig.ombre.removeShadowCaster(e.solidi, true);
+    // ⚠ E VIA ANCHE DALL'ELENCO DEL LOD, se no la Set trattiene mesh distrutte:
+    // una perdita che non dà nessun sintomo finché non si conta la memoria.
+    this._chunkMesh.delete(e.solidi); this._chunkMesh.delete(e.acqua);
     e.solidi.dispose(false, false);
     e.acqua.dispose(false, false);
   }

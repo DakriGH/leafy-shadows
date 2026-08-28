@@ -1120,6 +1120,12 @@ export class Mesher {
 // soglia di pendenza, cioè i numeri su cui sono tarate le soglie dello shader
 // dell'acqua — cambiarli qui lo scalibrerebbe in silenzio.
 export { rivaCella, Costruttore, PENDENZA_RIPIDA, RIVA_RAGGIO };
+// ⚠ ED ESPORTATO ANCHE IL PARACADUTE, perché superarlo spegne le ombre delle
+// lampade IN SILENZIO — nessun errore, solo luce che attraversa i muri. Lo zoo
+// ci sta vicino (allargare le piazzole allarga la griglia) e ha una prova che
+// lo controlla: senza esportarlo, quella prova avrebbe una copia del numero, e
+// una copia prima o poi diverge.
+export { LUCE_LIMITE_CELLE };
 
 /** Geometria di un singolo blocco isolato (per il ghost di anteprima). */
 export function geometriaSingola(tipo) {

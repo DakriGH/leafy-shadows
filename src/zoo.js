@@ -10,11 +10,12 @@ import { Rig } from './motore/motore.js';
 import { Fabbrica } from './motore/fabbrica.js';
 import { Giorno } from './motore/giorno.js';
 import { Modelli } from './motore/modelli.js';
+import { Particelle } from './motore/particelle.js';
 import { Mondo } from './world/world.js';
 import { Mesher, collegaFabbrica as fabbricaMesher } from './world/mesher.js';
 import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
 import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
-import { generaZoo, PIAZZOLE, centroDi, SUOLO } from './world/zoo.js';
+import { generaZoo, PIAZZOLE, centroDi, SUOLO, PASSO } from './world/zoo.js';
 
 const tela = document.getElementById('tela');
 const stato = document.getElementById('stato');
@@ -34,6 +35,7 @@ mesher.ricostruisciTutto(mondo);
 const erba = new Erba(rig.scena, { max: 300000, densita: 7.8, raggioChunk: 5 });
 const giorno = new Giorno(rig, { durata: 240, ora: 0.42 });
 const modelli = new Modelli(rig.scena, rig);
+const particelle = new Particelle(rig.scena, rig);
 
 // ---- le luci delle piazzole -------------------------------------------------
 // ⚠ SI ACCENDONO DA UNA TABELLA, e le mobili si ricordano da sole dove stavano:
@@ -42,8 +44,11 @@ const modelli = new Modelli(rig.scena, rig);
 const mobili = [];
 for (const p of PIAZZOLE) {
   for (const l of p.luci || []) {
-    const x = p.x * 40 + l.x, z = p.z * 40 + l.z, y = SUOLO + (l.y || 3);
-    const i = rig.luci.accendi({ x, y, z, raggio: l.raggio, colore: l.colore });
+    const x = p.x * PASSO + l.x, z = p.z * PASSO + l.z, y = SUOLO + (l.y || 3);
+    // ⚠ TUTTI I CAMPI PASSANO DI QUI, e la piazzola non sa che esistano le
+    // uniform: dichiara «ombra: false» o «semiLati: [3,0,0]» e il motore fa.
+    const i = rig.luci.accendi({ x, y, z, raggio: l.raggio, colore: l.colore, forza: l.forza,
+      ombra: l.ombra !== false, semiLati: l.semiLati });
     if (l.gira) mobili.push({ i, cx: x, cz: z, y, raggio: l.gira });
   }
 }
@@ -53,7 +58,14 @@ const perModello = new Map();
 for (const p of PIAZZOLE) {
   for (const mo of p.modelli || []) {
     if (!perModello.has(mo.nome)) perModello.set(mo.nome, []);
-    perModello.get(mo.nome).push({ x: p.x * 40 + mo.x + 0.5, y: SUOLO + 1, z: p.z * 40 + mo.z + 0.5, giro: 0, luce: mo.luce });
+    perModello.get(mo.nome).push({ x: p.x * PASSO + mo.x + 0.5, y: SUOLO + 1, z: p.z * PASSO + mo.z + 0.5, giro: 0, luce: mo.luce });
+  }
+}
+
+// ---- le particelle delle piazzole -------------------------------------------
+for (const p of PIAZZOLE) {
+  for (const pa of p.particelle || []) {
+    particelle.accendi(pa.nome, { x: p.x * PASSO + pa.x, y: SUOLO + pa.y, z: p.z * PASSO + pa.z });
   }
 }
 for (const [nome, dove] of perModello) {
@@ -88,6 +100,11 @@ addEventListener('keydown', (e) => {
   else if (e.code === 'KeyG') erba.imposta(!erba.attiva);
   else if (e.code === 'KeyL') { const on = rig.luci.pos[3] > 0 || rig.luci.quante === 0; scambiaLuci(!on); }
   else if (e.code === 'KeyO') rig.sole.shadowEnabled = !rig.sole.shadowEnabled;
+  // ⚠ V STACCA LA GRIGLIA DEI MURI, che è il modo di VEDERE cosa fa: le stesse
+  // lampade, la stessa scena, e l'unica differenza a schermo è il cammino.
+  // Senza un interruttore così, «funziona» resta un'opinione.
+  else if (e.code === 'KeyV') rig.voxel.attiva = !rig.voxel.attiva;
+  else if (e.code === 'KeyN') particelle.mostra(!particelle.accese);
 });
 let raggiSalvati = null;
 function scambiaLuci(accese) {
@@ -109,6 +126,11 @@ rig.avvia((dt) => {
   }
   // l'erba si semina attorno al centro della piazzola che si sta guardando
   erba.aggiorna(dt, mondo, centro, null, rig.camera.position);
+  // ⚠ E LE PARTICELLE DELLE ALTRE PIAZZOLE SI SPENGONO, con una portata più
+  // corta di quella del gioco: qui le piazzole distano cinquanta celle, e con i
+  // novanta di fabbrica una nevicata si vedeva da due stanze più in là. Nel
+  // gioco novanta è giusto (è dentro la nebbia); qui il metro è il PASSO.
+  particelle.aggiorna(rig.camera, PASSO * 0.7);
 
   const ora = performance.now();
   finestra.push(ora - ultimo); ultimo = ora;
@@ -121,8 +143,11 @@ rig.avvia((dt) => {
   stato.textContent =
     `ZOO — ${quale + 1}/${PIAZZOLE.length}  ${pz.nome}\n` +
     `${pz.nota}\n\n` +
-    `${giorno.orologio}   erba ${erba.fili.toLocaleString('it')}   luci ${rig.luci.quante}\n` +
-    `← → piazzola   ↑ ↓ ora   spazio ciclo   G erba   L luci   O ombre   I ispettore`;
+    `${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}   erba ${erba.fili.toLocaleString('it')}   ` +
+    `luci ${rig.luci.accese}   particelle ${particelle.vive}${particelle.suGPU ? ' (GPU)' : ''}\n` +
+    `griglia muri ${rig.voxel.attiva ? `${rig.voxel.larghezza}×${rig.voxel.altezza}×${rig.voxel.profondita}` : 'staccata'}\n` +
+    `← → piazzola   ↑ ↓ ora   spazio ciclo   G erba   L luci   O ombre del sole\n` +
+    `V ombre delle lampade   N particelle   I ispettore`;
 });
 
-globalThis.ZOO = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, PIAZZOLE, vaiA };
+globalThis.ZOO = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, particelle, PIAZZOLE, vaiA };
