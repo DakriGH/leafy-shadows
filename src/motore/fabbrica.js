@@ -27,6 +27,38 @@ import { applicaStilePiatto } from './stile.js';
 import '@babylonjs/core/Shaders/default.vertex.js';
 import '@babylonjs/core/Shaders/default.fragment.js';
 
+/**
+ * L'ALONE DELLE LAMPADE — ANELLI CONCENTRICI PIATTI, non una sfumatura.
+ *
+ * ⚠ È LA CORREZIONE CHE CONTA, e me l'ha fatta il committente due volte:
+ * «stilizzato e colorato come nel primo Lantern», «non mi piace così bianco il
+ * tutto». Avevo fatto un bagliore MORBIDO — due gusci che sfumano l'uno
+ * nell'altro — ed è l'opposto dello stile di questo gioco. Qui l'ombra è un
+ * gradino, la pozza di una lampada è a tre bande nette, il fogliame è tinta
+ * piatta: **non c'è una sola sfumatura in tutto Leafy**. Un alone sfumato è
+ * l'unica cosa morbida a schermo e si vede subito che viene da un'altra parte.
+ *
+ * Quindi sono TRE gusci, ognuno di un colore SUO e piatto. Fra l'uno e l'altro
+ * il salto è netto perché la silhouette di una sfera è netta: si leggono come
+ * tre anelli concentrici, che è la parola «concentriche» del committente.
+ *
+ * ⚠ E I COLORI SONO SATURI, che è la cura al bianco. Un additivo alza tutti e
+ * tre i canali: partendo da un colore poco saturo arrivano insieme al tetto e
+ * il risultato è bianco. Partendo da un giallo-arancio profondo satura PRIMA il
+ * rosso, e quando satura il risultato resta caldo. Misurato sul pixel: prima
+ * (255, 255, 254), cioè bianco puro.
+ *
+ * ⚠ IL PIÙ GRANDE PER PRIMO, e l'ordine è quello di disegno (`alphaIndex`): un
+ * additivo non ha bisogno di ordine per il colore, ma averlo dal grande al
+ * piccolo tiene i bordi dei tre anelli prevedibili quando si sovrappongono due
+ * lampade.
+ */
+const GUSCI = [
+  { r: 1.55, colore: [1.00, 0.42, 0.06], alfa: 0.13 },   // amber profondo, l'orlo
+  { r: 1.00, colore: [1.00, 0.62, 0.12], alfa: 0.18 },   // arancio
+  { r: 0.55, colore: [1.00, 0.86, 0.38], alfa: 0.30 },   // il cuore, giallo caldo
+];
+
 export class Fabbrica {
   constructor(rig) {
     this.rig = rig;
@@ -293,87 +325,41 @@ export class Fabbrica {
   }
 
   // ── gli aloni delle lampade ───────────────────────────────────────────────
-  /**
-   * DUE GUSCI CONCENTRICI ADDITIVI, ed è la ricetta di Leafy-Lantern presa
-   * numero per numero — raggi 0,42 e 0,85, opacità 0,16 e 0,06.
-   *
-   * ⚠ «VELATURE, NON PALLE», che è testuale dal codice di Lantern e segnato lì
-   * come «richiesta esplicita dell'utente». Il guscio grande deve essere quasi
-   * invisibile: è quello che dà il CORPO all'alone senza che si legga come una
-   * sfera di vetro appesa al palo. Alzare quelle opacità è il modo di
-   * riottenere la palla che era stata bocciata.
-   *
-   * ⚠ IMMUNI ALLA NEBBIA (`applyFog = false`): una luce vista da lontano deve
-   * restare un punto luminoso, non sbiadire nel grigio. In Lantern è `fog:
-   * false` sul materiale, per la stessa ragione.
-   *
-   * ⚠ E NON SCRIVONO LA PROFONDITÀ: sono trasparenti additivi, e scrivendola si
-   * cancellerebbero a vicenda a seconda dell'ordine di disegno — due sfere
-   * concentriche sono il caso peggiore possibile per quel difetto.
-   *
-   * ⚠ A ISTANZE SOTTILI: una città di lampioni sono due mesh in tutto invece di
-   * due per lampione. Spegnerne uno vuol dire mandare la sua matrice a scala
-   * zero, che è il modo giusto qui — una mesh in meno non si può «nascondere»
-   * dentro un buffer di istanze.
-   */
+  /** I tre gusci concentrici: la tabella e il perché stanno in cima al file. */
   aloni(quanti) {
-    const gusci = [
-      // ⚠ LE OPACITÀ SONO QUELLE DELLA PRIMA VERSIONE DI LANTERN (commit
-      // 7510d19): 0,5 e 0,2. Avevo copiato quelle di OGGI — 0,16 e 0,06 — che
-      // laggiù vanno bene perché c'è anche mille altro acceso, e qui davano due
-      // velature quasi invisibili.
-      // ⚠ E I RAGGI SONO PIÙ GRANDI DEI SUOI (0,24 e 0,46): là l'alone sta su
-      // una lanterna in mano, qui sulla testa di un lampione alto tre metri, e
-      // alla stessa misura si perdeva dentro il modello. Il rapporto fra i due
-      // gusci resta più di due, che è quello che li fa leggere come due anelli
-      // invece che come una macchia sola.
-      // ⚠ E IL GUSCIO ESTERNO VA PIÙ CALDO DEL SUO, non più chiaro: additivo su
-      // un cielo notturno bluastro, un colore poco saturo alza tutti e tre i
-      // canali e il risultato si legge GRIGIO — che è il residuo di «solo
-      // bianche» dopo aver tolto il doppio lato. Scendendo di verde e di blu il
-      // canale rosso resta l'unico a saturare, e quando satura satura CALDO.
-      { r: 0.58, colore: new Color3(1.0, 0.860, 0.58), alfa: 0.46 },
-      { r: 1.30, colore: new Color3(1.0, 0.700, 0.28), alfa: 0.16 },
-    ];
-    const mesh = gusci.map((g, i) => {
+    const mesh = GUSCI.map((g, i) => {
       // ⚠ SFERA INVERTITA — l'idea è del committente: «potresti fare inverted
       // sphere per questi aloni, così il lampione spicca». Ed è giusta.
       //
       // Con una sfera normale l'alone si disegna DAVANTI alla lampada e la
-      // annega: il palo e la testa spariscono dentro la luce, che è il difetto
-      // del «troppo forte». Girando l'avvolgimento (`BACKSIDE`) si vede solo la
-      // METÀ LONTANA del guscio; la prova di profondità fa il resto, perché la
-      // testa del lampione le sta davanti e la occlude. Risultato: la luce
+      // annega: il palo e la testa spariscono dentro la luce. Girando
+      // l'avvolgimento si vede solo la METÀ LONTANA del guscio, e la prova di
+      // profondità fa il resto — la testa le sta davanti e la occlude. La luce
       // circonda l'oggetto invece di coprirlo, e la sagoma resta netta.
       //
-      // ⚠ E COSTA LA METÀ, come effetto collaterale gradito: si disegna un
-      // emisfero invece di due, che è la stessa ragione per cui il culling
-      // aveva già tolto la saturazione a bianco.
+      // ⚠ E COSTA LA METÀ: si disegna un emisfero invece di due. È anche la
+      // ragione per cui non satura più: con le facce di dietro accese ogni
+      // pixel riceveva la sfera DUE VOLTE, e un additivo raddoppiato sbianca —
+      // misurato, (255, 255, 254).
       const m = MeshBuilder.CreateSphere('alone' + i,
-        { diameter: g.r * 2, segments: 12, sideOrientation: MeshCostanti.BACKSIDE }, this.scena);
+        { diameter: g.r * 2, segments: 14, sideOrientation: MeshCostanti.BACKSIDE }, this.scena);
       const mat = new StandardMaterial('alone' + i, this.scena);
       mat.disableLighting = true;
-      mat.emissiveColor = g.colore;
+      mat.emissiveColor = new Color3(...g.colore);
       mat.diffuseColor = Color3.Black();
       mat.specularColor = Color3.Black();
       mat.alpha = g.alfa;
       mat.alphaMode = 1;                 // ALPHA_ADD: si somma, non copre
-      // ⚠ SOLO LE FACCE DAVANTI, ED È LA CURA AL BIANCO. Con le facce di dietro
-      // accese ogni pixel dentro la sagoma riceve la sfera DUE VOLTE — davanti e
-      // dietro — e un additivo raddoppiato satura. Misurato: senza culling il
-      // centro dell'alone usciva (255, 255, 254), cioè bianco puro; con il
-      // culling (194, 176, 153), che è caldo. Committente: «le sfere sopra i
-      // lampioni sono solo bianche e troppo forti».
-      // Lantern usa un MeshBasicMaterial senza toccare `side`, cioè solo fronte:
-      // avevo aggiunto io il doppio lato pensando che «una sfera vuota si veda
-      // meglio da dentro», e per un additivo è esattamente il contrario.
       mat.backFaceCulling = true;
       mat.disableDepthWrite = true;
+      // ⚠ IMMUNE ALLA NEBBIA: una luce vista da lontano deve restare un punto
+      // luminoso, non sbiadire nel grigio. In Lantern è `fog: false`, per la
+      // stessa ragione.
       mat.applyFog = false;
       m.material = mat;
       m.isPickable = false;
       m.receiveShadows = false;
-      m.alphaIndex = 3;                  // dopo il mondo e dopo l'acqua
+      m.alphaIndex = 3 + i;              // dal più grande al più piccolo
       // ⚠ SEMPRE ATTIVA, E QUESTO È IL DIFETTO PER CUI GLI ALONI SPARIVANO.
       // Una mesh a istanze sottili tiene la scatola di contenimento della
       // GEOMETRIA DI BASE — misurata: [-0,42 … +0,42] attorno all'ORIGINE del
@@ -381,9 +367,9 @@ export class Fabbrica {
       // usciva dall'inquadratura, e tutti gli aloni sparivano insieme, ovunque
       // fossero. Committente: «perché la sfera del lampione sparisce?».
       // ⚠ E NON SI CURA RICALCOLANDO LA SCATOLA: i lampioni stanno sparsi per
-      // tutto il mondo, quindi la scatola vera coprirebbe tutto e il culling
-      // non taglierebbe mai niente. Due mesh sempre attive costano meno del
-      // conto per decidere di tenerle.
+      // tutto il mondo, quindi quella vera coprirebbe tutto e il culling non
+      // taglierebbe mai niente. Due mesh sempre attive costano meno del conto
+      // per decidere di tenerle.
       m.alwaysSelectAsActiveMesh = true;
       // ⚠ LA MATRICE È OBBLIGATORIA anche qui: `thinInstanceCount` si tara su
       // `matrixData.length / 16`. Si alloca una volta e si muta.
