@@ -58,11 +58,15 @@ export const BANDE = 3;
  * @param m            il materiale
  * @param rig          per leggere sole, ambiente e tinta dell'ombra
  * @param colorePiatto l'espressione GLSL che dà il colore SENZA luce.
- *                     Per il mondo è `baseColor.rgb` (i colori dei vertici che
- *                     il mesher ha cotto dalla palette); per l'erba è la sua
- *                     sfumatura base→punta.
+ *                     Di fabbrica è «baseColor.rgb · vDiffuseColor.rgb»: il
+ *                     primo porta i colori dei vertici e la texture, il secondo
+ *                     la tinta del materiale. ⚠ Servono TUTT'E DUE, e con il
+ *                     solo `baseColor` una mesh senza texture né colori di
+ *                     vertice esce BIANCA qualunque tinta le si dia — il
+ *                     segnaposto del giocatore è uscito così. Per l'erba invece
+ *                     si passa la sua sfumatura base→punta.
  */
-export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb') {
+export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiffuseColor.rgb', { facce = true } = {}) {
   // niente riflesso speculare: su una faccia piatta si legge come vernice
   m.specularColor = Color3.Black();
   m.diffuseColor = Color3.White();
@@ -96,8 +100,19 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb') {
   // la risposta era «occluso». Qui è un prodotto scalare e uno step: binario,
   // quindi in stile (il salto resta uno solo), e piatto dentro la faccia perché
   // le normali sono piatte per costruzione — niente sfarfallio.
-  m.Fragment_Before_Lights(`
+  //
+  // ⚠ E `facce` SI SPEGNE PER I MODELLI. Sui blocchi il termine è la verità
+  // geometrica: una faccia di cubo che guarda a nord, col sole a sud, è in ombra
+  // e basta. Su una CHIOMA no — è fatta di piani incrociati, e metà di quei
+  // piani guardano sempre dall'altra parte: col termine acceso l'albero viene
+  // per metà nero, che è il difetto che il committente ha visto («i colori degli
+  // alberi sbagliati»). Il fogliame in Leafy è tinta piatta, e l'ombra gliela dà
+  // la mappa. Stessa ragione per cui l'erba non lo usa.
+  m.Fragment_Before_Lights(facce ? `
     float facciaAlSole = step(0.0, dot(normalize(vNormalW), -normalize(uSoleVerso)));
+    normalW = normalize(-uSoleVerso);
+  ` : `
+    float facciaAlSole = 1.0;
     normalW = normalize(-uSoleVerso);
   `);
 

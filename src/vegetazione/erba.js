@@ -507,13 +507,27 @@ sPos[j + 1] = y;
         //     chiaro della rampa (colCima), che è un colore che la palette HA
         //     GIÀ. Così le chiazze restano dentro lo stile invece di essere un
         //     verde inventato — è lo stesso principio della punta della lamella.
-        const v = 0.94 + 0.12 * h5;
-        const k = (mm - 0.5) * 0.55;
-        const mesc = (a, b) => (k >= 0 ? a + (b - a) * k : a * (1 + k * 0.55));
+        // ⚠ LA BASE È ESATTAMENTE IL COLORE DEL BLOCCO SOTTO, senza NIENTE in
+        // mezzo — né la variazione per lamella né quella a chiazze. È una regola
+        // di Leafy e il committente l'ha ribadita guardando: «vedo numerosi fili
+        // d'erba la cui base non inizia dal colore del blocco di sotto; ci sta la
+        // variazione, ma la sfumatura deve sempre partire dal colore base in modo
+        // che il fondo si mescoli col blocco d'erba».
+        //
+        // Ha ragione, e il motivo è che a quota zero il filo e il blocco sono lo
+        // stesso pixel: se i due colori differiscono anche di poco, l'attacco si
+        // legge come una riga e il ciuffo sembra APPOGGIATO sopra invece che
+        // cresciuto lì. Prima applicavo «v» e «mesc» a tutt'e due i capi.
+        //
+        // Quindi tutta la variazione — per lamella e a chiazze — vive nella
+        // PUNTA. Il che è anche più bello: la sfumatura di ogni filo parte dallo
+        // stesso verde e arriva a un verde suo.
         const jc = n * 3;
-        sCol[jc] = mesc(col.r, colCima.r) * v;
-        sCol[jc + 1] = mesc(col.g, colCima.g) * v;
-        sCol[jc + 2] = mesc(col.b, colCima.b) * v;
+        sCol[jc] = col.r; sCol[jc + 1] = col.g; sCol[jc + 2] = col.b;
+
+        const v = 0.94 + 0.12 * h5;                 // variazione fine, per lamella
+        const k = (mm - 0.5) * 0.55;                // e larga, dal manto
+        const mesc = (a, b) => (k >= 0 ? a + (b - a) * k : a * (1 + k * 0.55));
         sColCima[jc] = mesc(colCima.r, colCima.r * 1.12) * v;
         sColCima[jc + 1] = mesc(colCima.g, colCima.g * 1.12) * v;
         sColCima[jc + 2] = mesc(colCima.b, colCima.b * 1.12) * v;

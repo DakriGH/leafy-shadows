@@ -16,9 +16,11 @@ import { Mesher, collegaFabbrica as fabbricaMesher } from './world/mesher.js';
 import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
 import { generaOpenWorld } from './world/worldgen.js';
 import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
+import { Passeggero, tastiera } from './gioco/passeggero.js';
 
 const tela = document.getElementById('tela');
 const stato = document.getElementById('stato');
+const spia = document.getElementById('fps');
 
 const rig = new Rig(tela);
 const fabbrica = new Fabbrica(rig);
@@ -49,7 +51,17 @@ rig.camera.setTarget(new (rig.camera.target.constructor)(0, cima, 0));
 // ⚠ IL TETTO È QUELLO MISURATO SU LANTERN, non «il più alto che regge»: il caso
 // peggiore vero (anello a passo pieno tutto a erba, densità 8) sta sotto 450k.
 const erba = new Erba(rig.scena, { max: 500000, densita: 7.8, raggioChunk: 6 });
-const passeggero = { x: 0.5, y: cima, z: 0.5 };
+
+// ---- chi cammina ------------------------------------------------------------
+const passeggero = new Passeggero(mondo, { x: 0.5, y: cima + 1, z: 0.5 });
+const intento = tastiera();
+// un segnaposto: il gatto vero arriva col suo modello. Serve a vedere DOVE si è.
+const corpo = fabbrica.segnaposto();
+// ⚠ LA CAMERA SEGUE, NON INSEGUE. Un pedinamento morbido su un personaggio che
+// cammina su blocchi fa ondeggiare tutta l'inquadratura a ogni scalino; qui il
+// bersaglio va dove va il passeggero, e a smorzare è solo la quota — che è
+// l'unica che salta di un blocco intero.
+let quotaMorbida = passeggero.y;
 
 // ---- i modelli --------------------------------------------------------------
 // ⚠ ASINCRONO, E IL GIOCO NON LO ASPETTA. Un .glb da 52 KB arriva in fretta ma
@@ -63,7 +75,7 @@ modelli.carica('albero').then(() => {
   // NaN nelle matrici, cioè quarantotto alberi disegnati in nessun posto — e
   // senza un errore, perché una matrice di NaN è una matrice valida.
   alberiPosati = modelli.piazza('albero', alberi.map(([x, h, z]) => ({
-    x: x + 0.5, y: h + 1, z: z + 0.5,
+    x: x + 0.5, y: h + 1, z: z + 0.5,   // il blocco è a h: la sua faccia sopra sta a h+1
     // ⚠ IL GIRO È DETERMINISTICO, non casuale: un albero deve stare girato
     // sempre allo stesso modo, o a ogni ricarica il bosco cambia faccia.
     giro: (((x * 73856093) ^ (z * 19349663)) >>> 0) / 4294967296 * Math.PI * 2,
@@ -88,6 +100,13 @@ function aggiornaStato() {
   if (finestra.length < 30 || finestra.length % 15) return;
   const s = finestra.slice().sort((a, b) => a - b);
   const p = (q) => s[Math.floor(s.length * q)].toFixed(1);
+
+  // ⚠ GLI FPS E I MILLISECONDI INSIEME, e i secondi non bastano da soli: con la
+  // sincronia verticale il numero si incolla al tetto del pannello e non dice
+  // più niente — sessanta fps sono sessanta sia che si lavori un millisecondo
+  // sia che se ne lavorino quindici. Il ms del p99 è quello che si SENTE.
+  const fps = Math.round(1000 / s[s.length >> 1]);
+  spia.textContent = `${fps} fps\n${p(0.5)} / ${p(0.99)} ms`;
   stato.textContent =
     `p50 ${p(0.5)} ms   p99 ${p(0.99)} ms\n` +
     `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}\n` +
@@ -99,6 +118,10 @@ function aggiornaStato() {
 
 rig.avvia((dt) => {
   giorno.aggiorna(dt);
+  passeggero.aggiorna(dt, intento, rig.camera.alpha);
+  quotaMorbida += (passeggero.y - quotaMorbida) * Math.min(1, dt * 9);
+  rig.camera.target.set(passeggero.x, quotaMorbida + 0.6, passeggero.z);
+  fabbrica.muoviSegnaposto(corpo, passeggero);
   // la semina è a BILANCIO DI TEMPO, non a numero di chunk: i chunk non costano
   // uguale, e contarli lasciava passare picchi da tre millisecondi e mezzo
   erba.aggiorna(dt, mondo, passeggero, null, rig.camera.position);

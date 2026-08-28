@@ -7,6 +7,12 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd0e8; touch-action: none; }
   #tela { width: 100%; height: 100%; display: block; outline: none; }
+  #fps {
+    position: fixed; right: 8px; top: 8px; z-index: 10;
+    font: 600 13px/1.4 ui-monospace, monospace; color: #0d2a1a;
+    background: rgba(255,255,255,.72); padding: 5px 9px; border-radius: 6px;
+    pointer-events: none; text-align: right; white-space: pre;
+  }
   #stato {
     position: fixed; left: 8px; top: 8px; z-index: 10;
     font: 12px/1.5 ui-monospace, monospace; color: #0d2a1a;
@@ -34,6 +40,7 @@
 <body>
   <canvas id="tela"></canvas>
   <div id="stato">avvio…</div>
+  <div id="fps">—</div>
   <pre id="guasto"></pre>
   <script type="module">
     // ⚠ IL BANNER ROSSO PRIMA DI TUTTO. È il canale di diagnosi sul telefono e

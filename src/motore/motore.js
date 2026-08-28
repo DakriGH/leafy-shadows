@@ -25,6 +25,11 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { CascadedShadowGenerator } from '@babylonjs/core/Lights/Shadows/cascadedShadowGenerator.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { FxaaPostProcess } from '@babylonjs/core/PostProcesses/fxaaPostProcess.js';
+import '@babylonjs/core/Shaders/fxaa.fragment.js';
+import '@babylonjs/core/Shaders/fxaa.vertex.js';
+import '@babylonjs/core/Shaders/postprocess.vertex.js';
+import '@babylonjs/core/Engines/Extensions/engine.renderTarget.js';
 import { ambienteDiFabbrica } from './stile.js';
 
 // ⚠ GLI SHADER VANNO IMPORTATI A MANO quando si importa in profondità. Babylon
@@ -164,6 +169,21 @@ export class Rig {
     // smaschera l'acne, ed è quello da cui non guardavo.
     this.ombre.bias = 0.008;
     this.ombre.normalBias = 0.02;
+
+    // ---- L'ANTIALIASING DEI BORDI SOTTILI ------------------------------------
+    // ⚠ L'MSAA DELLA TELA NON BASTA QUI, e il motivo è la geometria: le terrazze
+    // di Leafy sono fianchi alti UN blocco, e a cinquanta blocchi di distanza un
+    // blocco è meno di un pixel. L'MSAA campiona di più dentro il triangolo, ma
+    // un triangolo più piccolo del pixel scompare e riappare mentre la camera si
+    // muove — è lo sfarfallio che il committente ha visto come «vibrazioni a
+    // distanza». FXAA lavora sull'IMMAGINE, cioè proprio dove il difetto si
+    // manifesta, e costa una passata a schermo intero invece di quadruplicare il
+    // riempimento.
+    //
+    // ⚠ NON È UN SOSTITUTO DEL LOD, ed è bene dirlo: il LOD toglie i triangoli
+    // che non si vedono, FXAA rende sopportabili quelli che restano. Servono
+    // tutt'e due, e il LOD è il prossimo pezzo.
+    this.fxaa = new FxaaPostProcess('fxaa', 1, this.camera);
 
     addEventListener('resize', () => this.motore.resize());
     this._collegaIspettore();

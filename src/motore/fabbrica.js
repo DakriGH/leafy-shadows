@@ -13,6 +13,8 @@ import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Prato } from './prato.js';
+import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
+import '@babylonjs/core/Meshes/Builders/capsuleBuilder.js';
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial.js';
 import { applicaStilePiatto } from './stile.js';
 
@@ -164,6 +166,25 @@ export class Fabbrica {
   spegniVoxel() {}
   latoMassimoVoxel() { return 0; }
   mondoVelato() { return false; }
+
+  // ── il segnaposto del giocatore ───────────────────────────────────────────
+  // ⚠ È UN SEGNAPOSTO, e va detto: il gatto di Leafy è geometria costruita a
+  // codice (testa, orecchie, coda) e va rifatta, non ricopiata. Finché non c'è,
+  // serve qualcosa che dica DOVE si è — camminare in un mondo senza vedersi è
+  // il modo migliore per non accorgersi che la fisica è sbagliata.
+  segnaposto() {
+    const m = MeshBuilder.CreateCapsule('corpo', { height: 0.9, radius: 0.28, tessellation: 8 }, this.scena);
+    m.material = applicaStilePiatto(new CustomMaterial('corpo', this.scena), this.rig, undefined, { facce: false });
+    m.material.diffuseColor = new Color3(0.22, 0.55, 0.86);
+    m.isPickable = false;
+    m.receiveShadows = true;
+    this.rig.proietta(m);
+    return m;
+  }
+  muoviSegnaposto(m, p) {
+    m.position.set(p.x, p.y + 0.45, p.z);
+    m.rotation.y = p.verso;
+  }
 
   // ── il prato ──────────────────────────────────────────────────────────────
   creaPrato(max) { return new Prato(this.scena, this.rig, max); }

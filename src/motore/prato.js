@@ -85,7 +85,16 @@ export class Prato {
     // stato bocciato tre volte: sul confine dell'ombra il filo e il blocco sotto
     // stavano su due leggi diverse e si vedeva. Qui il colore piatto è la nostra
     // sfumatura base→punta, e l'ombra la mette `stile.js`.
-    const m = applicaStilePiatto(new CustomMaterial('erba', this.scena), this.rig, 'vErbaCol');
+    // ⚠ `facce: false`, E QUESTA ERA LA CAUSA DELLE «LINEETTE DI LUCE A CASO».
+    // Il termine «faccia al sole» è la verità geometrica su un CUBO: una faccia
+    // che guarda a nord, col sole a sud, è in ombra e basta. Su una lamella
+    // d'erba non vuol dire niente — e peggio, la sua normale dipende da quanto
+    // il VENTO la sta piegando in quell'istante. Col sole basso il prodotto
+    // scalare cambia segno da un filo all'altro, quindi i fili si accendevano e
+    // si spegnevano a caso, e ondeggiando pure: il committente le ha viste come
+    // «tante lineette di luce a caso», ed erano proprio quelle.
+    // Un filo d'erba non ha un davanti e un dietro. L'ombra gliela dà la mappa.
+    const m = applicaStilePiatto(new CustomMaterial('erba', this.scena), this.rig, 'vErbaCol', { facce: false });
     m.backFaceCulling = false;            // una lamella si guarda da due lati
 
     m.AddAttribute('iPos');               // base (xyz) + livello di diradamento (w)

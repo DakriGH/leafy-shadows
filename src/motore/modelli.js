@@ -58,12 +58,27 @@ export class Modelli {
     if (scala !== 1) fuso.scaling.setAll(scala);
     fuso.bakeCurrentTransformIntoVertices();
 
+    // ⚠ L'ORIGINE DEL MODELLO NON STA SUI PIEDI, e il .glb non ha nessun
+    // obbligo di metterla lì: chi l'ha modellato l'ha lasciata dove gli
+    // comodava. Piazzando alla quota del terreno gli alberi risultavano
+    // AFFONDATI o SOSPESI a seconda del modello — «gli alberi sono volanti».
+    // Qui si misura il riquadro una volta e si sposta la geometria in modo che
+    // y=0 sia la base. Da lì in poi chi piazza ragiona in quote di mondo e non
+    // deve sapere niente di come è stato esportato il file.
+    fuso.refreshBoundingInfo();
+    const giu = fuso.getBoundingInfo().boundingBox.minimum.y;
+    if (Math.abs(giu) > 1e-4) {
+      fuso.position.y = -giu;
+      fuso.bakeCurrentTransformIntoVertices();
+      fuso.refreshBoundingInfo();
+    }
+
     // ⚠ LO STESSO STILE DEL MONDO. Un albero illuminato con la legge del motore
     // accanto a un terreno illuminato con la nostra è il difetto che in Leafy
     // si vede subito: due leggi diverse per la stessa luce. Il colore piatto qui
     // è quello del modello (texture o colori di vertice) — se il glTF non ne ha,
     // resta il diffuso del materiale.
-    const m = applicaStilePiatto(new CustomMaterial(`mat:${nome}`, this.scena), this.rig, 'baseColor.rgb');
+    const m = applicaStilePiatto(new CustomMaterial(`mat:${nome}`, this.scena), this.rig, 'baseColor.rgb', { facce: false });
     m.backFaceCulling = false;   // le chiome sono piani incrociati
     if (tex) {
       m.diffuseTexture = tex;
