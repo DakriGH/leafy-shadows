@@ -31,7 +31,16 @@
   @media (max-width: 700px) {
     #stato { font-size: 10px; line-height: 1.35; padding: 4px 6px; max-width: 62vw;
              max-height: 2.55em; overflow: hidden; pointer-events: auto; cursor: pointer; }
-    #stato.aperto { max-height: 72vh; overflow: auto; }
+    /* ⚠ APERTO NON DEVE TAGLIARE NIENTE, ed è la ragione per cui esiste questo
+       blocco. Committente: «da cellulare la GUI è tagliata, quindi molte
+       informazioni vengono nascoste — non utile per mandarti gli screenshot dei
+       dati». Ed è vero: il pannello aveva «white-space: pre» e una larghezza
+       del 62%, quindi le righe lunghe (il nome della scheda video, i comandi)
+       finivano oltre il bordo e sparivano. Quel pannello esiste PER essere
+       fotografato e mandato: se taglia, non serve a niente.
+       Aperto prende quasi tutto lo schermo e MANDA A CAPO invece di troncare. */
+    #stato.aperto { max-height: 76vh; max-width: 94vw; overflow: auto;
+                    white-space: pre-wrap; word-break: break-word; }
     #fps { font-size: 11px; padding: 3px 6px; }
   }
   #guasto {
@@ -44,7 +53,7 @@
 <body>
   <canvas id="tela"></canvas>
   <div id="stato">avvio…</div>
-  <div id="versione" style="position:fixed;right:8px;bottom:6px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">28/08, 14:48 · 4e47d5d</div>
+  <div id="versione" style="position:fixed;right:8px;bottom:6px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">28/08, 15:02 · 9d35465</div>
   <div id="fps">—</div>
   <pre id="guasto"></pre>
   <script type="module">
@@ -58,7 +67,7 @@
     };
     window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
     window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
-    import('./zoo.js?v=4e47d5d').catch(guasto);
+    import('./zoo.js?v=9d35465').catch(guasto);
 
     // ⚠ SI APRE TOCCANDOLO. Il gestore sta sul PANNELLO e non sulla tela: se no
     // il tocco che apre il pannello sarebbe anche quello che ruota la camera.
