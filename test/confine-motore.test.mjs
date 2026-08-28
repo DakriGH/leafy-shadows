@@ -72,3 +72,19 @@ test('il mesher produce DATI, non mesh', async () => {
   assert.doesNotMatch(src, /new THREE\.|new Mesh\(|new VertexData\(/,
     'il mesher costruisce di nuovo oggetti del motore');
 });
+
+// ⚠ E NESSUNO CHIAMA `Fragment_Definitions` DIRETTAMENTE: è un SETTORE, non un
+// accumulatore, e chi lo usa dopo `applicaStilePiatto` cancella in silenzio il
+// cammino nella griglia dei muri — lasciando in piedi la chiamata. È successo:
+// «'ombraVoxel' : no matching overloaded function found» sull'erba e su nient'altro.
+test('le definizioni del fragment si AGGIUNGONO, non si sostituiscono', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const dir = new URL('../src/motore/', import.meta.url);
+  const colpevoli = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.js') || f === 'stile.js') continue;
+    const t = readFileSync(new URL(f, dir), 'utf8');
+    if (/(?<!aggiungiDefinizioniFragment\()\bm\.Fragment_Definitions\(/.test(t)) colpevoli.push(f);
+  }
+  assert.deepEqual(colpevoli, [], 'usare aggiungiDefinizioniFragment() di stile.js');
+});

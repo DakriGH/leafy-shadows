@@ -30,7 +30,7 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
 import { Vector2, Vector3, Vector4 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial.js';
-import { applicaStilePiatto } from './stile.js';
+import { applicaStilePiatto, aggiungiDefinizioniFragment } from './stile.js';
 import '@babylonjs/core/Meshes/thinInstanceMesh.js';
 
 export class Prato {
@@ -210,7 +210,7 @@ export class Prato {
       normalUpdated = normalize(vec3(vErbaPiega.x * 0.5, 1.0, vErbaPiega.y * 0.5));
     `);
 
-    m.Fragment_Definitions(`
+    aggiungiDefinizioniFragment(m, `
       varying vec3 vErbaCol;
     `);
 

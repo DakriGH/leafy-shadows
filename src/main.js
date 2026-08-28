@@ -17,6 +17,8 @@ import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
 import { generaOpenWorld } from './world/worldgen.js';
 import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
+import { mira, posabile, raggiungibile, portataRaggio } from './gioco/mira.js';
+import { Cantiere, CASSETTA } from './gioco/cantiere.js';
 
 const tela = document.getElementById('tela');
 const stato = document.getElementById('stato');
@@ -94,18 +96,76 @@ let lampioniPosati = 0;
 modelli.carica('lampione').then(() => {
   lampioniPosati = modelli.piazza('lampione', lampioni.map(([x, h, z]) => ({ x: x + 0.5, y: h, z: z + 0.5, giro: 0 })));
   for (const [x, h, z] of lampioni) {
-    // ⚠ QUATTORDICI E NON OTTO E MEZZO. La pozza è quantizzata a tre gradini
-    // (`BANDE_LUCE`), quindi il primo gradino si azzera dove (1 - d/r)² scende
-    // sotto un sesto: con r = 8,5 succede a cinque blocchi, e la lampada era
-    // praticamente invisibile — misurato leggendo il pixel, non a occhio.
-    // Il raggio non è «quanto illumina»: è quanto illumina PRIMA che i gradini
-    // la spengano, ed è tre quarti del raggio scritto.
-    rig.luci.accendi({ x: x + 0.5, y: h + 2.6, z: z + 0.5, raggio: 14, forza: 1 });
+    // ⚠ E TORNA A OTTO E MEZZO, che è il numero di Lantern. L'avevo alzato a
+    // quattordici perché le lampade non si vedevano, e la causa non era il
+    // raggio: era la mia formula di caduta (vedi `luci.js`). Curato il difetto,
+    // il raggio torna a voler dire quanto illumina.
+    rig.luci.accendi({ x: x + 0.5, y: h + 2.6, z: z + 0.5, raggio: 8.5, forza: 1 });
   }
 }).catch((e) => { console.error('lampioni:', e); });
 
+// ---- il cantiere: rompere, posare, illuminare -------------------------------
+const cantiere = new Cantiere(mondo, rig.luci);
+const mirino = fabbrica.mirino();
+/** Dov'è il puntatore, in pixel di tela. Null = mira al centro dello schermo. */
+let puntatore = { x: 0, y: 0 };
+/** Il bersaglio calcolato una volta per fotogramma, riusato da HUD e clic. */
+let bersaglio = null;
+
+// ⚠ IL BERSAGLIO SI CALCOLA UNA VOLTA SOLA, nel giro del fotogramma, e non
+// dentro il gestore del clic. Ricalcolarlo al clic sembra più «giusto» e invece
+// introduce uno scarto: fra l'ultimo disegno e il clic la camera può essersi
+// mossa, e si rompe un blocco diverso da quello che aveva il mirino addosso.
+// Quello che si vede evidenziato è quello che si rompe, per costruzione.
+function aggiornaMira() {
+  const r = rig.raggioDaPuntatore(puntatore.x, puntatore.y);
+  // ⚠ IL RAGGIO SI TIRA FINO A LÀ, il braccio si controlla dopo: vedi `mira.js`.
+  const b = mira(mondo, r.origine, r.verso, portataRaggio(rig.camera.radius));
+  bersaglio = b && raggiungibile(b.cella, passeggero) ? b : null;
+  // ⚠ IL MIRINO DICE ANCHE COSA SUCCEDERÀ, col colore: bianco = si rompe,
+  // verde = si posa lì. È l'unico modo per non dover indovinare quale delle due
+  // celle (quella colpita o quella prima) sta per essere toccata.
+  const posa = bersaglio && posabile(mondo, bersaglio.prima, passeggero);
+  fabbrica.muoviMirino(mirino, bersaglio && bersaglio.cella, posa ? [0.55, 1, 0.6] : [1, 1, 1]);
+}
+
+addEventListener('pointermove', (e) => { puntatore.x = e.clientX; puntatore.y = e.clientY; });
+addEventListener('pointerdown', (e) => {
+  if (e.target !== tela) return;
+  if (!bersaglio) return;
+  if (e.button === 0) cantiere.rompi(...bersaglio.cella);
+  else if (e.button === 2) { if (posabile(mondo, bersaglio.prima, passeggero)) cantiere.posa(...bersaglio.prima); }
+  else if (e.button === 1) {
+    // ⚠ IL TASTO CENTRALE COPIA IL BLOCCO che si sta guardando, come in
+    // Minecraft: è il gesto che chiunque abbia costruito in un gioco a blocchi
+    // prova per primo, e non trovarlo è una piccola frustrazione gratuita.
+    const t = mondo.tipo(...bersaglio.cella);
+    const i = CASSETTA.indexOf(t);
+    if (i >= 0) cantiere.scegli(i);
+    e.preventDefault();
+  }
+});
+
 // ---- il ciclo del giorno ----------------------------------------------------
 const giorno = new Giorno(rig, { durata: 300, ora: 0.42 });
+
+// ⚠ I TASTI SI LEGGONO PER CODICE FISICO (`e.code`), non per carattere: su una
+// tastiera italiana `,` e `.` stanno dove stanno, e leggendo `e.key` i comandi
+// cambierebbero posto cambiando disposizione. `Comma` e `Period` sono il tasto,
+// non il segno.
+addEventListener('keydown', (e) => {
+  if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (e.code === 'Comma') { giorno.auto = false; giorno.t = (giorno.t + 0.985) % 1; giorno.applica(); }
+  else if (e.code === 'Period') { giorno.auto = false; giorno.t = (giorno.t + 0.015) % 1; giorno.applica(); }
+  else if (e.code === 'KeyP') giorno.auto = !giorno.auto;
+  else if (e.code === 'KeyQ' && bersaglio) cantiere.rompi(...bersaglio.cella);
+  else if (e.code === 'KeyE' && bersaglio && posabile(mondo, bersaglio.prima, passeggero)) cantiere.posa(...bersaglio.prima);
+  else if (e.code === 'KeyR') cantiere.scegli(cantiere.scelto + (e.shiftKey ? -1 : 1));
+  else if (e.code.startsWith('Digit')) {
+    const n = Number(e.code.slice(5));
+    if (n >= 1 && n <= 9) cantiere.scegli(n - 1);
+  }
+});
 
 // ---- il contatore onesto ---------------------------------------------------
 // ⚠ NON GLI FPS: i MILLISECONDI. In Lantern ho passato una giornata a dire «va
@@ -133,9 +193,11 @@ function aggiornaStato() {
     `p50 ${p(0.5)} ms   p99 ${p(0.99)} ms\n` +
     `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}\n` +
     `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
-    `erba ${erba.fili.toLocaleString('it')} lamelle   ${giorno.orologio}\n` +
+    `erba ${erba.fili.toLocaleString('it')} lamelle   luci ${rig.luci.accese}\n` +
     `alberi ${alberiPosati}/${alberi.length}   lampioni ${lampioniPosati}\n` +
-    `I = ispettore`;
+    `\n${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}   in mano: ${cantiere.nomeScelto}\n` +
+    `sinistro rompe · destro posa · centrale copia   1-9 / R sceglie\n` +
+    `, . ora   P ferma il ciclo   I ispettore`;
 }
 
 rig.avvia((dt) => {
@@ -149,8 +211,15 @@ rig.avvia((dt) => {
   // la semina è a BILANCIO DI TEMPO, non a numero di chunk: i chunk non costano
   // uguale, e contarli lasciava passare picchi da tre millisecondi e mezzo
   erba.aggiorna(dt, mondo, passeggero, null, rig.camera.position);
+  // ⚠ E QUI IL MONDO SI RIDISEGNA DOVE È CAMBIATO. Il mesher tiene già una coda
+  // a bilancio di tempo (3 ms per fotogramma) e si accorge da solo di quali
+  // chunk sono sporchi: rompere un blocco non ricostruisce niente sul momento,
+  // mette in coda. Senza questa riga si poteva rompere quanto si voleva e a
+  // schermo non cambiava niente — il mondo era giusto, l'immagine vecchia.
+  mesher.aggiorna(mondo, passeggero);
+  aggiornaMira();
   aggiornaStato();
 });
 
 // una manina per lavorarci sopra dall'ispettore e dalla console
-globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeggero, generaOpenWorld };
+globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeggero, cantiere, generaOpenWorld };

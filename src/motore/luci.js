@@ -28,6 +28,20 @@ export const LUCI_MAX = 24;
 /** I gradini dell'alone. Gli stessi dell'ombra: è la stessa nettezza. */
 export const BANDE_LUCE = 3;
 
+/** ⚠ DEVE ESSERE LO STESSO ESPONENTE DI `stile.js` (GAMMA). Sta scritto due
+ *  volte perché importarlo creerebbe un anello — `stile.js` importa questo
+ *  file. Se un giorno divergono, le lampade saranno l'unica cosa fuori posto e
+ *  non si capirà perché: è il tipo di legame che va detto, non nascosto. */
+const GAMMA_LUCI = 2.2;
+
+// ⚠ LE COSTANTI DEL CAMMINO VENGONO DAL MONDO, NON DA QUI. `src/world/luce.js`
+// tiene la griglia dei muri, il numero massimo di passi e la soglia che decide
+// cosa ferma una lampada: sono le stesse costanti su cui è tarato il gemello in
+// JS (`GrigliaLuce.occluso`), che è l'unico modo di provare senza GPU la cosa da
+// cui dipende tutto l'aspetto delle ombre. Riscriverle qui vorrebbe dire due
+// verità che divergono al primo ritocco.
+import { PASSI_MAX, SCARTO_OMBRA, FERMA_LUME } from '../world/luce.js';
+
 export class Luci {
   constructor() {
     // ⚠ ARRAY PIATTI, non elenchi di Vector4, e non è un vezzo: le uniform di
@@ -36,27 +50,95 @@ export class Luci {
     // importante — toglie il dubbio su quale sia la copia buona.
     this.pos = new Float32Array(LUCI_MAX * 4);   // (x, y, z, raggio)
     this.col = new Float32Array(LUCI_MAX * 3);
+    /**
+     * CHI PROIETTA OMBRA, 1 o 0 per lampada.
+     *
+     * ⚠ SONO DUE CLASSI, non una manopola, ed è la distinzione di Lantern:
+     *  · PESANTE (1): ferma sui muri. Cammina la griglia per ogni pixel dentro
+     *    la sua pozza — è il termine più caro del fragment, e si paga solo lì.
+     *  · LEGGERA (0): trapassa tutto, costa una distanza. È quella dei fuochi
+     *    fatui e degli effetti, che si muovono e non devono costare niente.
+     * Il difetto di prima era che TUTTE erano leggere: i lampioni illuminavano
+     * attraverso l'isola, e con tredici lampioni sovrapposti la notte diventava
+     * giorno. Non era l'ambiente sbagliato — misurato: spegnendo le lampade il
+     * buio era esatto (79 contro 96 previsti).
+     */
+    this.ombra = new Float32Array(LUCI_MAX);
+    /** Quanti slot sono in uso (compresi i buchi): è il limite del ciclo. */
     this.quante = 0;
-    this._elenco = [];
+    /** chiave → indice, per chi deve poter spegnere quella che ha acceso. */
+    this._perChiave = new Map();
   }
 
-  /** Accende una lampada. Torna il suo indice, o -1 se non c'è più posto. */
-  accendi({ x, y, z, raggio = 7, colore = [1.0, 0.86, 0.62], forza = 1 }) {
-    if (this.quante >= LUCI_MAX) return -1;
-    const i = this.quante++;
+  /**
+   * Accende una lampada. Torna il suo indice, o -1 se non c'è più posto.
+   *
+   * ⚠ GLI INDICI NON SI SPOSTANO MAI, ed è una scelta contro un difetto che
+   * sarebbe arrivato di sicuro. Compattando l'array a ogni spegnimento, ogni
+   * indice tenuto da qualcun altro punterebbe alla lampada sbagliata — lo zoo
+   * tiene gli indici delle luci in moto, e le avrebbe viste saltare da una
+   * all'altra rompendo un blocco a caso dall'altra parte della mappa. Quindi
+   * uno slot spento resta lì con raggio zero (lo shader lo salta con un
+   * confronto) e il prossimo `accendi` lo riusa.
+   */
+  accendi({ x, y, z, raggio = 7, colore = [1.0, 0.86, 0.62], forza = 1, ombra = true, chiave = null }) {
+    let i = -1;
+    for (let k = 0; k < this.quante; k++) if (this.pos[k * 4 + 3] <= 0) { i = k; break; }
+    if (i < 0) {
+      if (this.quante >= LUCI_MAX) return -1;
+      i = this.quante++;
+    }
     this.pos.set([x, y, z, raggio], i * 4);
-    this.col.set([colore[0] * forza, colore[1] * forza, colore[2] * forza], i * 3);
-    this._elenco.push({ x, y, z, raggio });
+    // ⚠ IL COLORE SI DECODIFICA QUI, UNA VOLTA SOLA. I colori si scrivono in
+    // spazio di VISUALIZZAZIONE — `0xffd889` nella tabella dei blocchi, `[1,
+    // 0.35, 0.30]` nello zoo — perché è così che un umano sceglie un colore. Ma
+    // lo shader somma le pozze in spazio LINEARE (vedi `stile.js`), e sommare
+    // valori compressi è proprio il difetto che sbiancava le sovrapposizioni.
+    // Convertire qui costa una volta per accensione invece che per pixel.
+    this.col.set([
+      Math.pow(colore[0], GAMMA_LUCI) * forza,
+      Math.pow(colore[1], GAMMA_LUCI) * forza,
+      Math.pow(colore[2], GAMMA_LUCI) * forza,
+    ], i * 3);
+    this.ombra[i] = ombra ? 1 : 0;
+    if (chiave !== null) this._perChiave.set(chiave, i);
     return i;
   }
 
-  spegniTutte() {
-    this.pos.fill(0); this.col.fill(0);
-    this.quante = 0;
-    this._elenco.length = 0;
+  /** Spegne una lampada per indice. Il buco resta e verrà riusato. */
+  spegni(i) {
+    if (i < 0 || i >= this.quante) return false;
+    this.pos[i * 4 + 3] = 0;
+    this.col[i * 3] = this.col[i * 3 + 1] = this.col[i * 3 + 2] = 0;
+    this.ombra[i] = 0;
+    // ⚠ SI ACCORCIA SOLO DALLA CODA: togliendo l'ultima, il ciclo dello shader
+    // fa un giro in meno per pixel. In mezzo no, se no gli indici si spostano.
+    while (this.quante > 0 && this.pos[(this.quante - 1) * 4 + 3] <= 0) this.quante--;
+    return true;
   }
 
-  get elenco() { return this._elenco; }
+  /** Spegne la lampada registrata con questa chiave (una cella, di solito). */
+  spegniChiave(k) {
+    const i = this._perChiave.get(k);
+    if (i === undefined) return false;
+    this._perChiave.delete(k);
+    return this.spegni(i);
+  }
+
+  haChiave(k) { return this._perChiave.has(k); }
+
+  spegniTutte() {
+    this.pos.fill(0); this.col.fill(0); this.ombra.fill(0);
+    this.quante = 0;
+    this._perChiave.clear();
+  }
+
+  /** Quante sono accese davvero (i buchi non contano). */
+  get accese() {
+    let n = 0;
+    for (let i = 0; i < this.quante; i++) if (this.pos[i * 4 + 3] > 0) n++;
+    return n;
+  }
 
   /**
    * Le posizioni COME LE VEDE LO SHADER.
@@ -95,6 +177,23 @@ export class Luci {
  * IL PEZZO DI GLSL, e sta qui accanto ai dati apposta: chi cambia il numero di
  * luci o la legge della caduta trova le due cose nello stesso file.
  *
+ * ⚠ LA CADUTA È LINEARE E IL TAGLIO È «ceil», COPIATI DA LANTERN RIGA PER RIGA,
+ * e le due cose insieme sono la ragione per cui la pozza si vede. Avevo scritto
+ * una caduta al quadrato tagliata con «floor(q·3 + 0.5)», che sembra la stessa
+ * cosa e non lo è: con l'arrotondamento al più vicino tutto ciò che sta sotto un
+ * sesto va a ZERO, cioè la pozza muore a tre quinti scarsi del raggio, e col
+ * quadrato ancora prima — a cinque blocchi su otto e mezzo.
+ *
+ * Con «ceil» invece qualunque punto DENTRO il raggio prende almeno un gradino:
+ * la pozza riempie esattamente il raggio scritto, e i tre gradini si dispongono
+ * in tre anelli concentrici larghi uguali. Il raggio torna a voler dire quello
+ * che dice.
+ *
+ * ⚠ E IO AVEVO CURATO IL SINTOMO: visto che le lampade non si vedevano, avevo
+ * alzato il raggio da 8,5 a 14 e scritto in un commento la formula del difetto
+ * come se fosse una legge di natura («il raggio è quanto illumina PRIMA che i
+ * gradini la spengano»). Era una mia svista descritta con cura.
+ *
  * ⚠ NIENTE N·L. Una luce-sfera di Leafy illumina in base a DOVE SEI, non a come
  * sei girato: è un alone, non una lampadina fisica. Metterci il prodotto scalare
  * darebbe le facce laterali dei cubi scure dentro la pozza di luce, che è
@@ -104,18 +203,107 @@ export class Luci {
  * anche quello che sta all'ombra del sole. È il motivo per cui di notte, in
  * Leafy, sotto un lampione si vede.
  */
+/**
+ * IL CAMMINO NELLA GRIGLIA DEI MURI — perché una lampada non attraversi un muro.
+ *
+ * ⚠ È IL PEZZO CHE MANCAVA PER «RENDERLE COME QUELLE DI LANTERN». La formula
+ * della pozza l'avevo già ricopiata (caduta lineare, taglio con `ceil`) e non
+ * bastava: guardando la notte, le pozze dei tredici lampioni passavano attraverso
+ * l'isola e si sommavano dall'altra parte. Una sfera è solo una distanza — non
+ * sa niente dei muri. Questo le dà l'unica cosa che le mancava.
+ *
+ * IL METODO è la marcia di Amanatides-Woo, la stessa di `gioco/mira.js`: si
+ * avanza sempre verso il confine di cella più vicino, quindi si visitano
+ * ESATTAMENTE le celle attraversate dal raggio — non una di più (ombre più
+ * grasse del vero) né una di meno (luce che passa negli spigoli).
+ *
+ * ⚠ E IL BORDO È ESATTO, non approssimato: cade AL PIXEL sullo spigolo del cubo
+ * che lo proietta. Niente mappa d'ombra, niente reticolo di texel sul ricevente,
+ * niente bias da tarare — non c'è nessuna distanza cotta da confrontare, quindi
+ * non c'è l'acne che un bias cura. In un gioco a blocchi i gradini che restano
+ * sono i cubi veri, e si leggono come voluti. È il contrario di quello che
+ * facciamo per il sole, ed è giusto così: il sole illumina tutto lo schermo e
+ * non può permettersi un cammino per pixel; una lampada lo paga solo dentro la
+ * sua pozza.
+ *
+ * ⚠ IL GEMELLO IN JS È `GrigliaLuce.occluso` (world/luce.js) e le due devono
+ * restare identiche: è l'unico modo di provare senza GPU la cosa da cui dipende
+ * tutto l'aspetto delle ombre delle lampade.
+ *
+ * ⚠ E QUI SI TORNA IN COORDINATE DI MONDO. `vPositionW` è relativo alla camera
+ * (origine mobile, vedi `perLoShader`), ma le celle della griglia sono indici
+ * assoluti: si somma `uCamPos`. È l'unico punto del progetto che disfa
+ * l'origine mobile, e va detto — a mondi molto grandi è il primo conto che
+ * perde precisione. Ai nostri (±768 blocchi) float32 risolve 6·10⁻⁵ di blocco:
+ * quattro ordini di grandezza di margine.
+ */
+export const GLSL_OMBRA_VOXEL = `
+  // Il byte della cella, 0.0 fuori dalla griglia. ⚠ FUORI NON È MURO, È ARIA
+  // APERTA: la regola opposta darebbe un guscio nero attorno al mondo.
+  // ⚠ «texelFetch» e non «texture»: indirizzamento INTERO — niente mezzo texel
+  // da aggiungere, niente normalizzazione, niente filtro da spegnere.
+  float voxVal(ivec3 c) {
+    ivec3 i = c - ivec3(uVoxMin.xyz);
+    if (i.x < 0 || i.y < 0 || i.z < 0) return 0.0;
+    if (float(i.x) >= uVoxDim.x || float(i.y) >= uVoxDim.y || float(i.z) >= uVoxDim.z) return 0.0;
+    // l'ordine è (z, y, x): è il contratto di layout scritto in world/luce.js
+    return texelFetch(uVox, ivec3(i.z, i.y, i.x), 0).r;
+  }
+
+  // FERMA UNA LAMPADA: muri, buccia del terreno e gli ingombri OPACHI, cioè i
+  // mobili che non portano una sorgente — un albero fa ombra alla luce del
+  // lampione accanto. Resta fuori solo l'ingombro di CHI la luce ce l'ha
+  // addosso: la sua lampada sta dentro il proprio palo e si murerebbe da sola.
+  bool voxPieno(ivec3 c) { return voxVal(c) > ${(FERMA_LUME / 255 - 0.5 / 255).toFixed(4)}; }
+
+  bool ombraVoxel(vec3 lampada, vec3 dir, float dist) {
+    vec3 passo = vec3(dir.x >= 0.0 ? 1.0 : -1.0, dir.y >= 0.0 ? 1.0 : -1.0, dir.z >= 0.0 ? 1.0 : -1.0);
+    // il max evita la divisione per zero sugli assi: 1e8 si comporta da infinito
+    vec3 inv = 1.0 / max(abs(dir), vec3(1e-8));
+    vec3 f = lampada - floor(lampada);
+    vec3 prossimo = ((passo * 0.5 + 0.5) - passo * f) * inv;
+    ivec3 c = ivec3(floor(lampada));
+    ivec3 ipasso = ivec3(passo);
+    // ⚠ IL RAGGIO SI FERMA UN MILLESIMO DI CELLA PRIMA del frammento: il
+    // frammento sta SULLA faccia di un blocco, cioè esattamente sul confine
+    // della sua cella, e senza questo scarto il rumore di virgola mobile lo
+    // farebbe finire ogni tanto DENTRO il solido che lo porta.
+    float limite = dist - ${SCARTO_OMBRA.toFixed(5)};
+    for (int k = 0; k < ${PASSI_MAX}; k++) {
+      float t;
+      if (prossimo.x <= prossimo.y && prossimo.x <= prossimo.z) { t = prossimo.x; c.x += ipasso.x; prossimo.x += inv.x; }
+      else if (prossimo.y <= prossimo.z)                        { t = prossimo.y; c.y += ipasso.y; prossimo.y += inv.y; }
+      else                                                      { t = prossimo.z; c.z += ipasso.z; prossimo.z += inv.z; }
+      if (t >= limite) return false;               // arrivati senza incontrare niente
+      if (voxPieno(c)) return true;
+    }
+    return false;
+  }
+`;
+
 export const GLSL_LUCI_ACCUMULO = `
   vec3 lampade = vec3(0.0);
+  // ⚠ LA GRIGLIA C'È? Il ripiego è ONESTO e non un caso da nascondere: senza
+  // griglia le sfere tornano ad attraversare i muri esattamente come prima che
+  // l'occlusione esistesse — mondo vuoto, scheda che non regge il lato della
+  // texture, o zoo con l'interruttore spento.
+  bool conOmbre = uVoxMin.w > 0.5;
   for (int i = 0; i < ${LUCI_MAX}; i++) {
     if (float(i) >= uLuciNum) break;
     vec4 L = uLuciPos[i];
     if (L.w <= 0.0) continue;
-    float d = distance(vPositionW, L.xyz);
-    if (d >= L.w) continue;
-    float q = 1.0 - d / L.w;
-    q = q * q;
-    // a gradini, con la stessa costante dell'ombra: la nettezza è una sola
-    q = floor(q * ${BANDE_LUCE.toFixed(1)} + 0.5) / ${BANDE_LUCE.toFixed(1)};
-    lampade += uLuciCol[i] * q;
+    vec3 dv = vPositionW - L.xyz;
+    float d2 = dot(dv, dv);
+    if (d2 >= L.w * L.w) continue;
+    float d = sqrt(d2);
+    // ⚠ IL CAMMINO SI PAGA SOLO DENTRO LA SFERA E SOLO SE LA LAMPADA È PESANTE:
+    // è per questo che il costo segue la SOVRAPPOSIZIONE delle pozze e non il
+    // numero di lampade a schermo — un pixel dentro una sola pozza cammina una
+    // volta sola, per lunga che sia la fila di lampioni.
+    if (conOmbre && uLuciOmbra[i] > 0.5 && d > 1e-4
+        && ombraVoxel(L.xyz + uCamPos, dv / d, d)) continue;
+    float f = 1.0 - d / L.w;
+    float banda = ceil(f * ${BANDE_LUCE.toFixed(1)}) / ${BANDE_LUCE.toFixed(1)};
+    lampade += uLuciCol[i] * banda;
   }
 `;

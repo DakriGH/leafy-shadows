@@ -51,11 +51,42 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 // emette lei la riga `uniform vec4 uLuciPos[24];` e la concatena alle
 // definizioni del fragment. Dichiararle anche in `Fragment_Definitions` darebbe
 // una doppia dichiarazione e lo shader non compila.
-import { LUCI_MAX, GLSL_LUCI_ACCUMULO } from './luci.js';
+import { LUCI_MAX, GLSL_LUCI_ACCUMULO, GLSL_OMBRA_VOXEL } from './luci.js';
 
 /** I gradini dell'ombra. In Leafy-Lantern è `BANDE_LUCE` in config.js, e sono
  *  «i gradini che il committente ha indicato come metro della nettezza». */
 export const BANDE = 3;
+
+/**
+ * L'ESPONENTE DELLO SPAZIO DI VISUALIZZAZIONE.
+ *
+ * ⚠ 2,2 È L'APPROSSIMAZIONE, non la curva sRGB esatta (che ha un tratto lineare
+ * vicino allo zero). La differenza sta sotto l'uno per cento tranne nei toni
+ * quasi neri, e in cambio è un `pow` invece di un ramo per canale. Quello che
+ * conta davvero è che i due esponenti siano l'UNO L'INVERSO DELL'ALTRO: così
+ * decodifica e ricodifica si annullano esattamente dove non c'è luce di mezzo,
+ * ed è per questo che la nebbia all'orizzonte combacia col cielo.
+ */
+export const GAMMA = 2.2;
+
+/**
+ * AGGIUNGE definizioni al fragment invece di SOSTITUIRLE.
+ *
+ * ⚠ E SERVE PERCHÉ `Fragment_Definitions` DI CustomMaterial È UN SETTORE, NON
+ * UN ACCUMULATORE — e la cosa è costata un pomeriggio. Lo stile ci mette il
+ * cammino nella griglia dei muri; poi `prato.js` chiamava `Fragment_Definitions`
+ * per le sue funzioni e cancellava il cammino, lasciando in piedi la CHIAMATA
+ * che sta dentro l'accumulo delle luci. Risultato: «'ombraVoxel' : no matching
+ * overloaded function found» su UN materiale solo, cioè l'erba, mentre il mondo
+ * compilava benissimo. Un difetto che sembra di sintassi e invece è di ordine.
+ *
+ * Chi aggiunge GLSL passa da qui e il problema non si ripresenta.
+ */
+export function aggiungiDefinizioniFragment(m, glsl) {
+  const prima = m.CustomParts?.Fragment_Definitions || '';
+  m.Fragment_Definitions(prima + '\n' + glsl);
+  return m;
+}
 
 /**
  * Applica lo stile piatto a un CustomMaterial.
@@ -93,15 +124,51 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   // si lega nell'osservabile qui sotto.
   m.AddUniform(`uLuciPos[${LUCI_MAX}]`, 'vec4');
   m.AddUniform(`uLuciCol[${LUCI_MAX}]`, 'vec3');
+  m.AddUniform(`uLuciOmbra[${LUCI_MAX}]`, 'float');
   m.AddUniform('uLuciNum', 'float');
+  // ---- la griglia dei muri, per le lampade che proiettano -------------------
+  // ⚠ SOLO SU WebGL2: `sampler3D` e `texelFetch` non esistono in WebGL1, e uno
+  // shader che non compila fa sparire la mesh in silenzio (è già successo tre
+  // volte in questo progetto). Senza griglia le lampade tornano ad attraversare
+  // i muri: brutto, ma è un ripiego che si vede, non un guasto muto.
+  const conVoxel = rig.motore.webGLVersion >= 2;
+  if (conVoxel) {
+    // ⚠ «highp», E NON È PIGNOLERIA: in GLSL ES 3.0 un `sampler3D` NON ha una
+    // precisione di fabbrica (il `sampler2D` sì, ma solo nel fragment), e
+    // `AddUniform` scrive la riga in TUTTI E DUE gli shader — quindi l'errore
+    // arriva dal VERTEX, che quella texture non la tocca nemmeno:
+    // «0:285: 'sampler3D' : No precision specified». Un'ora di caccia nel posto
+    // sbagliato, se non si legge da dove viene.
+    m.AddUniform('uVox', 'highp sampler3D');
+    m.AddUniform('uVoxMin', 'vec4');    // (minX, minY, minZ, 1 = griglia attiva)
+    m.AddUniform('uVoxDim', 'vec3');
+    m.AddUniform('uCamPos', 'vec3');    // per disfare l'origine mobile
+    aggiungiDefinizioniFragment(m, GLSL_OMBRA_VOXEL);
+  }
   m.onBindObservable.add(() => {
     const e = m.getEffect();
     if (!e) return;
+    if (conVoxel) {
+      const v = rig.voxel;
+      // ⚠ IL FLAG STA NELLA «w», non in un uniform a parte: così lo shader fa un
+      // confronto su un vettore che legge comunque, e non c'è modo di avere la
+      // texture staccata e il flag acceso.
+      e.setFloat4('uVoxMin', v.minX, v.minY, v.minZ, v.attiva ? 1 : 0);
+      e.setFloat3('uVoxDim', v.larghezza, v.altezza, v.profondita);
+      const c = rig.camera.globalPosition;
+      e.setFloat3('uCamPos', c.x, c.y, c.z);
+      // ⚠ LA TEXTURE SI LEGA A MANO: `CustomMaterial` rilega da solo i campionatori
+      // ma sa fare solo `sampler2D` (vedi il suo sorgente, `AttachAfterBind`).
+      // Un `sampler3D` dichiarato e mai legato dà nero — cioè «niente muri», che
+      // è il ripiego giusto ma non quello che si voleva.
+      if (v.texture) e.setTexture('uVox', v.texture);
+    }
     // ⚠ RELATIVE ALLA CAMERA, non assolute: vedi `luci.js`. L'origine mobile
     // trasla tutto, e una luce in coordinate di mondo finisce a chilometri di
     // distanza da dove crede di essere.
     e.setArray4('uLuciPos', rig.luci.perLoShader(rig.camera));
     e.setArray3('uLuciCol', rig.luci.col);
+    e.setArray('uLuciOmbra', rig.luci.ombra);
     e.setFloat('uLuciNum', rig.luci.quante);
   });
 
@@ -178,6 +245,37 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     ? colorePiatto
     : `pow(max(${colorePiatto}, vec3(0.0)), vec3(${(1 / schiarisci).toFixed(4)}))`;
 
+  // ⚠ I CONTI DELLA LUCE SI FANNO IN SPAZIO LINEARE, E QUESTA È LA CORREZIONE
+  // PIÙ IMPORTANTE DI QUESTO GIRO. Committente: «graficamente rendile come
+  // quelle di Lantern», e la differenza non era una costante — era lo spazio.
+  //
+  // MISURATO, non dedotto: ho letto il pixel del cielo a mezzogiorno con un
+  // valore d'ingresso NOTO (il clearColor, 0,561 0,827 1,000) e il pixel usciva
+  // (143, 211, 255), cioè ESATTAMENTE il valore per 255. Babylon scrive lineare
+  // in framebuffer. three.js, di fabbrica dalla r152, codifica in sRGB —
+  // `outputColorSpace` vale `SRGBColorSpace` e `ColorManagement` è acceso,
+  // quindi in Lantern i colori della palette entrano DECODIFICATI e il
+  // risultato esce RICODIFICATO. Due mondi diversi, e io ci ho trapiantato
+  // dentro le sue costanti.
+  //
+  // Per una MOLTIPLICAZIONE la differenza è solo un esponente: moltiplicare per
+  // k in lineare equivale a moltiplicare per k^(1/2,2) in spazio di
+  // visualizzazione, e infatti la mia tabella «a occhio» era finita lì attorno
+  // per conto suo. Ma per una SOMMA non c'è nessun equivalente: due pozze di
+  // lampada che si sovrappongono, sommate su valori già compressi, saturano e
+  // sbiancano. È il difetto che si vedeva — gel colorati appoggiati sopra
+  // invece di luce.
+  //
+  // Quindi si fa come three: si decodifica, si fanno i conti, si ricodifica. Il
+  // costo sono due `pow(vec3)` per frammento, che è quello che three pagava
+  // comunque per noi. E a quel punto le costanti di Lantern valgono LETTERALI,
+  // che è la ragione per cui vale la pena.
+  //
+  // ⚠ E IL CIELO RESTA COM'È: `clearColor` lo scrive il motore senza passare da
+  // nessuno shader, quindi vive in spazio di visualizzazione. Siccome qui si
+  // decodifica e si ricodifica con lo stesso esponente, la nebbia all'orizzonte
+  // torna esattamente il colore del cielo e la banda non si vede. Se un giorno
+  // i due esponenti divergono, si vedrà lì.
   m.Fragment_Before_FragColor(`
     float sole = clamp(diffuseBase.r, 0.0, 1.0) * facciaAlSole;
     sole = floor(sole * ${BANDE.toFixed(1)} + 0.5) / ${BANDE.toFixed(1)};
@@ -185,7 +283,8 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     // ⚠ LE LAMPADE SI SOMMANO DOPO L'OMBRA, non dentro: una lampada accesa deve
     // illuminare anche quello che sta all'ombra del sole. È il motivo per cui
     // di notte, sotto un lampione, in Leafy si vede.
-    vec3 nostro = ${lift} * (uAmbiente * mix(uOmbraTinta, vec3(1.0), sole) + lampade);
+    vec3 lineare = pow(max(${lift}, vec3(0.0)), vec3(${GAMMA.toFixed(1)}));
+    vec3 nostro = lineare * (uAmbiente * mix(uOmbraTinta, vec3(1.0), sole) + lampade);
     // ⚠ E LA NEBBIA VA RIMESSA, perché questo innesto sta DOPO il suo. Babylon
     // stampa il blocco della nebbia sopra di noi e poi noi riscriviamo
     // «color.rgb» di sana pianta: la nebbia veniva calcolata e buttata via, e a
@@ -193,9 +292,9 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     // quindi basta riusarlo — e usare LO STESSO, non ricalcolarlo, o le due
     // nebbie divergono al primo ritocco.
     #ifdef FOG
-      nostro = mix(vFogColor, nostro, fog);
+      nostro = mix(pow(max(vFogColor, vec3(0.0)), vec3(${GAMMA.toFixed(1)})), nostro, fog);
     #endif
-    color.rgb = nostro;
+    color.rgb = pow(max(nostro, vec3(0.0)), vec3(${(1 / GAMMA).toFixed(6)}));
   `);
   return m;
 }

@@ -30,6 +30,12 @@ import '@babylonjs/core/Shaders/fxaa.fragment.js';
 import '@babylonjs/core/Shaders/fxaa.vertex.js';
 import '@babylonjs/core/Shaders/postprocess.vertex.js';
 import '@babylonjs/core/Engines/Extensions/engine.renderTarget.js';
+// ⚠ LA FUNZIONE PURA, non l'estensione di Scene. `Culling/ray.js` aggiunge
+// `scene.createPickingRay` come effetto collaterale; `ray.core.js` esporta la
+// stessa cosa come funzione. Con gli import profondi la seconda è meglio: si
+// vede da dove viene, e non aggiunge metodi a una classe altrui.
+import { CreatePickingRay } from '@babylonjs/core/Culling/ray.core.js';
+import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { ambienteDiFabbrica } from './stile.js';
 import { Luci } from './luci.js';
 
@@ -139,6 +145,13 @@ export class Rig {
     this.camera.minZ = 0.5;
     this.camera.maxZ = 900;
     this.camera.attachControl(tela, true);
+    // ⚠ SOLO IL TASTO SINISTRO GIRA LA CAMERA. Di fabbrica l'ArcRotateCamera
+    // ascolta tutti e tre i tasti: il destro ruotava E apriva il menu del
+    // browser, quindi non era utilizzabile per posare un blocco. Qui il destro
+    // e il centrale restano liberi per il gioco, che è l'unico motivo per cui
+    // questa riga esiste.
+    if (this.camera.inputs.attached.pointers) this.camera.inputs.attached.pointers.buttons = [0];
+    tela.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // ---- LA LUCE ------------------------------------------------------------
     // ⚠ E QUI SI È PRECISATA LA SCELTA DI CAMPO, dopo una bocciatura. Accettare
@@ -167,6 +180,17 @@ export class Rig {
     // perché — in due parole, il loro contributo sporcherebbe il numero da cui
     // leggiamo l'ombra del sole.
     this.luci = new Luci();
+
+    /**
+     * LA GRIGLIA DEI MURI che le lampade camminano per fare ombra.
+     *
+     * ⚠ STA SUL RIG e non dentro la fabbrica perché la leggono in due: la
+     * fabbrica la CARICA (è lei che sa cos'è una texture 3D) e lo stile la LEGA
+     * a ogni materiale. Tenerla in mezzo, in un oggetto semplice, evita che uno
+     * dei due debba conoscere l'altro.
+     */
+    this.voxel = { texture: null, attiva: false, minX: 0, minY: 0, minZ: 0,
+                   larghezza: 0, altezza: 0, profondita: 0, cima: 0 };
 
     const amb = ambienteDiFabbrica();
     this.ambienteCol = amb.ambiente;   // quanto luccica in pieno sole
@@ -283,6 +307,35 @@ export class Rig {
     this.scena.fogStart = d * 0.55;
     this.scena.fogEnd = d * 0.98;
     this.camera.maxZ = d * 1.15;
+  }
+
+  /**
+   * IL RAGGIO SOTTO IL PUNTATORE, in coordinate di MONDO.
+   *
+   * ⚠ L'UNPROIEZIONE LA FA BABYLON, e questo è il pezzo che non va riscritto:
+   * viewport, scala hardware del canvas, matrici di vista e proiezione. Sono
+   * cinque righe che sembrano facili e che sbagliate danno un raggio quasi
+   * giusto — cioè il difetto peggiore, quello che si vede solo ai bordi dello
+   * schermo o solo con la finestra ridimensionata.
+   *
+   * ⚠ MA L'ORIGINE LA PRENDIAMO DALLA CAMERA, NON DAL RAGGIO, e il motivo è
+   * sempre quello: `useLargeWorldRendering` accende l'origine mobile, e la
+   * matrice di vista da cui Babylon ricava il raggio ha la traslazione tolta —
+   * l'origine tornerebbe quasi a zero invece che dove sta la camera. La
+   * DIREZIONE invece è immune (una traslazione non gira niente), quindi si
+   * prende quella da Babylon e la posizione da `camera.globalPosition`, che è in
+   * coordinate di mondo. È lo stesso inciampo delle lampade, e stavolta l'ho
+   * evitato prima invece che dopo.
+   */
+  raggioDaPuntatore(sx, sy) {
+    const r = CreatePickingRay(this.scena, sx, sy, Matrix.IdentityReadOnly, this.camera);
+    const p = this.camera.globalPosition;
+    return { origine: { x: p.x, y: p.y, z: p.z }, verso: { x: r.direction.x, y: r.direction.y, z: r.direction.z } };
+  }
+
+  /** Il raggio al centro dello schermo: è quello che si usa da tastiera. */
+  raggioAvanti() {
+    return this.raggioDaPuntatore(this.motore.getRenderWidth() / 2, this.motore.getRenderHeight() / 2);
   }
 
   /** Dove guarda la camera, proiettato sul piano. È l'unica cosa che il

@@ -11,6 +11,8 @@ import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture.js';
+import { RawTexture3D } from '@babylonjs/core/Materials/Textures/rawTexture3D.js';
+import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Prato } from './prato.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
@@ -163,9 +165,60 @@ export class Fabbrica {
   // il mesher li chiama — toglierli è un lavoro da fare nel mondo, non qui, e
   // si fa quando avremo verificato che nulla ne senta la mancanza.
   aggiornaCielo(_colonne) {}
-  impostaVoxel(_mesh, _scatola, _cimaY) {}
-  spegniVoxel() {}
-  latoMassimoVoxel() { return 0; }
+
+  // ── la griglia dei muri, per le ombre delle lampade ───────────────────────
+  //
+  // ⚠ TUTTA LA MACCHINA ERA GIÀ QUI e non lo sapevo: `world/luce.js` costruisce
+  // la griglia, `world/mesher.js` la ricostruisce quando il mondo cambia e
+  // chiama questi tre metodi. Erano stub vuoti dalla migrazione — cioè il
+  // sistema c'era, girava, e buttava via il risultato. Il difetto si vedeva
+  // solo di notte, come pozze di lampione che passano attraverso l'isola.
+  //
+  // ⚠ IL LAYOUT È UN CONTRATTO scritto in `world/luce.js`: l'array è ordinato
+  // (z, y, x), quindi la texture è larga `profondita`, alta `altezza` e fonda
+  // `larghezza`. Scambiarne due dà una griglia che sembra funzionare e proietta
+  // ombre nel posto sbagliato — il tipo di difetto che si insegue per ore.
+  impostaVoxel(solidi, scatola, cima) {
+    const { minX, minY, minZ, larghezza, altezza, profondita } = scatola;
+    const v = this.rig.voxel;
+    if (!v.texture || v.larghezza !== larghezza || v.altezza !== altezza || v.profondita !== profondita) {
+      if (v.texture) v.texture.dispose();
+      // ⚠ NEAREST E NIENTE MIPMAP: si legge con `texelFetch`, che è
+      // indirizzamento intero. Un filtro qui mescolerebbe celle vicine, cioè
+      // renderebbe i muri semitrasparenti a caso lungo i bordi.
+      v.texture = new RawTexture3D(solidi, profondita, altezza, larghezza,
+        Constants.TEXTUREFORMAT_R, this.scena, false, false,
+        Texture.NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_UNSIGNED_BYTE);
+      v.texture.wrapU = v.texture.wrapV = v.texture.wrapR = Texture.CLAMP_ADDRESSMODE;
+      v.larghezza = larghezza; v.altezza = altezza; v.profondita = profondita;
+    } else {
+      v.texture.update(solidi);
+    }
+    v.minX = minX; v.minY = minY; v.minZ = minZ;
+    // la cima è l'acceleratore del sole in Lantern; qui il sole ha la sua mappa
+    // a cascata e non cammina niente, quindi si tiene solo per il pannello
+    v.cima = Number.isFinite(cima) ? cima : minY + altezza;
+    v.attiva = true;
+  }
+
+  /** Niente griglia: le sfere tornano ad attraversare i muri. È il ripiego
+   *  ONESTO — mondo vuoto, scheda che non regge il lato, interruttore spento. */
+  spegniVoxel() { this.rig.voxel.attiva = false; }
+
+  /**
+   * IL LATO MASSIMO DI UNA TEXTURE 3D, l'unico limite di tutto il sistema.
+   * ⚠ SI CHIEDE ALLA SCHEDA, non si indovina: il minimo GARANTITO da WebGL2 è
+   * 256, le schede vere danno 2048, e un mondo più largo del limite darebbe una
+   * texture che non si crea — cioè niente ombre, in silenzio. Chiedendolo, il
+   * mesher se ne accorge da solo e stacca la griglia invece di rompersi.
+   */
+  latoMassimoVoxel() {
+    if (this._latoVox === undefined) {
+      const gl = this.rig.motore._gl;
+      this._latoVox = (gl && gl.MAX_3D_TEXTURE_SIZE) ? gl.getParameter(gl.MAX_3D_TEXTURE_SIZE) : 256;
+    }
+    return this._latoVox;
+  }
   mondoVelato() { return false; }
 
   // ── il segnaposto del giocatore ───────────────────────────────────────────
@@ -185,6 +238,46 @@ export class Fabbrica {
   muoviSegnaposto(m, p) {
     m.position.set(p.x, p.y + 0.45, p.z);
     m.rotation.y = p.verso;
+  }
+
+  // ── il mirino ─────────────────────────────────────────────────────────────
+  /**
+   * IL CUBO DI SELEZIONE: dove sto per rompere o posare.
+   *
+   * ⚠ SERVE, E NON È UN ORPELLO. Senza, costruire in un mondo a blocchi è un
+   * tiro a indovinare: si clicca, esce un cubo in un posto che non è quello che
+   * si guardava, e non si capisce se ha sbagliato la mira o il conto. Con il
+   * mirino, l'errore si vede PRIMA del clic.
+   *
+   * ⚠ FUORI DALLE OMBRE E FUORI DALLA LUCE, tutte e due volute: in mappa
+   * proietterebbe l'ombra di un cubo che non esiste, e illuminato cambierebbe
+   * colore col sole proprio mentre il suo mestiere è restare leggibile a
+   * qualunque ora. `disableLighting` + `emissiveColor` è il modo di Babylon per
+   * dire «questo colore, e basta».
+   */
+  mirino() {
+    // ⚠ UN FILO PIÙ GRANDE DEL BLOCCO: a misura esatta le facce coincidono con
+    // quelle del cubo sotto e il filo si vede a tratti, mangiato dal z-fighting.
+    const m = MeshBuilder.CreateBox('mirino', { size: 1.006 }, this.scena);
+    const mat = new StandardMaterial('mirino', this.scena);
+    mat.wireframe = true;
+    mat.disableLighting = true;
+    mat.emissiveColor = new Color3(1, 1, 1);
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    m.material = mat;
+    m.isPickable = false;
+    m.receiveShadows = false;
+    m.setEnabled(false);
+    return m;
+  }
+
+  /** Sposta il mirino su una cella, o lo spegne se non c'è bersaglio. */
+  muoviMirino(m, cella, colore) {
+    if (!cella) { if (m.isEnabled()) m.setEnabled(false); return; }
+    if (!m.isEnabled()) m.setEnabled(true);
+    m.position.set(cella[0] + 0.5, cella[1] + 0.5, cella[2] + 0.5);
+    if (colore) m.material.emissiveColor.set(colore[0], colore[1], colore[2]);
   }
 
   // ⚠ LE LAMPADE NON HANNO BISOGNO DI ESSERE «AGGIORNATE»: ogni materiale se le
