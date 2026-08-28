@@ -44,7 +44,7 @@
 <body>
   <canvas id="tela"></canvas>
   <div id="stato">avvio…</div>
-  <div id="versione" style="position:fixed;right:8px;bottom:6px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">28/08, 13:31 · 86d2e7a</div>
+  <div id="versione" style="position:fixed;right:8px;bottom:6px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">28/08, 13:54 · 470294f</div>
   <div id="fps">—</div>
   <pre id="guasto"></pre>
   <script type="module">
@@ -58,7 +58,7 @@
     };
     window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
     window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
-    import('./zoo.js?v=86d2e7a').catch(guasto);
+    import('./zoo.js?v=470294f').catch(guasto);
 
     // ⚠ SI APRE TOCCANDOLO. Il gestore sta sul PANNELLO e non sulla tela: se no
     // il tocco che apre il pannello sarebbe anche quello che ruota la camera.
