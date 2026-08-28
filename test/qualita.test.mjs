@@ -116,3 +116,25 @@ test('la scala applica il gradino e lo cambia quando serve', () => {
   assert.ok(visti.length > 1, 'e applicare ogni volta');
   assert.ok(visti[visti.length - 1] < visti[0], 'con meno pixel');
 });
+
+test('il primo gradino è un TETTO generoso, non una resa', () => {
+  // ⚠ LA PROVA CHE PRESIDIA L'ERRORE DI FORMA. L'adattatore da q0 può solo
+  // SCENDERE: quel gradino non è «una qualità media ragionevole», è il MASSIMO
+  // che il gioco potrà mai mostrare su quel dispositivo. Abbassandolo per
+  // curare un telefono lento si mette un tetto basso permanente anche a chi
+  // reggeva benissimo — e la scala, che esisteva apposta per decidere, non ha
+  // più niente da decidere.
+  for (const [nome, livelli] of Object.entries(LIVELLI)) {
+    const cima = livelli[0];
+    assert.equal(cima.scala, 1, `${nome}: il tetto deve renderizzare a piena risoluzione`);
+    assert.ok(cima.sole, `${nome}: e con le ombre del sole`);
+    assert.ok(cima.erba >= 3.5, `${nome}: e con l'erba fitta, non ${cima.erba}`);
+    // e deve esserci spazio sotto: un tetto senza scala non serve a niente
+    assert.ok(livelli.length >= 5, `${nome}: servono gradini sotto`);
+    // ⚠ 0,7 e non 0,6: la mia prima soglia cadeva ESATTAMENTE sul valore del
+    // desktop (0,60 contro 1,0 × 0,6) e la prova falliva per un pelo. Una
+    // soglia messa sul bordo di un dato esistente non prova niente — prova solo
+    // di essere stata scritta guardando quel dato.
+    assert.ok(livelli[livelli.length - 1].scala < cima.scala * 0.7, `${nome}: e devono scendere davvero`);
+  }
+});

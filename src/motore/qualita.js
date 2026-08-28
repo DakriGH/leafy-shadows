@@ -142,13 +142,24 @@ export const LIVELLI = {
   // VERTICI e la CPU. Cinquantaduemila lamelle sono l'unica cosa in scena che
   // ne conta a decine di migliaia — e le semina la CPU.
   mobile: [
+    // ⚠ IL PRIMO GRADINO È IL TETTO, E DEVE ESSERE GENEROSO. Questo l'ho
+    // sbagliato una volta: avevo abbassato l'erba QUI, sul gradino zero, per
+    // curare un telefono lento — e siccome l'adattatore da q0 può solo
+    // SCENDERE, avevo messo un tetto basso permanente anche sui dispositivi che
+    // reggevano benissimo. Committente: «noto un'enorme diminuzione dell'erba,
+    // è normale?». Sì, ed era troppo.
+    // La forma giusta è: tetto ricco, e la scala trova il livello da sola in
+    // due secondi e mezzo (sotto i 24 fps le basta UNA misura, vedi
+    // `gioco/adatta.js`). Tarare il tetto è indovinare; far scendere la scala è
+    // misurare.
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, fxaa: true,  particelle: true },
     { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, fxaa: true,  particelle: true },
     { scala: 0.85, cascate: 2, mappa:  768, ombraZ: 34, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, fxaa: true,  particelle: false },
     { scala: 0.72, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, fxaa: true,  particelle: false },
-    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
-    // ⚠ GLI ULTIMI DUE SONO LA CORSIA D'EMERGENZA: brutti, ma GIOCABILI. In
+    // ⚠ GLI ULTIMI TRE SONO LA CORSIA D'EMERGENZA: brutti, ma GIOCABILI. In
     // Lantern esistono per la stessa ragione — senza, le GPU più deboli
     // restavano incollate sotto i trenta senza via d'uscita.
+    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
     { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  50, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
     { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
   ],
