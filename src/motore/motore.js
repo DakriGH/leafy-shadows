@@ -25,6 +25,7 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { CascadedShadowGenerator } from '@babylonjs/core/Lights/Shadows/cascadedShadowGenerator.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { ambienteDiFabbrica } from './stile.js';
 
 // ⚠ GLI SHADER VANNO IMPORTATI A MANO quando si importa in profondità. Babylon
 // registra i sorgenti dei suoi materiali come EFFETTI COLLATERALI di moduli
@@ -116,23 +117,32 @@ export class Rig {
     this.camera.attachControl(tela, true);
 
     // ---- LA LUCE ------------------------------------------------------------
-    // ⚠ QUI SI PAGA (O SI INCASSA) LA SCELTA DI CAMPO. Leafy-Lantern era unlit
-    // fatto a mano: nessuna luce del motore, tutto dai nostri shader. Ha dato al
-    // gioco il suo aspetto e ci ha obbligati a riscrivere ombre, culling e
-    // istanziamento — cioè le tre cose che facevano i picchi. Qui accettiamo il
-    // modello del motore: una direzionale col suo N·L e le ombre a cascata di
-    // serie. Il look non sarà identico; il conto per fotogramma sì.
-    this.sole = new DirectionalLight('sole', new Vector3(-0.55, -0.72, -0.42), this.scena);
+    // ⚠ E QUI SI È PRECISATA LA SCELTA DI CAMPO, dopo una bocciatura. Accettare
+    // il modello del motore vuol dire accettare come CALCOLA l'ombra — la mappa
+    // a cascata, che è il motivo per cui abbiamo cambiato libreria. NON vuol
+    // dire accettare come la DIPINGE. Con lo StandardMaterial nudo ogni faccia
+    // prende il suo N·L, la cima chiara e i fianchi degradanti: rendering
+    // corretto, stile sbagliato. Committente: «non esiste un colore diverso da
+    // ombra o non in ombra». Vedi `stile.js` per come si spegne l'una tenendo
+    // l'altra.
+    //
+    // UNA SOLA LUCE, quindi, e serve a produrre la mappa d'ombra. Bianca e a
+    // intensità 1 perché quello che accumula deve essere il FATTORE D'OMBRA
+    // puro: il colore della luce del giorno sta in `ambienteCol`.
+    this.sole = new DirectionalLight('sole', ambienteDiFabbrica().verso.clone(), this.scena);
     this.sole.position = new Vector3(60, 90, 60);
-    this.sole.intensity = 1.35;
-    this.sole.diffuse = new Color3(1.0, 0.97, 0.90);
+    this.sole.intensity = 1;
+    this.sole.diffuse = new Color3(1, 1, 1);
+    this.sole.specular = new Color3(0, 0, 0);
 
-    // e una emisferica per l'ambiente: è il «cielo che rischiara» di Lantern,
-    // cioè il motivo per cui le facce in ombra non sono nere ma azzurrine
-    this.ambiente = new HemisphericLight('ambiente', new Vector3(0, 1, 0), this.scena);
-    this.ambiente.intensity = 0.55;
-    this.ambiente.diffuse = new Color3(1, 1, 1);
-    this.ambiente.groundColor = new Color3(0.42, 0.48, 0.40);
+    // ⚠ NIENTE EMISFERICA. Sembrava il modo di avere «il cielo che rischiara»,
+    // e invece è un secondo termine che finisce dentro lo stesso accumulo da cui
+    // leggiamo l'ombra: sporcherebbe il numero. L'ambiente qui è un COLORE che
+    // moltiplica, non una luce — esattamente come in Leafy-Lantern.
+    const amb = ambienteDiFabbrica();
+    this.ambienteCol = amb.ambiente;   // quanto luccica in pieno sole
+    this.ombraTinta = amb.ombra;       // di che colore vira l'ombra (NON un grigio)
+    this.soleVerso = this.sole.direction;
 
     // ---- LE OMBRE, che in Lantern erano 1.090 righe nostre -------------------
     // Tre sistemi scritti a mano (controluce, campoSole, marcia), una mappa

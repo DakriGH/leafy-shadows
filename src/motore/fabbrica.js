@@ -13,6 +13,8 @@ import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Prato } from './prato.js';
+import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial.js';
+import { applicaStilePiatto } from './stile.js';
 
 // ⚠ ANCHE QUI GLI SHADER A MANO: con gli import profondi il sorgente del
 // materiale standard non arriva da solo, e il primo disegno fallisce con
@@ -35,15 +37,14 @@ export class Fabbrica {
     // piatta, e un riflesso speculare su una faccia piatta si legge come
     // vernice lucida. Il colore arriva tutto dai VERTICI (`useVertexColor`),
     // esattamente come prima.
-    this.matMondo = new StandardMaterial('mondo', this.scena);
-    this.matMondo.specularColor = Color3.Black();
-    this.matMondo.diffuseColor = Color3.White();
+    // ⚠ IL COLORE È QUELLO DEI VERTICI, E BASTA. Il mesher ci ha già cotto
+    // dentro lo stacco fra le facce (coloreFaccia sceglie cima/lato/fondo dalla
+    // palette): è quello il volume, e un N·L sopra lo sporca. `baseColor.rgb`
+    // nel fragment è esattamente quel colore.
+    this.matMondo = applicaStilePiatto(new CustomMaterial('mondo', this.scena), rig, 'baseColor.rgb');
     this.matMondo.backFaceCulling = true;
 
-    this.matAcqua = new StandardMaterial('acqua', this.scena);
-    this.matAcqua.specularColor = new Color3(0.25, 0.3, 0.32);
-    this.matAcqua.specularPower = 64;
-    this.matAcqua.diffuseColor = Color3.White();
+    this.matAcqua = applicaStilePiatto(new CustomMaterial('acqua', this.scena), rig, 'baseColor.rgb');
     this.matAcqua.alpha = 0.72;
     this.matAcqua.backFaceCulling = false;
 

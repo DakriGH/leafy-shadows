@@ -26,7 +26,24 @@ su 98. Contro Lantern: le ombre costavano 2,1–2,5 ms **per ricostruzione** a
 
 ---
 
-## Fase 2 — I materiali e il ciclo del giorno
+## Fase 2 — Lo stile ✅ *(28/08/2026, la parte che contava)*
+
+**Fatto**: lo stile piatto di Leafy sopra la mappa a cascata del motore.
+Facce a tinta unita dalla palette, ombra a tre gradini, e l'ombra virata verso
+l'azzurro del cielo invece che verso il nero. Una legge sola per terreno ed erba
+— in Lantern «il filo e il blocco sotto su due leggi diverse» era il difetto
+bocciato tre volte. Vive tutto in `src/motore/stile.js`, ed è condiviso.
+
+**Misurato dopo**: fotogramma CPU 5,32 ms medio, mappa d'ombra 1,43 ms,
+scambio dell'erba 1,6 ms, 34 mesh attive. Lo stile non è costato niente.
+
+**Resta di questa fase**: il ciclo giorno/notte (muovere `ambienteCol`,
+`ombraTinta` e la direzione del sole nell'arco della giornata), le stagioni sul
+prato, e la nebbia — ma solo **dopo** aver deciso la distanza di resa.
+
+---
+
+## Fase 2-bis — Il ciclo del giorno e la nebbia
 
 Il look non è ancora quello: manca la personalità di Leafy sopra il modello di
 illuminazione del motore.

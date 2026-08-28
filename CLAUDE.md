@@ -53,6 +53,49 @@ Quindi:
 Il mondo riceve la fabbrica per iniezione (`collegaFabbrica`), e va collegata
 **prima** di toccare il mondo: se no il `null` esce lontano da dove è il difetto.
 
+## LO STILE: piatto, e l'ombra è un gradino
+
+⚠ **La correzione più importante della migrazione**, e l'ha fatta il committente
+guardando: *«non esiste un colore diverso da ombra o non in ombra, mentre ora le
+facce ottengono luce e ombre in modo semi realistico»*.
+
+Accettare il modello del motore vuol dire accettare come **calcola** l'ombra — la
+mappa a cascata, che è il motivo per cui abbiamo cambiato libreria. **Non** vuol
+dire accettare come la **dipinge**. Con lo StandardMaterial nudo ogni faccia
+prende il suo N·L: cima chiara, fianchi degradanti, rampa continua col sole che
+gira. Rendering corretto, stile sbagliato.
+
+Lo stile di Leafy, che è una decisione e non una mancanza:
+- **colori piatti da palette.** Lo stacco fra le facce lo dà GIÀ `coloreFaccia()`
+  scegliendo cima/lato/fondo: è quello il volume, cotto nei vertici dal mesher.
+  In Lantern un tentativo di aggiungere ombreggiatura per normale + occlusione
+  ambientale **è stato bocciato** (`git show b540f50` nel repo di Lantern).
+- **l'ombra è un gradino** (`BANDE = 3`), non una rampa;
+- **l'ombra non è nera, è del colore del cielo**: scurisce *e vira* insieme.
+  Moltiplicare per un grigio appiattisce; moltiplicare per un colore no.
+
+**Come si ottiene, in un motore che vuole illuminare** (`src/motore/stile.js`) —
+il trucco è una riga, e sta nel fatto che di tutto il calcolo della luce a noi
+serve **un numero solo**: sì/no all'ombra.
+
+```glsl
+// Fragment_Before_Lights
+normalW = normalize(-uSoleVerso);   // N·L = 1 su OGNI faccia
+```
+
+Da lì il motore, che continua a fare il suo mestiere, accumula in `diffuseBase`
+**esattamente il fattore d'ombra** della cascata e nient'altro. Poi lo si taglia
+a gradini e lo si dipinge come vuole Leafy. Il motore calcola l'ombra; noi la
+dipingiamo.
+
+⚠ E **niente luce emisferica**: sembrava il modo di avere «il cielo che
+rischiara», ma è un secondo termine dentro lo stesso accumulo da cui leggiamo
+l'ombra — sporcherebbe il numero. L'ambiente qui è un **colore che moltiplica**,
+non una luce.
+
+⚠ **La normale vera continua a servire alla mappa**: lo scostamento per normale
+si applica nel *vertex* shader, prima che il fragment la sostituisca.
+
 ## Gotcha già pagati (non ricascarci)
 
 - ⚠ **L'AVVOLGIMENTO DEI TRIANGOLI VA GIRATO** (`fabbrica.scrivi`). Il mesher

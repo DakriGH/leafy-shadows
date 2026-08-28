@@ -30,6 +30,7 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
 import { Vector2, Vector3, Vector4 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial.js';
+import { applicaStilePiatto } from './stile.js';
 import '@babylonjs/core/Meshes/thinInstanceMesh.js';
 
 export class Prato {
@@ -79,9 +80,12 @@ export class Prato {
   }
 
   _materiale() {
-    const m = new CustomMaterial('erba', this.scena);
-    m.specularColor = Color3.Black();     // tinta piatta: niente vernice lucida
-    m.diffuseColor = Color3.White();
+    // ⚠ LO STESSO STILE DEL MONDO, dallo stesso posto. L'erba con una legge di
+    // luce sua e il terreno con un'altra è il difetto che in Leafy-Lantern è
+    // stato bocciato tre volte: sul confine dell'ombra il filo e il blocco sotto
+    // stavano su due leggi diverse e si vedeva. Qui il colore piatto è la nostra
+    // sfumatura base→punta, e l'ombra la mette `stile.js`.
+    const m = applicaStilePiatto(new CustomMaterial('erba', this.scena), this.rig, 'vErbaCol');
     m.backFaceCulling = false;            // una lamella si guarda da due lati
 
     m.AddAttribute('iPos');               // base (xyz) + livello di diradamento (w)
@@ -199,9 +203,6 @@ export class Prato {
 
     m.Fragment_Definitions(`
       varying vec3 vErbaCol;
-    `);
-    m.Fragment_Custom_Diffuse(`
-      diffuseColor = vErbaCol;
     `);
 
     this.materiale = m;
