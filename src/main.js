@@ -10,6 +10,7 @@
 import { Rig } from './motore/motore.js';
 import { Fabbrica } from './motore/fabbrica.js';
 import { Giorno } from './motore/giorno.js';
+import { Modelli } from './motore/modelli.js';
 import { Mondo } from './world/world.js';
 import { Mesher, collegaFabbrica as fabbricaMesher } from './world/mesher.js';
 import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
@@ -50,6 +51,25 @@ rig.camera.setTarget(new (rig.camera.target.constructor)(0, cima, 0));
 const erba = new Erba(rig.scena, { max: 500000, densita: 7.8, raggioChunk: 6 });
 const passeggero = { x: 0.5, y: cima, z: 0.5 };
 
+// ---- i modelli --------------------------------------------------------------
+// ⚠ ASINCRONO, E IL GIOCO NON LO ASPETTA. Un .glb da 52 KB arriva in fretta ma
+// non è istantaneo, e bloccare l'avvio per gli alberi vorrebbe dire una pagina
+// bianca su una connessione lenta. Il mondo si vede subito; gli alberi
+// compaiono quando ci sono.
+const modelli = new Modelli(rig.scena, rig);
+let alberiPosati = 0;
+modelli.carica('albero').then(() => {
+  // ⚠ worldgen dà TERNE [x, quota, z], non oggetti. Trattarle come oggetti dava
+  // NaN nelle matrici, cioè quarantotto alberi disegnati in nessun posto — e
+  // senza un errore, perché una matrice di NaN è una matrice valida.
+  alberiPosati = modelli.piazza('albero', alberi.map(([x, h, z]) => ({
+    x: x + 0.5, y: h + 1, z: z + 0.5,
+    // ⚠ IL GIRO È DETERMINISTICO, non casuale: un albero deve stare girato
+    // sempre allo stesso modo, o a ogni ricarica il bosco cambia faccia.
+    giro: (((x * 73856093) ^ (z * 19349663)) >>> 0) / 4294967296 * Math.PI * 2,
+  })));
+}).catch((e) => { console.error('alberi:', e); });
+
 // ---- il ciclo del giorno ----------------------------------------------------
 const giorno = new Giorno(rig, { durata: 300, ora: 0.42 });
 
@@ -73,7 +93,7 @@ function aggiornaStato() {
     `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}\n` +
     `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
     `erba ${erba.fili.toLocaleString('it')} lamelle   ${giorno.orologio}\n` +
-    `alberi ${alberi.length} (ancora non posati)\n` +
+    `alberi ${alberiPosati}/${alberi.length}\n` +
     `I = ispettore`;
 }
 
@@ -86,4 +106,4 @@ rig.avvia((dt) => {
 });
 
 // una manina per lavorarci sopra dall'ispettore e dalla console
-globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, passeggero, generaOpenWorld };
+globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeggero, generaOpenWorld };

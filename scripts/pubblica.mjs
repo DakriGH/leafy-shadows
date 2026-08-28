@@ -68,6 +68,7 @@ const pagina = readFileSync(join(radice, 'index.html'), 'utf8')
   .replace('<div id="stato">avvio…</div>', `<div id="stato">avvio…</div>\n  <div id="versione" style="position:fixed;right:8px;bottom:6px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">${quando} · ${versione}</div>`);
 writeFileSync(join(www, 'index.html'), pagina);
 writeFileSync(join(www, '.nojekyll'), '');
+cpSync(join(radice, 'modelli'), join(www, 'modelli'), { recursive: true });
 
 // ── 3. il clone di pubblicazione ────────────────────────────────────────────
 console.log('2/4  preparo il repo…');
@@ -80,6 +81,8 @@ if (!existsSync(join(lavoro, '.git'))) {
 for (const n of ['index.html', 'leafy.js', '.nojekyll']) {
   cpSync(join(www, n), join(lavoro, n));
 }
+// i modelli: sono dati, non codice, e vanno accanto alla pagina
+cpSync(join(radice, 'modelli'), join(lavoro, 'modelli'), { recursive: true });
 
 // ── 4. il push ──────────────────────────────────────────────────────────────
 console.log('3/4  cerco cosa è cambiato…');

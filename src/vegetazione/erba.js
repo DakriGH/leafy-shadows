@@ -52,6 +52,9 @@ const TIPI = [
   { n: 3, largo: 0.18, alto: 0.28, apri: 0.30 },   // poche lamelle larghe
 ];
 const LAMELLE_MAX = 8;
+/** L'altezza media dei quattro tipi. È la scala del manto, non un valore per
+ *  cella: vedi la nota sull'altezza dentro `_seminaVero`. */
+const ALTO_MEDIO = (0.32 + 0.50 + 0.38 + 0.28) / 4;
 
 // LE CHIAZZE. Un prato con l'erba su OGNI cella si legge come una moquette
 // stesa: nell'erba vera ci sono radure, zone rade e ciuffi fitti. Due rumori
@@ -107,10 +110,35 @@ function rumore(x, z, s) {
   const u = a + (b - a) * sx, v = c + (d - c) * sx;
   return u + (v - u) * sz;
 }
+/**
+ * ⚠ LE OTTAVE SONO RUOTATE, E OGNUNA DI UN ANGOLO DIVERSO. Non è pignoleria: il
+ * rumore A VALORE su reticolo quadrato ha struttura ALLINEATA AGLI ASSI, e tre
+ * ottave allineate fra loro non si annullano — sommano i loro assi. Viene un
+ * motivo a scacchi che dall'alto non si vede (l'ho guardato: rumore pulito) ma
+ * di lato, dove le lamelle si sovrappongono, si legge come CORSIE.
+ *
+ * ⚠ E I PESI SONO SPOSTATI SULLE SCALE LARGHE. Prima l'ottava dominante era a
+ * 2,7 blocchi: a distanza da diorama sono pochi pixel, cioè un motivo che si
+ * ripete dentro l'inquadratura — che è esattamente quello che l'occhio chiama
+ * «tileset». Adesso comanda quella a 27 blocchi, e le due corte servono solo a
+ * sporcarne il bordo.
+ *
+ * I periodi non stanno in rapporto semplice (27 · 11,3 · 4,1) apposta: se lo
+ * fossero, i tre si riallineerebbero a intervalli regolari e il motivo
+ * tornerebbe, solo più lontano.
+ */
+const OTTAVE = [
+  { seme: 151, periodo: 27.0, peso: 0.46, ang: 0.00 },
+  { seme: 157, periodo: 11.3, peso: 0.32, ang: 0.90 },
+  { seme: 163, periodo: 4.10, peso: 0.22, ang: 2.10 },
+];
 function manto(x, z) {
-  return rumore(x / 2.7, z / 2.7, 131) * 0.50
-       + rumore(x / 9.3, z / 9.3, 137) * 0.32
-       + rumore(x / 31.0, z / 31.0, 139) * 0.18;
+  let v = 0;
+  for (const o of OTTAVE) {
+    const c = Math.cos(o.ang), s = Math.sin(o.ang);
+    v += rumore((x * c - z * s) / o.periodo, (x * s + z * c) / o.periodo, o.seme) * o.peso;
+  }
+  return v;
 }
 
 /** Il tipo di ciuffo di una cella. Deterministico come tutto il resto.
@@ -401,7 +429,19 @@ export class Erba {
       const mx2 = ((x % 2) + 2) % 2, mz2 = ((z % 2) + 2) % 2;
       const liv = posato ? 0 : ((mx4 === 0 && mz4 === 0) ? 0 : ((mx2 === 0 && mz2 === 0) ? 1 : 2));
       for (let i = 0; i < quante; i++) {
+        // ⚠ CINQUE HASH, NON TRE, E OGNUNO FA UNA COSA SOLA. Questo era IL
+        // difetto del tiling, ed era lì fin da Leafy-Lantern senza che nessuno
+        // lo vedesse: «h1» decideva la posizione X della lamella dentro la cella
+        // E la sua altezza, «h2» la posizione Z E la larghezza. Cioè in OGNI
+        // cella l'erba cresceva da sinistra a destra e si allargava da davanti a
+        // dietro — un dente di sega identico su ogni blocco, che è la
+        // definizione di tiling.
+        //
+        // Misurato dalla prova: attraversando il confine di una cella l'altezza
+        // media saltava di 1,49×. Riusare un hash è gratis e sembra innocuo:
+        // costa un motivo regolare grande quanto il mondo.
         const h1 = hash(x, z, i * 17 + 5), h2 = hash(x, z, i * 17 + 11), h3 = hash(x, z, i * 17 + 23);
+        const h4 = hash(x, z, i * 17 + 41), h5 = hash(x, z, i * 17 + 59);
         const j = n * 4, d = n * 4;
         // IL JITTER RIEMPIE LA CELLA. Con i ciuffi al centro si vedeva la
         // GRIGLIA — file regolari a un blocco di passo, che in un mondo di cubi
@@ -431,12 +471,31 @@ sPos[j + 1] = y;
         // chunk resta valida senza toccarla.
         sPos[j + 3] = liv;
         sDati[d] = h3 * Math.PI;
-        // l'altezza: il campo continuo fra le celle PER il manto a scala larga.
-        // Il primo toglie il gradino fra una cella e l'altra, il secondo dà le
-        // ondulazioni larghe che un prato vero ha e un tileset no.
-        sDati[d + 1] = fraCelle(px, pz, 'alto', x, z) * (0.8 + 0.45 * h1) * (0.66 + 0.68 * mm);
-        sDati[d + 2] = fraCelle(px, pz, 'largo', x, z) * (0.85 + 0.3 * h2);
-        sDati[d + 3] = (h1 + h3) * 6.283;
+        // ⚠ L'ALTEZZA NON TOCCA PIÙ IL RETICOLO DELLE CELLE, e questa è la
+        // terza stesura. Le prime due sbagliavano tutt'e due, in modi opposti:
+        //
+        //   1. «tipo.alto», costante per cella → GRADINO netto sul confine fra
+        //      una cella e l'altra: una griglia a un blocco di passo.
+        //   2. «fraCelle», interpolato fra i CENTRI delle celle → CUPOLA. Il
+        //      centro prende il valore pieno della sua cella, i bordi la media
+        //      coi vicini: le celle alte diventano dossi e le basse conche.
+        //      Il committente l'ha visto esatto: «sono dei balzi più alti al
+        //      centro del blocco e più bassi ai lati, così sembra tiling».
+        //      Avevo tolto il gradino e ci avevo messo una cupola.
+        //
+        // La cura non è una terza interpolazione: è togliere il reticolo. Il
+        // manto si legge alla posizione della LAMELLA, non della cella, quindi
+        // l'altezza è un campo continuo che delle celle non sa niente — né
+        // gradini al confine, né cupole al centro, perché non c'è nessun
+        // confine e nessun centro.
+        //
+        // I quattro TIPI restano, ma per il NUMERO di lamelle, la larghezza e
+        // l'apertura del ciuffo: quelle non disegnano una superficie e non
+        // possono fare né gradini né cupole.
+        const mB = manto(px, pz);
+        sDati[d + 1] = ALTO_MEDIO * (0.55 + 0.90 * mB) * (0.78 + 0.44 * h4);
+        sDati[d + 2] = tipo.largo * (0.80 + 0.40 * h5);
+        sDati[d + 3] = (h4 + h3) * 6.283;
         // ogni lamella un filo più chiara o più scura: senza, un ciuffo è una
         // macchia piatta
         // ⚠ IL COLORE VARIA A DUE SCALE, e prima non variava affatto a quella
@@ -448,7 +507,7 @@ sPos[j + 1] = y;
         //     chiaro della rampa (colCima), che è un colore che la palette HA
         //     GIÀ. Così le chiazze restano dentro lo stile invece di essere un
         //     verde inventato — è lo stesso principio della punta della lamella.
-        const v = 0.94 + 0.12 * h2;
+        const v = 0.94 + 0.12 * h5;
         const k = (mm - 0.5) * 0.55;
         const mesc = (a, b) => (k >= 0 ? a + (b - a) * k : a * (1 + k * 0.55));
         const jc = n * 3;

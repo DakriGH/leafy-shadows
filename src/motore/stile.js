@@ -75,13 +75,34 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb') {
   m.AddUniform('uAmbiente', 'vec3', rig.ambienteCol);
   m.AddUniform('uOmbraTinta', 'vec3', rig.ombraTinta);
 
-  // la riga che spegne l'illuminazione «semi realistica» senza spegnere l'ombra
+  // ⚠ DUE RIGHE, E LA SECONDA È LA CURA ALL'ACNE.
+  //
+  // La prima spegne l'illuminazione «semi realistica» senza spegnere l'ombra:
+  // con la normale puntata al sole, N·L vale 1 ovunque e quello che il motore
+  // accumula è il puro fattore della mappa.
+  //
+  // La seconda è la faccia. Committente: «ci sono degli acne importanti sui
+  // lati dei blocchi, soprattutto quando il sole passa da mezzogiorno» — e
+  // l'acne era MIA: forzando N·L a 1 avevo reso visibile un difetto che
+  // l'illuminazione teneva nascosto. A mezzogiorno una parete verticale è
+  // PARALLELA ai raggi, quindi la sua profondità in spazio-luce varia di
+  // tantissimo dentro un texel e nessuno scarto costante la copre; finché
+  // quella parete era buia per N·L≈0 non si vedeva, con N·L=1 si vede tutta.
+  //
+  // Alzare il bias è la cura sbagliata: sposta il problema e stacca le ombre da
+  // terra. La cura giusta è che in Leafy **una faccia che guarda dall'altra
+  // parte del sole è in ombra per GEOMETRIA**, non perché lo dice la mappa —
+  // in Leafy-Lantern il raggio verso il sole entrava subito nel blocco stesso e
+  // la risposta era «occluso». Qui è un prodotto scalare e uno step: binario,
+  // quindi in stile (il salto resta uno solo), e piatto dentro la faccia perché
+  // le normali sono piatte per costruzione — niente sfarfallio.
   m.Fragment_Before_Lights(`
+    float facciaAlSole = step(0.0, dot(normalize(vNormalW), -normalize(uSoleVerso)));
     normalW = normalize(-uSoleVerso);
   `);
 
   m.Fragment_Before_FragColor(`
-    float sole = clamp(diffuseBase.r, 0.0, 1.0);
+    float sole = clamp(diffuseBase.r, 0.0, 1.0) * facciaAlSole;
     sole = floor(sole * ${BANDE.toFixed(1)} + 0.5) / ${BANDE.toFixed(1)};
     color.rgb = ${colorePiatto} * (uAmbiente * mix(uOmbraTinta, vec3(1.0), sole));
   `);
