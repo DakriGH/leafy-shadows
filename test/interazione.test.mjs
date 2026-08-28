@@ -7,10 +7,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { miraCompleta, incrociaScatola, PORTATA } from '../src/gioco/mira.js';
-import { Lampioni } from '../src/gioco/lampioni.js';
+import { Decoro } from '../src/gioco/decoro.js';
+import { registraDecorazioni } from '../src/world/decorazioni.js';
 import { azione, Cantiere, CASSETTA } from '../src/gioco/cantiere.js';
 import { Luci } from '../src/motore/luci.js';
 import { Mondo } from '../src/world/world.js';
+
+// ⚠ VANNO REGISTRATE PRIMA DI POSARLE, come nel gioco: sono blocchi veri, e un
+// tipo sconosciuto darebbe un difetto lontano da dove sta la causa.
+registraDecorazioni();
 
 const vers = (x, y, z) => { const n = Math.hypot(x, y, z); return { x: x / n, y: y / n, z: z / n }; };
 function piano(quota = 6, raggio = 12) {
@@ -44,11 +49,11 @@ test('un raggio parallelo alla lastra non divide per zero', () => {
 
 test('si mira al lampione, non al terreno sotto di lui', () => {
   const m = piano(6);
-  const lp = new Lampioni();
-  lp.aggiungi({ x: 3.5, y: 7, z: 0.5, indiceLuce: 0 });
-  const r = miraCompleta(m, { x: 0.5, y: 8.5, z: 0.5 }, vers(1, 0, 0), lp.scatole(), 20);
+  m.metti(3, 7, 0, 'lampione', true);
+  const d = new Decoro(); d.scansiona(m);
+  const r = miraCompleta(m, { x: 0.5, y: 8.5, z: 0.5 }, vers(1, 0, 0), d.scatole(), 20);
   assert.ok(r.dato, 'doveva colpire il lampione, non un blocco: ' + JSON.stringify(r));
-  assert.equal(r.dato.x, 3.5);
+  assert.deepEqual(r.dato.cella, [3, 7, 0]);
 });
 
 test('ma non attraverso un muro', () => {
@@ -56,9 +61,9 @@ test('ma non attraverso un muro', () => {
   // accenderebbe un lampione attraverso la roccia.
   const m = piano(6);
   for (let y = 7; y < 12; y++) m.metti(2, y, 0, 'pietra', true);
-  const lp = new Lampioni();
-  lp.aggiungi({ x: 5.5, y: 7, z: 0.5, indiceLuce: 0 });
-  const r = miraCompleta(m, { x: 0.5, y: 8.5, z: 0.5 }, vers(1, 0, 0), lp.scatole(), 20);
+  m.metti(5, 7, 0, 'lampione', true);
+  const d = new Decoro(); d.scansiona(m);
+  const r = miraCompleta(m, { x: 0.5, y: 8.5, z: 0.5 }, vers(1, 0, 0), d.scatole(), 20);
   assert.ok(!r.dato, 'il muro deve vincere');
   assert.deepEqual(r.cella, [2, 8, 0]);
 });
@@ -89,20 +94,55 @@ test('la mano vuota è il primo posto della cassetta, e non posa niente', () => 
 });
 
 test('i lampioni seguono la notte, e l\'interruttore vale fino al cambio', () => {
-  const lp = new Lampioni();
-  const a = lp.aggiungi({ x: 0.5, y: 7, z: 0.5, indiceLuce: 0 });
-  const b = lp.aggiungi({ x: 9.5, y: 7, z: 0.5, indiceLuce: 1 });
-  assert.equal(lp.accesi, 0);
-  lp.aggiornaNotte(true);
-  assert.equal(lp.accesi, 2, 'di notte si accendono da soli');
-  lp.alterna(a);
+  const m = piano(6);
+  m.metti(0, 7, 0, 'lampione', true);
+  m.metti(9, 7, 0, 'lampione', true);
+  const d = new Decoro(); d.scansiona(m);
+  assert.equal(d.quanti, 2);
+  assert.equal(d.accesi, 0);
+  d.aggiornaNotte(true);
+  assert.equal(d.accesi, 2, 'di notte si accendono da soli');
+  const a = d.per.get('0,7,0');
+  d.alterna(a);
   assert.equal(a.acceso, false);
-  assert.equal(a.aMano, true);
-  assert.equal(lp.accesi, 1, 'e uno si può spegnere a mano');
-  assert.equal(lp.aggiornaNotte(true), false, 'la stessa notte non rifà niente');
-  assert.equal(lp.accesi, 1, 'e non riaccende quello spento a mano');
-  lp.aggiornaNotte(false);
-  assert.equal(lp.accesi, 0);
+  assert.equal(d.accesi, 1, 'e uno si può spegnere a mano');
+  assert.equal(d.aggiornaNotte(true), false, 'la stessa notte non rifà niente');
+  assert.equal(d.accesi, 1, 'e non riaccende quello spento a mano');
+  d.aggiornaNotte(false);
+  assert.equal(d.accesi, 0);
   assert.equal(a.aMano, false, 'col giorno il «a mano» si azzera');
-  assert.ok(b);
+});
+
+test('una decorazione rotta sparisce dal registro, senza dirglielo', () => {
+  // ⚠ È LA RIGA CHE TIENE IN PIEDI TUTTO: il registro si nutre degli EVENTI del
+  // mondo, quindi rompere un albero non richiede che qualcuno si ricordi di
+  // avvisarlo. È lo stesso meccanismo con cui in Lantern un blocco-lampada
+  // accende la sua luce.
+  const m = piano(6);
+  const d = new Decoro();
+  m.onEvento = (e) => d.evento(e);
+  m.metti(2, 7, 0, 'albero');
+  assert.equal(d.quanti, 1);
+  const v0 = d.versione;
+  m.togli(2, 7, 0);
+  assert.equal(d.quanti, 0, 'rompendolo deve sparire');
+  assert.ok(d.versione > v0, 'e la versione deve salire, se no nessuno ridisegna');
+  // un blocco normale non lo tocca
+  m.metti(3, 7, 0, 'pietra');
+  assert.equal(d.quanti, 0);
+});
+
+test('un albero non si accende, un lampione sì', () => {
+  const m = piano(6);
+  m.metti(0, 7, 0, 'albero', true);
+  m.metti(4, 7, 0, 'lampione', true);
+  const d = new Decoro(); d.scansiona(m);
+  assert.equal(d.interattivo(d.per.get('0,7,0')), false);
+  assert.equal(d.interattivo(d.per.get('4,7,0')), true);
+  assert.equal(d.alterna(d.per.get('0,7,0')), false, 'alternare un albero non fa niente');
+});
+
+test('le decorazioni sono blocchi, quindi stanno nella cassetta', () => {
+  assert.ok(CASSETTA.includes('albero'));
+  assert.ok(CASSETTA.includes('lampione'));
 });

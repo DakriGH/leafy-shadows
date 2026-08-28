@@ -63,8 +63,26 @@ export function croce(b, cx, cy, cz, pal) {
   }
 }
 
-/** Le forme extra, per il dispatch del mesher e per gli schemi dell'Officina. */
-export const FORME_EXTRA = { lastra, pilastro, croce };
+/**
+ * UNA FORMA CHE NON DISEGNA NIENTE, perché a disegnarla ci pensa un MODELLO.
+ *
+ * ⚠ È IL PONTE FRA I BLOCCHI E I MODELLI, ed è quello che rende alberi e
+ * lampioni piazzabili e rompibili come qualunque altra cosa. Committente: «non
+ * posso piazzare o rompere lampioni alberi erba».
+ *
+ * Prima erano istanze di mesh piazzate dal worldgen e basta: non stavano nel
+ * mondo, quindi non si potevano rompere, non si salvavano, non si miravano. Ora
+ * sono BLOCCHI — con la loro casella nella barra, il loro `metti`, il loro
+ * `togli` — e il modello lo mette chi ascolta gli eventi del mondo. Tutta la
+ * macchina che serviva esisteva già; mancava solo dire al mesher di non
+ * disegnare un cubo dove c'è un albero.
+ */
+export function modello() { /* niente geometria: la mette il modello */ }
 
-/** Una forma che NON riempie la cella non culla i vicini e non fa da tappo. */
-export const FORME_VUOTE = new Set(['lastra', 'pilastro', 'croce']);
+/** Le forme extra, per il dispatch del mesher e per gli schemi dell'Officina. */
+export const FORME_EXTRA = { lastra, pilastro, croce, modello };
+
+/** Una forma che NON riempie la cella non culla i vicini e non fa da tappo.
+ *  ⚠ E «modello» ci sta dentro per forza: un albero non deve tappare la faccia
+ *  del terreno sotto di lui, se no si apre un buco nel mondo. */
+export const FORME_VUOTE = new Set(['lastra', 'pilastro', 'croce', 'modello']);

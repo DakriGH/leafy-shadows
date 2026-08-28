@@ -30,6 +30,10 @@ export const CASSETTA = [
   'erba', 'terra', 'pietra', 'mattoni', 'legno', 'sabbia', 'neve',
   'lanaRossa', 'lanaBlu', 'lanaGialla',
   'lampadaPesante', 'lampadaRossa', 'lampadaVerde', 'lampadaBlu', 'lucciola',
+  // ⚠ E ANCHE LE DECORAZIONI, perché sono blocchi come gli altri: da quando
+  // alberi e lampioni vivono nel mondo (`world/decorazioni.js`) non c'è nessuna
+  // ragione per cui debbano avere una strada tutta loro per essere posati.
+  'albero', 'lampione',
 ];
 
 /**

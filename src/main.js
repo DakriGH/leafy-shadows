@@ -19,7 +19,8 @@ import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
 import { miraCompleta, posabile, raggiungibile, portataRaggio } from './gioco/mira.js';
 import { Cantiere, CASSETTA, NOME_AZIONE } from './gioco/cantiere.js';
-import { Lampioni } from './gioco/lampioni.js';
+import { Decoro } from './gioco/decoro.js';
+import { registraDecorazioni, DECORAZIONI } from './world/decorazioni.js';
 import { ascoltaClic } from './gioco/puntatore.js';
 import { Barra } from './ui/barra.js';
 import { defDi } from './world/blocks.js';
@@ -38,12 +39,25 @@ fabbricaMesher(fabbrica);
 fabbricaStagioni(fabbrica);
 fabbricaErba(fabbrica);
 
+// ⚠ PRIMA DI TOCCARE IL MONDO, come la fabbrica: alberi e lampioni sono BLOCCHI
+// (vedi `world/decorazioni.js`), e il worldgen li posa. Registrarli dopo vorrebbe
+// dire un tipo sconosciuto e un difetto lontano da qui.
+registraDecorazioni();
+
 const mondo = new Mondo();
 const mesher = new Mesher(rig.scena, mondo);
 
 // ---- il mondo, quello vero -------------------------------------------------
 const t0 = performance.now();
 const { alberi, lampioni } = generaOpenWorld(mondo, 4242, 48);
+// ⚠ E ADESSO DIVENTANO CELLE. Il worldgen dà delle terne [x, quota, z] e prima
+// finivano dritte nelle istanze di mesh: fuori dal mondo, quindi irrompibili e
+// non salvabili. Posarle come blocchi le fa entrare in tutta la macchina che
+// c'è già — mira, rottura, barra, salvataggio.
+// ⚠ «h» È GIÀ LA SUPERFICIE, cioè la prima cella d'aria: la decorazione va LÌ,
+// non a h+1. È lo stesso +1 che una volta faceva galleggiare gli alberi.
+for (const [x, h, z] of alberi) mondo.metti(x, h, z, 'albero', true);
+for (const [x, h, z] of lampioni) mondo.metti(x, h, z, 'lampione', true);
 const tGen = performance.now() - t0;
 
 const t1 = performance.now();
@@ -77,67 +91,82 @@ const corpo = fabbrica.segnaposto();
 // l'unica che salta di un blocco intero.
 let quotaMorbida = passeggero.y;
 
-// ---- i modelli --------------------------------------------------------------
+// ---- i modelli e le decorazioni ---------------------------------------------
 // ⚠ ASINCRONO, E IL GIOCO NON LO ASPETTA. Un .glb da 52 KB arriva in fretta ma
 // non è istantaneo, e bloccare l'avvio per gli alberi vorrebbe dire una pagina
 // bianca su una connessione lenta. Il mondo si vede subito; gli alberi
 // compaiono quando ci sono.
 const modelli = new Modelli(rig.scena, rig);
-let alberiPosati = 0;
-modelli.carica('albero').then(() => {
-  // ⚠ worldgen dà TERNE [x, quota, z], non oggetti. Trattarle come oggetti dava
-  // NaN nelle matrici, cioè quarantotto alberi disegnati in nessun posto — e
-  // senza un errore, perché una matrice di NaN è una matrice valida.
-  alberiPosati = modelli.piazza('albero', alberi.map(([x, h, z]) => ({
-    // ⚠ `h` È GIÀ LA SUPERFICIE, non la quota del blocco. Ci aggiungevo 1
-    // «perché la faccia sopra sta a h+1», e gli alberi galleggiavano di
-    // ESATTAMENTE un blocco — misurato: albero a quota 8, blocco più alto a 6,
-    // superficie a 7. Un difetto da un blocco tondo non è mai un errore di
-    // arrotondamento: è un +1 di troppo, e conviene cercarlo lì.
-    x: x + 0.5, y: h, z: z + 0.5,
-    // ⚠ IL GIRO È DETERMINISTICO, non casuale: un albero deve stare girato
-    // sempre allo stesso modo, o a ogni ricarica il bosco cambia faccia.
-    giro: (((x * 73856093) ^ (z * 19349663)) >>> 0) / 4294967296 * Math.PI * 2,
-  })));
-}).catch((e) => { console.error('alberi:', e); });
+const decoro = new Decoro();
+decoro.scansiona(mondo);
+const aloni = fabbrica.aloni(96);
 
-// ---- i lampioni, e le loro luci ---------------------------------------------
-// ⚠ LA LUCE STA UN PO' SOPRA IL PALO, non alla base: una sfera centrata a terra
-// illumina il terreno e non l'aria, e il lampione sembra spento.
-let lampioniPosati = 0;
-const lampioni_ = new Lampioni();
-const aloni = fabbrica.aloni(64);
-modelli.carica('lampione').then(() => {
-  lampioniPosati = modelli.piazza('lampione', lampioni.map(([x, h, z]) => ({ x: x + 0.5, y: h, z: z + 0.5, giro: 0 })));
-  for (const [x, h, z] of lampioni) {
-    // ⚠ E TORNA A OTTO E MEZZO, che è il numero di Lantern. L'avevo alzato a
-    // quattordici perché le lampade non si vedevano, e la causa non era il
-    // raggio: era la mia formula di caduta (vedi `luci.js`). Curato il difetto,
-    // il raggio torna a voler dire quanto illumina.
-    const i = rig.luci.accendi({ x: x + 0.5, y: h + 2.6, z: z + 0.5, raggio: 8.5, forza: 1 });
-    lampioni_.aggiungi({ x: x + 0.5, y: h, z: z + 0.5, indiceLuce: i });
+/** Quali modelli sono già arrivati: si ridisegna solo quello che c'è. */
+const modelliPronti = new Set();
+for (const nome of Object.keys(DECORAZIONI)) {
+  modelli.carica(nome)
+    .then(() => { modelliPronti.add(nome); _versioneDisegnata = -1; })
+    .catch((e) => { console.error(nome + ':', e); });
+}
+
+// ⚠ SI RIDISEGNA SOLO QUANDO CAMBIA, e il confronto è su un numero: rifare le
+// matrici di sessanta istanze a ogni fotogramma sarebbe lavoro per niente, e
+// contarle non basterebbe — romperne una e posarne un'altra lascia il conto
+// uguale e il mondo diverso.
+let _versioneDisegnata = -1;
+function aggiornaDecoro() {
+  if (decoro.versione === _versioneDisegnata) return;
+  _versioneDisegnata = decoro.versione;
+  for (const nome of modelliPronti) {
+    const voci = decoro.diTipo(nome);
+    modelli.piazza(nome, voci.map((v) => ({ x: v.x + 0.5, y: v.y, z: v.z + 0.5, giro: v.giro })));
   }
-  applicaLampioni();
-}).catch((e) => { console.error('lampioni:', e); });
+  applicaLuciDecoro();
+}
 
 /**
- * DALLO STATO DEI LAMPIONI ALLE COSE CHE SI VEDONO — la luce e l'alone.
+ * DALLO STATO DELLE DECORAZIONI ALLE COSE CHE SI VEDONO — la luce e l'alone.
  * ⚠ UN POSTO SOLO, e ci passa anche l'accensione iniziale: se lo stato di
  * partenza prendesse un'altra strada sarebbe l'unico caso non provato dal
  * codice che gestisce tutti gli altri.
+ * ⚠ E LE LAMPADE SI RIFANNO DA ZERO ogni volta: sono qualche decina, e un
+ * registro incrementale di indici che si spostano è esattamente il genere di
+ * cosa che si rompe quando si rompe un lampione in mezzo alla fila.
  */
-function applicaLampioni() {
+function applicaLuciDecoro() {
+  rig.luci.spegniTutte();
   const punti = [];
-  for (const l of lampioni_.elenco) {
-    // spegnere = raggio zero, che è come `Luci` segna uno slot morto
-    rig.luci.pos[l.indiceLuce * 4 + 3] = l.acceso ? 8.5 : 0;
-    // ⚠ L'ALONE STA DOVE STA LA LAMPADA, non ai piedi del palo: 2,6 sopra la
-    // base, lo stesso numero della luce. Due numeri per la stessa cosa sarebbe
-    // il modo di vederli divergere al primo ritocco.
-    punti.push({ x: l.x, y: l.y + 2.6, z: l.z, acceso: l.acceso });
+  for (const v of decoro.per.values()) {
+    const d = DECORAZIONI[v.tipo];
+    if (!d.luce || !v.acceso) continue;
+    const q = d.luce.quota;
+    rig.luci.accendi({
+      x: v.x + 0.5, y: v.y + q, z: v.z + 0.5,
+      raggio: d.luce.raggio, forza: d.luce.intensita, ombra: d.luce.ombra,
+      colore: [((d.luce.colore >> 16) & 255) / 255, ((d.luce.colore >> 8) & 255) / 255, (d.luce.colore & 255) / 255],
+    });
+    punti.push({ x: v.x + 0.5, y: v.y + q, z: v.z + 0.5, acceso: true });
   }
   fabbrica.muoviAloni(aloni, punti);
 }
+
+// ⚠ IL MONDO CI RACCONTA I SUOI CAMBI, e questa riga è quella che tiene in piedi
+// tutto: rompere un albero non deve richiedere che qualcuno si ricordi di
+// avvisare il registro. È lo stesso meccanismo con cui in Lantern un blocco-
+// lampada accende la sua luce.
+mondo.onEvento = (e) => {
+  if (decoro.evento(e)) aggiornaDecoro();
+  // ⚠ E L'ERBA VA RISEMINATA, se no posare un blocco d'erba non fa crescere
+  // niente. Misurato: cinque per cinque celle di erba posate, ZERO fili nuovi.
+  // La coda della semina si riapre solo quando il giocatore CAMBIA CHUNK
+  // (`_ccx/_ccz` in `vegetazione/erba.js`), che è giusto per chi cammina e
+  // cieco per chi costruisce. Committente: «non posso piazzare o rompere
+  // lampioni alberi erba».
+  // ⚠ E COSTA POCO: la cache dei ciuffi ha la revisione del chunk nella chiave,
+  // quindi i chunk non toccati escono dalla cache e solo quello cambiato si
+  // rifà davvero.
+  erba.risemina();
+};
 
 // ---- il cantiere: rompere, posare, illuminare -------------------------------
 const cantiere = new Cantiere(mondo, rig.luci);
@@ -162,12 +191,22 @@ function aggiornaMira() {
   // ⚠ IL RAGGIO SI TIRA FINO A LÀ, il braccio si controlla dopo: vedi `mira.js`.
   // ⚠ E GUARDA ANCHE LE SCATOLE DEI LAMPIONI, che non sono blocchi: la griglia
   // sotto di loro è vuota e il cammino ci passava attraverso.
-  const b = miraCompleta(mondo, r.origine, r.verso, lampioni_.scatole(), portataRaggio(rig.camera.radius));
+  const b = miraCompleta(mondo, r.origine, r.verso, decoro.scatole(), portataRaggio(rig.camera.radius));
   bersaglio = null; cosaFa = null;
   if (b && b.dato) {
-    // un lampione: si controlla la portata sul suo piede
-    if (raggiungibile([Math.floor(b.dato.x), Math.floor(b.dato.y) + 1, Math.floor(b.dato.z)], passeggero)) {
-      bersaglio = b; cosaFa = 'interagisci';
+    // ⚠ UNA DECORAZIONE HA UNA CELLA COME TUTTI, e la portata si misura su
+    // quella: la scatola è alta quattro celle, e misurare dal suo centro
+    // vorrebbe dire poter rompere la punta di un albero che ha i piedi fuori
+    // portata.
+    if (raggiungibile(b.dato.cella, passeggero)) {
+      bersaglio = b;
+      // ⚠ SI ROMPE ANCHE, non solo si accende: una decorazione è un blocco. Con
+      // un blocco in mano si accende (se può), con la mano vuota si rompe — che
+      // è la stessa regola di tutto il resto, applicata a una cosa che prima non
+      // si poteva né rompere né toccare.
+      cosaFa = cantiere.manoVuota
+        ? 'rompi'
+        : (decoro.interattivo(b.dato) ? 'interagisci' : null);
     }
   } else if (b && raggiungibile(b.cella, passeggero)) {
     bersaglio = b;
@@ -199,8 +238,8 @@ function formaDi(tipo) {
 /** Fa quello che il mirino sta promettendo. */
 function agisci() {
   if (!bersaglio || !cosaFa) return;
-  if (cosaFa === 'interagisci') { lampioni_.alterna(bersaglio.dato); applicaLampioni(); }
-  else if (cosaFa === 'rompi') cantiere.rompi(...bersaglio.cella);
+  if (cosaFa === 'interagisci') { decoro.alterna(bersaglio.dato); applicaLuciDecoro(); }
+  else if (cosaFa === 'rompi') cantiere.rompi(...(bersaglio.dato ? bersaglio.dato.cella : bersaglio.cella));
   else if (cosaFa === 'posa') cantiere.posa(...bersaglio.prima);
 }
 
@@ -230,7 +269,7 @@ ascoltaClic(tela, (e) => {
   // ⚠ IL DESTRO ROMPE SEMPRE, ed è l'unica scorciatoia che resta legata a un
   // tasto: serve a rompere senza svuotarsi le mani, e su un telefono non
   // manca a nessuno perché lì si tocca la casella della mano vuota.
-  if (e.button === 2 && bersaglio && !bersaglio.dato) { cantiere.rompi(...bersaglio.cella); return; }
+  if (e.button === 2 && bersaglio) { cantiere.rompi(...(bersaglio.dato ? bersaglio.dato.cella : bersaglio.cella)); return; }
   if (e.button === 0) agisci();
 });
 
@@ -270,7 +309,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Comma') { giorno.auto = false; giorno.t = (giorno.t + 0.985) % 1; giorno.applica(); }
   else if (e.code === 'Period') { giorno.auto = false; giorno.t = (giorno.t + 0.015) % 1; giorno.applica(); }
   else if (e.code === 'KeyP') giorno.auto = !giorno.auto;
-  else if (e.code === 'KeyQ' && bersaglio && !bersaglio.dato) cantiere.rompi(...bersaglio.cella);
+  else if (e.code === 'KeyQ' && bersaglio) cantiere.rompi(...(bersaglio.dato ? bersaglio.dato.cella : bersaglio.cella));
   else if (e.code === 'KeyE') agisci();
   else if (e.code === 'KeyR') cantiere.scegli(cantiere.scelto + (e.shiftKey ? -1 : 1));
   // ⚠ K FISSA LA QUALITÀ A MANO, e serve per PROVARE: senza, per vedere il
@@ -325,7 +364,7 @@ function aggiornaStato() {
     `  erba ${(erba.attiva ? erba.fili : 0).toLocaleString('it')}\n` +
     `${rig.scheda.software ? '⚠ DISEGNA IN SOFTWARE' : rig.scheda.nome.slice(0, 40)}\n` +
     `chunk ${mesher.chunks.size}   blocchi ${mondo.contaBlocchi.toLocaleString('it')}   ` +
-    `luci ${rig.luci.accese}   alberi ${alberiPosati}/${alberi.length}\n` +
+    `luci ${rig.luci.accese}   decorazioni ${decoro.quanti} (${decoro.accesi} accese)\n` +
     `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
     `\n${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}\n` +
     `clic = quello che hai in mano · destro rompe · centrale copia\n` +
@@ -351,7 +390,10 @@ rig.avvia((dt) => {
   mesher.aggiorna(mondo, passeggero);
   // ⚠ I LAMPIONI SEGUONO LA NOTTE, come in Lantern: si accendono da soli quando
   // il sole scende, e l'interruttore a mano vale fino al prossimo cambio.
-  if (lampioni_.aggiornaNotte(giorno.t < 0.24 || giorno.t > 0.80)) applicaLampioni();
+  // ⚠ I LAMPIONI SEGUONO LA NOTTE, come in Lantern: si accendono da soli quando
+  // il sole scende, e l'interruttore a mano vale fino al prossimo cambio.
+  if (decoro.aggiornaNotte(giorno.t < 0.24 || giorno.t > 0.80)) applicaLuciDecoro();
+  aggiornaDecoro();
   aggiornaMira();
   barra.aggiorna(cantiere.scelto, cosaFa
     ? `<b>${NOME_AZIONE[cosaFa]}</b> · ${cosaFa === 'interagisci' ? 'lampione' : cantiere.nomeScelto}`
@@ -360,4 +402,4 @@ rig.avvia((dt) => {
 });
 
 // una manina per lavorarci sopra dall'ispettore e dalla console
-globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeggero, cantiere, scala, lampioni: lampioni_, barra, generaOpenWorld };
+globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeggero, cantiere, scala, decoro, barra, generaOpenWorld };

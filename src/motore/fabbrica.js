@@ -16,6 +16,7 @@ import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Prato } from './prato.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
+import { Mesh as MeshCostanti } from '@babylonjs/core/Meshes/mesh.js';
 import '@babylonjs/core/Meshes/Builders/capsuleBuilder.js';
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial.js';
 import { applicaStilePiatto } from './stile.js';
@@ -317,11 +318,39 @@ export class Fabbrica {
    */
   aloni(quanti) {
     const gusci = [
-      { r: 0.42, colore: new Color3(1.0, 0.874, 0.62), alfa: 0.16 },
-      { r: 0.85, colore: new Color3(1.0, 0.816, 0.44), alfa: 0.06 },
+      // ⚠ LE OPACITÀ SONO QUELLE DELLA PRIMA VERSIONE DI LANTERN (commit
+      // 7510d19): 0,5 e 0,2. Avevo copiato quelle di OGGI — 0,16 e 0,06 — che
+      // laggiù vanno bene perché c'è anche mille altro acceso, e qui davano due
+      // velature quasi invisibili.
+      // ⚠ E I RAGGI SONO PIÙ GRANDI DEI SUOI (0,24 e 0,46): là l'alone sta su
+      // una lanterna in mano, qui sulla testa di un lampione alto tre metri, e
+      // alla stessa misura si perdeva dentro il modello. Il rapporto fra i due
+      // gusci resta più di due, che è quello che li fa leggere come due anelli
+      // invece che come una macchia sola.
+      // ⚠ E IL GUSCIO ESTERNO VA PIÙ CALDO DEL SUO, non più chiaro: additivo su
+      // un cielo notturno bluastro, un colore poco saturo alza tutti e tre i
+      // canali e il risultato si legge GRIGIO — che è il residuo di «solo
+      // bianche» dopo aver tolto il doppio lato. Scendendo di verde e di blu il
+      // canale rosso resta l'unico a saturare, e quando satura satura CALDO.
+      { r: 0.58, colore: new Color3(1.0, 0.860, 0.58), alfa: 0.46 },
+      { r: 1.30, colore: new Color3(1.0, 0.700, 0.28), alfa: 0.16 },
     ];
     const mesh = gusci.map((g, i) => {
-      const m = MeshBuilder.CreateSphere('alone' + i, { diameter: g.r * 2, segments: 12 }, this.scena);
+      // ⚠ SFERA INVERTITA — l'idea è del committente: «potresti fare inverted
+      // sphere per questi aloni, così il lampione spicca». Ed è giusta.
+      //
+      // Con una sfera normale l'alone si disegna DAVANTI alla lampada e la
+      // annega: il palo e la testa spariscono dentro la luce, che è il difetto
+      // del «troppo forte». Girando l'avvolgimento (`BACKSIDE`) si vede solo la
+      // METÀ LONTANA del guscio; la prova di profondità fa il resto, perché la
+      // testa del lampione le sta davanti e la occlude. Risultato: la luce
+      // circonda l'oggetto invece di coprirlo, e la sagoma resta netta.
+      //
+      // ⚠ E COSTA LA METÀ, come effetto collaterale gradito: si disegna un
+      // emisfero invece di due, che è la stessa ragione per cui il culling
+      // aveva già tolto la saturazione a bianco.
+      const m = MeshBuilder.CreateSphere('alone' + i,
+        { diameter: g.r * 2, segments: 12, sideOrientation: MeshCostanti.BACKSIDE }, this.scena);
       const mat = new StandardMaterial('alone' + i, this.scena);
       mat.disableLighting = true;
       mat.emissiveColor = g.colore;
@@ -329,14 +358,33 @@ export class Fabbrica {
       mat.specularColor = Color3.Black();
       mat.alpha = g.alfa;
       mat.alphaMode = 1;                 // ALPHA_ADD: si somma, non copre
-      mat.backFaceCulling = false;
+      // ⚠ SOLO LE FACCE DAVANTI, ED È LA CURA AL BIANCO. Con le facce di dietro
+      // accese ogni pixel dentro la sagoma riceve la sfera DUE VOLTE — davanti e
+      // dietro — e un additivo raddoppiato satura. Misurato: senza culling il
+      // centro dell'alone usciva (255, 255, 254), cioè bianco puro; con il
+      // culling (194, 176, 153), che è caldo. Committente: «le sfere sopra i
+      // lampioni sono solo bianche e troppo forti».
+      // Lantern usa un MeshBasicMaterial senza toccare `side`, cioè solo fronte:
+      // avevo aggiunto io il doppio lato pensando che «una sfera vuota si veda
+      // meglio da dentro», e per un additivo è esattamente il contrario.
+      mat.backFaceCulling = true;
       mat.disableDepthWrite = true;
       mat.applyFog = false;
       m.material = mat;
       m.isPickable = false;
       m.receiveShadows = false;
       m.alphaIndex = 3;                  // dopo il mondo e dopo l'acqua
-      m.doNotSyncBoundingInfo = true;
+      // ⚠ SEMPRE ATTIVA, E QUESTO È IL DIFETTO PER CUI GLI ALONI SPARIVANO.
+      // Una mesh a istanze sottili tiene la scatola di contenimento della
+      // GEOMETRIA DI BASE — misurata: [-0,42 … +0,42] attorno all'ORIGINE del
+      // mondo — non delle sue istanze. Babylon la cullava appena l'origine
+      // usciva dall'inquadratura, e tutti gli aloni sparivano insieme, ovunque
+      // fossero. Committente: «perché la sfera del lampione sparisce?».
+      // ⚠ E NON SI CURA RICALCOLANDO LA SCATOLA: i lampioni stanno sparsi per
+      // tutto il mondo, quindi la scatola vera coprirebbe tutto e il culling
+      // non taglierebbe mai niente. Due mesh sempre attive costano meno del
+      // conto per decidere di tenerle.
+      m.alwaysSelectAsActiveMesh = true;
       // ⚠ LA MATRICE È OBBLIGATORIA anche qui: `thinInstanceCount` si tara su
       // `matrixData.length / 16`. Si alloca una volta e si muta.
       m.thinInstanceSetBuffer('matrix', new Float32Array(quanti * 16), 16, false);
@@ -464,7 +512,13 @@ export class Fabbrica {
       vd.applyToMesh(m, true);
     }
     if (!m.isEnabled()) m.setEnabled(true);
-    m.position.set(cella[0], cella[1], cella[2]);
+    // ⚠ MEZZA CELLA, E NON È UN AGGIUSTAMENTO A OCCHIO: il mesher costruisce
+    // ogni blocco CENTRATO sul centro della cella (`const cx = x + 0.5` nel suo
+    // ciclo), mentre `geometriaSingola` lo costruisce centrato sull'origine.
+    // Mettendo la mesh sull'angolo della cella l'anteprima usciva spostata di
+    // mezzo blocco su tutti e tre gli assi — il committente l'ha vista come
+    // «sfasata di 0.5 in diagonale», che è esattamente la diagonale del cubetto.
+    m.position.set(cella[0] + 0.5, cella[1] + 0.5, cella[2] + 0.5);
   }
 
   /** Sposta il mirino su una cella, o lo spegne se non c'è bersaglio. */
