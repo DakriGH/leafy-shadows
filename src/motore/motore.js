@@ -261,7 +261,7 @@ export class Rig {
     // risoluzione. Ogni metro in più che si pretende di ombreggiare toglie texel
     // a quelli vicini — e l'ombra a novanta blocchi non la guarda nessuno,
     // mentre la scaletta a dieci la vedono tutti.
-    this.ombre.shadowMaxZ = 90;
+    this.ombre.shadowMaxZ = this.profilo.ombraZ;
     this.ombre.depthClamp = true;
     this.ombre.autoCalcDepthBounds = true;
 
@@ -373,6 +373,10 @@ export class Rig {
       // cascata è un RENDER della scena in una mappa di profondità.
       if (this.ombre.numCascades !== p.cascate) this.ombre.numCascades = p.cascate;
       if (this.ombre.mapSize !== p.mappa) this.ombre.mapSize = p.mappa;
+      // ⚠ E L'OMBRA SI ACCORCIA INSIEME ALLA MAPPA: quello che conta è
+      // `mappa / ombraZ`, i texel per blocco. Cambiare una senza l'altra è
+      // esattamente come ho fatto nascere l'acne su mobile.
+      this.ombre.shadowMaxZ = p.ombraZ;
       this.ombre.usePercentageCloserFiltering = p.pcf;
       this.ombre.filteringQuality = p.pcf
         ? CascadedShadowGenerator.QUALITY_HIGH

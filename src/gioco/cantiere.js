@@ -39,17 +39,29 @@ export const CASSETTA = [
 /**
  * COSA FARÀ IL PROSSIMO CLIC — e si decide qui, in un posto solo.
  *
- * ⚠ È LA CORREZIONE AL DIFETTO CHE IL COMMITTENTE HA VISTO: «hai usato il tasto
- * sinistro e destro per piazzare, ma è anche il modo che uso per muovere la
- * telecamera». Il problema vero non erano i tasti — era che l'azione dipendeva
- * dal TASTO invece che da quello che si ha in mano. Con i tasti, su un telefono
- * non c'è niente da premere; con la mano, la regola è una e vale ovunque.
+ * ⚠ QUESTA REGOLA L'HO SBAGLIATA UNA VOLTA, E AL CONTRARIO. Avevo scritto: con
+ * la mano vuota si rompe, con un blocco in mano si accende. Committente: «non
+ * c'è modo di interagire con gli oggetti, perché con la mano vuota il sinistro
+ * rompe e il destro rompe». Aveva ragione: accendere una lampada richiedeva di
+ * avere in mano un BLOCCO, che è l'ultima cosa che qualcuno prova.
  *
- * L'ordine conta: un lampione vince sempre, anche con un blocco in mano —
- * altrimenti per accendere una luce bisognerebbe prima svuotarsi le mani, che è
- * esattamente il genere di passaggio che nessuno indovina.
+ * La regola giusta è che **l'interazione appartiene all'OGGETTO, non alla
+ * mano**: una cosa che si accende, si accende — con qualunque cosa si abbia in
+ * mano, come una porta o una leva in qualunque gioco. Quello che si ha in mano
+ * decide solo cosa fare col resto del mondo.
+ *
+ * L'ordine, quindi:
+ *  1. si sta DEMOLENDO (destro, o il piccone sul telefono) → rompi, sempre;
+ *  2. il bersaglio si accende → accendi;
+ *  3. mano vuota → rompi;
+ *  4. blocco in mano → posa.
+ *
+ * ⚠ E IL PUNTO 1 VIENE PRIMA DEL 2 PER FORZA: se no un lampione non si potrebbe
+ * più rompere, perché si accenderebbe e basta. È l'unico modo di togliere una
+ * cosa interattiva.
  */
-export function azione(tipoInMano, bersaglioInterattivo) {
+export function azione(tipoInMano, bersaglioInterattivo, demolisci = false) {
+  if (demolisci) return 'rompi';
   if (bersaglioInterattivo) return 'interagisci';
   return tipoInMano ? 'posa' : 'rompi';
 }
@@ -83,7 +95,7 @@ export class Cantiere {
   get manoVuota() { return !this.tipoScelto; }
 
   /** Cosa farà il prossimo clic, dato cosa si sta guardando. */
-  azione(bersaglioInterattivo) { return azione(this.tipoScelto, bersaglioInterattivo); }
+  azione(bersaglioInterattivo, demolisci) { return azione(this.tipoScelto, bersaglioInterattivo, demolisci); }
 
   scegli(i) { this.scelto = ((i % CASSETTA.length) + CASSETTA.length) % CASSETTA.length; }
 

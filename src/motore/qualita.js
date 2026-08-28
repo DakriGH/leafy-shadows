@@ -104,6 +104,7 @@ export const DPR_MAX = { mobile: 1.5, desktop: 2 };
  *  · `scala`      moltiplica il rapporto dei pixel (1 = il tetto di DPR_MAX)
  *  · `cascate`    quante cascate d'ombra — ⚠ il minimo di Babylon è DUE
  *  · `mappa`      il lato della mappa d'ombra
+ *  · `ombraZ`     fin dove arriva l'ombra del sole — ⚠ VA CON `mappa`, vedi sotto
  *  · `pcf`        il filtro morbido dell'ombra (costa poco: si spegne tardi)
  *  · `sole`       l'ombra del sole tutta intera, mappa compresa
  *  · `dist`       la distanza di resa (e con lei la nebbia e il LOD dei chunk)
@@ -111,6 +112,24 @@ export const DPR_MAX = { mobile: 1.5, desktop: 2 };
  *  · `fxaa`       l'antialiasing sull'immagine
  *  · `particelle` gli effetti
  */
+/**
+ * ⚠ TEXEL PER BLOCCO: LA GRANDEZZA CHE DECIDE L'ACNE, ed è `mappa / ombraZ`.
+ *
+ * Il difetto che ha reso necessaria questa costante: avevo portato la mappa
+ * d'ombra da 2048 a 1024 su mobile lasciando `ombraZ` a 90. Metà dei texel
+ * sparsi sulla stessa area vuol dire ogni texel grande il doppio, e un texel
+ * grande è esattamente ciò che fa l'acne — la profondità in spazio-luce varia
+ * di più dentro un texel di quanto nessuno scarto costante possa coprire.
+ * Committente: «guarda quanto acne ovunque».
+ *
+ * Quindi ogni gradino accorcia l'ombra INSIEME alla mappa: 2048/90, 1024/45,
+ * 768/34, 512/22 danno tutti 22,8 texel per blocco. L'ombra arriva meno
+ * lontano — è il prezzo onesto — ma è pulita a qualunque livello. Ed è la stessa
+ * regola già scritta in CLAUDE.md: «ogni metro che si pretende di ombreggiare
+ * toglie texel a quelli vicini».
+ */
+export const TEXEL_PER_BLOCCO = 22.8;
+
 export const LIVELLI = {
   // ⚠ SU MOBILE SI PARTE GIÀ SCARICHI, e non è pessimismo: partire in alto vuol
   // dire dare al giocatore i primi dieci secondi a sei fotogrammi, che è quando
@@ -123,22 +142,22 @@ export const LIVELLI = {
   // VERTICI e la CPU. Cinquantaduemila lamelle sono l'unica cosa in scena che
   // ne conta a decine di migliaia — e le semina la CPU.
   mobile: [
-    { scala: 1.00, cascate: 2, mappa: 1024, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, fxaa: false, particelle: true },
-    { scala: 0.85, cascate: 2, mappa:  768, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, fxaa: false, particelle: false },
-    { scala: 0.72, cascate: 2, mappa:  512, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, fxaa: false, particelle: false },
-    { scala: 0.60, cascate: 2, mappa:  512, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, fxaa: true,  particelle: true },
+    { scala: 0.85, cascate: 2, mappa:  768, ombraZ: 34, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, fxaa: true,  particelle: false },
+    { scala: 0.72, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, fxaa: true,  particelle: false },
+    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
     // ⚠ GLI ULTIMI DUE SONO LA CORSIA D'EMERGENZA: brutti, ma GIOCABILI. In
     // Lantern esistono per la stessa ragione — senza, le GPU più deboli
     // restavano incollate sotto i trenta senza via d'uscita.
-    { scala: 0.50, cascate: 2, mappa:  512, pcf: false, sole: false, dist:  50, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
-    { scala: 0.42, cascate: 2, mappa:  512, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
+    { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  50, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
+    { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
   ],
   desktop: [
-    { scala: 1.00, cascate: 4, mappa: 2048, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, fxaa: true,  particelle: true },
-    { scala: 1.00, cascate: 3, mappa: 2048, pcf: true,  sole: true,  dist: 130, erba: 6.0, erbaR: 5, fxaa: true,  particelle: true },
-    { scala: 0.85, cascate: 2, mappa: 1024, pcf: true,  sole: true,  dist: 110, erba: 4.5, erbaR: 4, fxaa: true,  particelle: true },
-    { scala: 0.70, cascate: 2, mappa: 1024, pcf: false, sole: true,  dist:  90, erba: 3.0, erbaR: 3, fxaa: false, particelle: false },
-    { scala: 0.60, cascate: 2, mappa:  512, pcf: false, sole: false, dist:  70, erba: 1.5, erbaR: 2, fxaa: false, particelle: false },
+    { scala: 1.00, cascate: 4, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, fxaa: true,  particelle: true },
+    { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 130, erba: 6.0, erbaR: 5, fxaa: true,  particelle: true },
+    { scala: 0.85, cascate: 2, mappa: 1024, ombraZ: 45, pcf: true,  sole: true,  dist: 110, erba: 4.5, erbaR: 4, fxaa: true,  particelle: true },
+    { scala: 0.70, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist:  90, erba: 3.0, erbaR: 3, fxaa: true,  particelle: false },
+    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  70, erba: 1.5, erbaR: 2, fxaa: false, particelle: false },
   ],
 };
 
@@ -156,8 +175,14 @@ export function fissiDiAvvio(dispositivo) {
     // Lantern, misurato su Mali-G68, il cammino nei voxel costa ~30% degli fps.
     // E non basta spegnerlo con un `if` — non deve essere compilato.
     ombreLampade: !dispositivo.mobile,
-    // l'antialiasing del canvas si decide alla creazione del contesto, come
-    // l'origine mobile: o c'è o si ricrea il motore.
+    // ⚠ L'MSAA DEL CANVAS RESTA SPENTO SU MOBILE (quadruplica il riempimento),
+    // MA FXAA NO — e la distinzione è tutta la partita. FXAA è UNA passata a
+    // schermo intero: a 0,68 Mpixel non si sente. L'avevo spento «perché è una
+    // passata in più su un chip già a corto di banda», e ho tolto proprio la
+    // cura scritta in CLAUDE.md per questo esatto difetto: «le terrazze di
+    // Leafy sono fianchi alti UN blocco, a cinquanta blocchi meno di un pixel;
+    // un triangolo più piccolo del pixel scompare e riappare mentre la camera
+    // si muove — il committente l'ha visto come vibrazioni a distanza».
     antialias: !dispositivo.mobile,
   };
 }

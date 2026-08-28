@@ -3,9 +3,9 @@
 // l'unico controllo possibile su numeri destinati a un telefono.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LIVELLI, DPR_MAX, classeDispositivo, fissiDiAvvio, ScalaQualita } from '../src/motore/qualita.js';
+import { LIVELLI, DPR_MAX, TEXEL_PER_BLOCCO, classeDispositivo, fissiDiAvvio, ScalaQualita } from '../src/motore/qualita.js';
 
-const CHIAVI = ['scala', 'cascate', 'mappa', 'pcf', 'sole', 'dist', 'erba', 'erbaR', 'fxaa', 'particelle'];
+const CHIAVI = ['scala', 'cascate', 'mappa', 'ombraZ', 'pcf', 'sole', 'dist', 'erba', 'erbaR', 'fxaa', 'particelle'];
 
 for (const [nome, livelli] of Object.entries(LIVELLI)) {
   test(`«${nome}»: ogni gradino ha tutte le colonne`, () => {
@@ -24,7 +24,7 @@ for (const [nome, livelli] of Object.entries(LIVELLI)) {
     // continuerebbe a scendere cercando sollievo che non arriva mai.
     for (let i = 1; i < livelli.length; i++) {
       const a = livelli[i - 1], b = livelli[i];
-      for (const k of ['scala', 'cascate', 'mappa', 'dist', 'erba', 'erbaR']) {
+      for (const k of ['scala', 'cascate', 'mappa', 'ombraZ', 'dist', 'erba', 'erbaR']) {
         assert.ok(b[k] <= a[k], `${nome}: «${k}» risale da ${a[k]} a ${b[k]} fra i gradini ${i - 1} e ${i}`);
       }
       for (const k of ['pcf', 'sole', 'fxaa', 'particelle']) {
@@ -52,7 +52,33 @@ for (const [nome, livelli] of Object.entries(LIVELLI)) {
 test('su mobile si parte più scarichi che su desktop', () => {
   const m = LIVELLI.mobile[0], d = LIVELLI.desktop[0];
   assert.ok(m.cascate <= d.cascate && m.mappa <= d.mappa && m.dist <= d.dist);
-  assert.ok(!m.fxaa, 'e senza passate a schermo intero');
+  assert.ok(m.erba < d.erba, 'e con molta meno erba: è la cosa che si conta a decine di migliaia');
+});
+
+test('FXAA resta ACCESO sui primi gradini mobile', () => {
+  // ⚠ È UN'ECCEZIONE VOLUTA, e l'ho imparata spegnendolo. FXAA è UNA passata a
+  // schermo intero — a 0,68 Mpixel non si sente — e cura il difetto per cui è
+  // stato messo: «le terrazze di Leafy sono fianchi alti UN blocco, a cinquanta
+  // blocchi meno di un pixel», che il committente aveva chiamato «vibrazioni a
+  // distanza». Spegnendolo su mobile è tornato, e l'ha chiamato «acne ovunque».
+  assert.equal(LIVELLI.mobile[0].fxaa, true);
+  assert.equal(LIVELLI.mobile[1].fxaa, true);
+});
+
+test('la mappa d\'ombra e la sua portata scendono INSIEME', () => {
+  // ⚠ LA PROVA CHE AVREBBE PRESO IL DIFETTO. Ho portato la mappa da 2048 a 1024
+  // lasciando la portata a 90: metà dei texel sulla stessa area vuol dire ogni
+  // texel grande il doppio, e un texel grande È l'acne. Quello che deve restare
+  // costante non è la mappa né la portata: è il loro RAPPORTO.
+  for (const [nome, livelli] of Object.entries(LIVELLI)) {
+    for (const [i, p] of livelli.entries()) {
+      if (!p.sole) continue;                    // senza ombra non c'è densità
+      const d = p.mappa / p.ombraZ;
+      assert.ok(Math.abs(d - TEXEL_PER_BLOCCO) / TEXEL_PER_BLOCCO < 0.06,
+        `${nome}[${i}]: ${d.toFixed(1)} texel per blocco invece di ${TEXEL_PER_BLOCCO} ` +
+        `(mappa ${p.mappa}, portata ${p.ombraZ})`);
+    }
+  }
 });
 
 test('e il tetto dei pixel è più basso su mobile', () => {

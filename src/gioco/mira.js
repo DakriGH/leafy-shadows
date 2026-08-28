@@ -155,7 +155,12 @@ export function miraCompleta(mondo, origine, verso, scatole, portata = PORTATA) 
     const d = incrociaScatola(origine, verso, s.min, s.max, portata);
     if (d >= 0 && d < dMiglior) { dMiglior = d; miglior = s; }
   }
-  if (miglior) return { scatola: miglior, dato: miglior.dato, distanza: dMiglior };
+  // ⚠ E QUANDO VINCE UNA SCATOLA SI TIENE ANCHE IL BLOCCO DIETRO, che serve a
+  // chi vuole POSARE: mirando a un albero con della terra in mano il blocco
+  // deve andare da qualche parte, e il posto giusto è dove il raggio tocca il
+  // terreno oltre l'albero. Tornando solo la scatola, quella cella non c'era e
+  // il clic non faceva niente — un bersaglio che si illumina e non risponde.
+  if (miglior) return { ...blocco, scatola: miglior, dato: miglior.dato, distanza: dMiglior };
   return blocco;
 }
 

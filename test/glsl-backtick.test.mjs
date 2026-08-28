@@ -50,3 +50,22 @@ test('e ogni file di src/ si analizza senza errori di sintassi', async () => {
     catch (e) { assert.fail(`${f.slice(RADICE.length)} non compila:\n${e.stderr}`); }
   }
 });
+
+// ⚠ E LA STESSA TRAPPOLA VALE PER IL CSS. Un backtick dentro un template
+// letterale lo CHIUDE, qualunque cosa ci sia dentro — GLSL, CSS o prosa. L'ho
+// ripresa scrivendo un commento in `ui/barra.js` che citava «scroll-snap» fra
+// apici inversi, ed è morto tutto con «Unexpected identifier 'scroll'».
+// La regola della casa sono le «virgolette basse», e qui si presidia.
+test('nessun backtick dentro i template della UI', () => {
+  const dir = new URL('../src/ui/', import.meta.url);
+  const colpevoli = [];
+  for (const n of readdirSync(dir)) {
+    if (!n.endsWith('.js')) continue;
+    const testo = readFileSync(new URL(n, dir), 'utf8');
+    // i blocchi di stile: `const CSS = \`…\`` e simili
+    for (const m of testo.matchAll(/const\s+[A-Z_]+\s*=\s*`([\s\S]*?)`;/g)) {
+      if (m[1].includes('`')) colpevoli.push(n);
+    }
+  }
+  assert.deepEqual(colpevoli, [], 'un backtick chiude il template: usare le «virgolette basse»');
+});

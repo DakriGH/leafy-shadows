@@ -36,10 +36,25 @@ const CSS = `
 #barra .c span { position: absolute; right: 2px; bottom: 0; font-size: 9px; opacity: .5; }
 /* la mano vuota: un contorno e basta, che è esattamente quello che è */
 #barra .c.vuota i { background: none; border: 2px dashed rgba(13,42,26,.35); }
+/* ⚠ SUL TELEFONO SI SCORRE, E LE CASELLE SONO PIÙ GRANDI. Diciannove caselle
+   schiacciate in 375 px fanno quadratini da diciotto pixel: non si toccano e
+   non si riconoscono. Committente: «la hotbar è inutilmente lunga, dammi la
+   possibilità di scorrere così ho le icone più grandi e comprensibili».
+   Quindi caselle da 52 px — un bersaglio che il dito prende — e la striscia
+   scorre. ⚠ Con l'AGGANCIO («scroll-snap»), se no si resta sempre a metà fra
+   due caselle e non si capisce quale sia scelta.
+   ⚠ E LA BARRA DI SCORRIMENTO SI NASCONDE ma lo scorrimento resta: su un
+   telefono quella barra è tre pixel di grigio che rubano spazio e non si
+   toccano comunque. */
 @media (max-width: 700px) {
-  #barra { bottom: 10px; gap: 4px; }
-  #barra .c { width: 40px; height: 40px; }   /* il dito è più grosso del mouse */
-  #barra .caselle { max-width: 96vw; overflow-x: auto; }
+  #barra { bottom: 10px; gap: 4px; width: 100vw; }
+  #barra .c { width: 52px; height: 52px; scroll-snap-align: center; flex: 0 0 auto; }
+  #barra .c i { width: 30px; height: 30px; }
+  #barra .c span { font-size: 11px; right: 3px; }
+  #barra .caselle { max-width: 100vw; overflow-x: auto; scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch; padding: 6px 10px; border-radius: 0;
+    scrollbar-width: none; }
+  #barra .caselle::-webkit-scrollbar { display: none; }
 }
 `;
 
@@ -97,7 +112,13 @@ export class Barra {
   aggiorna(scelta, testoAzione) {
     if (scelta !== this._scelta) {
       if (this.bottoni[this._scelta]) this.bottoni[this._scelta].classList.remove('scelta');
-      if (this.bottoni[scelta]) this.bottoni[scelta].classList.add('scelta');
+      if (this.bottoni[scelta]) {
+        this.bottoni[scelta].classList.add('scelta');
+        // ⚠ E SI PORTA IN VISTA, se no cambiando mano coi tasti (o con R) la
+        // casella scelta finisce fuori dalla striscia scorrevole e non si vede
+        // più cosa si ha in mano — il difetto nasce insieme allo scorrimento.
+        this.bottoni[scelta].scrollIntoView({ block: 'nearest', inline: 'center' });
+      }
       this._scelta = scelta;
     }
     if (testoAzione !== this._testo) { this.azione.innerHTML = testoAzione; this._testo = testoAzione; }

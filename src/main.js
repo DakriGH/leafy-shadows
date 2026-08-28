@@ -91,6 +91,11 @@ const intento = tastiera();
 // «tocco» è la domanda giusta — non «mobile», che è la classe GRAFICA: un
 // convertibile aperto a tablet ha uno schermo veloce e le dita.
 const comandi = rig.dispositivo.tocco ? new ComandiTocco(intento) : null;
+/** ⚠ SUL TELEFONO È IL PICCONE, sul computer è il tasto destro tenuto premuto:
+ *  due modi diversi per la stessa cosa, perché i due dispositivi hanno cose
+ *  diverse da premere. Il nome è uno solo, e l'etichetta sopra la barra dice
+ *  sempre la verità su cosa farà il prossimo clic. */
+const demolisce = () => !!(comandi && comandi.demolisci);
 // un segnaposto: il gatto vero arriva col suo modello. Serve a vedere DOVE si è.
 const corpo = fabbrica.segnaposto();
 // ⚠ LA CAMERA SEGUE, NON INSEGUE. Un pedinamento morbido su un personaggio che
@@ -201,32 +206,32 @@ function aggiornaMira() {
   // sotto di loro è vuota e il cammino ci passava attraverso.
   const b = miraCompleta(mondo, r.origine, r.verso, decoro.scatole(), portataRaggio(rig.camera.radius));
   bersaglio = null; cosaFa = null;
-  if (b && b.dato) {
-    // ⚠ UNA DECORAZIONE HA UNA CELLA COME TUTTI, e la portata si misura su
-    // quella: la scatola è alta quattro celle, e misurare dal suo centro
-    // vorrebbe dire poter rompere la punta di un albero che ha i piedi fuori
-    // portata.
-    if (raggiungibile(b.dato.cella, passeggero)) {
-      bersaglio = b;
-      // ⚠ SI ROMPE ANCHE, non solo si accende: una decorazione è un blocco. Con
-      // un blocco in mano si accende (se può), con la mano vuota si rompe — che
-      // è la stessa regola di tutto il resto, applicata a una cosa che prima non
-      // si poteva né rompere né toccare.
-      cosaFa = cantiere.manoVuota
-        ? 'rompi'
-        : (decoro.interattivo(b.dato) ? 'interagisci' : null);
-    }
-  } else if (b && raggiungibile(b.cella, passeggero)) {
+  // ⚠ UNA DECORAZIONE HA UNA CELLA COME TUTTI, e la portata si misura su
+  // quella: la scatola è alta quattro celle, e misurare dal suo centro
+  // vorrebbe dire poter rompere la punta di un albero che ha i piedi fuori
+  // portata.
+  const dentro = b && (b.dato ? raggiungibile(b.dato.cella, passeggero)
+                              : b.cella && raggiungibile(b.cella, passeggero));
+  if (dentro) {
     bersaglio = b;
-    cosaFa = cantiere.azione(null);
-    if (cosaFa === 'posa' && !posabile(mondo, b.prima, passeggero)) cosaFa = null;
+    cosaFa = cantiere.azione(decoro.interattivo(b.dato), demolisce());
+    // ⚠ E «posa» SI DECLASSA A NIENTE SE NON C'È DOVE POSARE: la cella davanti
+    // può essere occupata, o può essere addosso al giocatore (murarsi da soli è
+    // il primo modo in cui un gioco a blocchi si rompe). Meglio un mirino che
+    // non promette niente di un clic che non fa niente.
+    if (cosaFa === 'posa' && !(b.prima && posabile(mondo, b.prima, passeggero))) cosaFa = null;
+    // ⚠ E «rompi» SU UNA DECORAZIONE ROMPE LEI, non il blocco che ha dietro.
   }
 
   // ⚠ IL MIRINO DICE ANCHE COSA SUCCEDERÀ, col colore: bianco = si rompe,
   // verde = si posa, giallo = si accende. È l'unico modo per non dover
   // indovinare quale delle due celle sta per essere toccata.
   const COLORE = { rompi: [1, 1, 1], posa: [0.55, 1, 0.6], interagisci: [1, 0.86, 0.45] };
-  fabbrica.muoviMirino(mirino, bersaglio && bersaglio.cella, COLORE[cosaFa] || [1, 1, 1]);
+  // ⚠ IL MIRINO VA SULLA CELLA DELLA DECORAZIONE quando è lei il bersaglio: se
+  // no evidenzia il terreno DIETRO l'albero e sembra che si stia per rompere
+  // quello — cioè mente proprio nel momento in cui deve chiarire.
+  const cellaMirino = bersaglio && (bersaglio.dato ? bersaglio.dato.cella : bersaglio.cella);
+  fabbrica.muoviMirino(mirino, cellaMirino, COLORE[cosaFa] || [1, 1, 1]);
   // ⚠ E L'ANTEPRIMA MOSTRA IL BLOCCO VERO, con la sua forma e i suoi colori:
   // che un blocco d'erba abbia il cappello si vede prima di cliccare, non dopo.
   fabbrica.muoviAnteprima(anteprima, cosaFa === 'posa' ? formaDi(cantiere.tipoScelto) : null,

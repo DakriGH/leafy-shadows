@@ -29,7 +29,8 @@ const CSS = `
   font-size: 20px; padding: 0; color: #0d2a1a; }
 #comandi .btn.premuto { background: rgba(13,42,26,.16); }
 #comandi .salta { bottom: 96px; }
-#comandi .su    { bottom: 168px; font-size: 15px; }
+#comandi .demolisci { bottom: 168px; font-size: 22px; }
+#comandi .demolisci.acceso { background: #0d2a1a; color: #fff; border-color: #0d2a1a; }
 `;
 
 export class ComandiTocco {
@@ -37,8 +38,19 @@ export class ComandiTocco {
    * @param intento  l'oggetto {avanti, destra, salta} che riempie anche la tastiera
    * @param opzioni.onOra  (delta) → void, per scorrere l'ora col tasto in alto
    */
-  constructor(intento, { visibile = true } = {}) {
+  constructor(intento, { visibile = true, onDemolisci = null } = {}) {
     this.intento = intento;
+    /**
+     * ⚠ IL PICCONE È L'UNICO MODO DI ROMPERE UNA COSA INTERATTIVA COL DITO.
+     * Su un mouse c'è il tasto destro; su un telefono non esiste. E siccome
+     * ora un lampione si ACCENDE al tocco (l'interazione appartiene
+     * all'oggetto, non alla mano), senza questo non ci sarebbe verso di
+     * toglierlo.
+     * ⚠ È UNA MODALITÀ, e va bene perché è VISIBILE: il tasto resta acceso e
+     * l'etichetta sopra la barra dice «rompi». Una modalità nascosta sarebbe
+     * un'altra cosa.
+     */
+    this.demolisci = false;
     const stile = document.createElement('style');
     stile.textContent = CSS;
     document.head.appendChild(stile);
@@ -47,7 +59,8 @@ export class ComandiTocco {
     root.id = 'comandi';
     root.innerHTML = `
       <div class="stick"><div class="knob"></div></div>
-      <button class="btn salta" title="Salta">⤴</button>`;
+      <button class="btn salta" title="Salta">⤴</button>
+      <button class="btn demolisci" title="Demolisci: i tocchi rompono">⛏</button>`;
     document.body.appendChild(root);
     this.mostra(visibile);
 
@@ -98,6 +111,14 @@ export class ComandiTocco {
     // ⚠ E ANCHE «pointerleave»: il dito che scivola fuori dal tasto senza
     // alzarsi lascerebbe il salto premuto per sempre.
     salta.addEventListener('pointerleave', su);
+
+    const dem = root.querySelector('.demolisci');
+    dem.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.demolisci = !this.demolisci;
+      dem.classList.toggle('acceso', this.demolisci);
+      if (onDemolisci) onDemolisci(this.demolisci);
+    });
   }
 
   mostra(v) { this.root.style.display = v ? 'block' : 'none'; }
