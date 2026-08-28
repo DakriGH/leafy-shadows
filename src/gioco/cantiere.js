@@ -33,7 +33,7 @@ export const CASSETTA = [
   // ⚠ E ANCHE LE DECORAZIONI, perché sono blocchi come gli altri: da quando
   // alberi e lampioni vivono nel mondo (`world/decorazioni.js`) non c'è nessuna
   // ragione per cui debbano avere una strada tutta loro per essere posati.
-  'albero', 'lampione',
+  'albero', 'lampione', 'ciuffo',
 ];
 
 /**

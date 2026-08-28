@@ -21,13 +21,16 @@ test('a sessanta fps stabili non si muove', () => {
   assert.equal(a.livello, 0);
 });
 
-test('sotto la soglia scende, un gradino per volta', () => {
+test('con un calo LIEVE scende un gradino per volta', () => {
+  // ⚠ 28 fps su 60: sotto soglia ma sopra la riga del crollo (24). Qui la
+  // prudenza deve restare — scendere di tre gradini per un rallentamento
+  // passeggero è il difetto opposto a quello che la scala cura.
   const a = new Adattatore({ quanti: 5, hz: 60 });
-  const cambi = corri(a, 10, CAMPIONI_GIU * 5);
+  const cambi = corri(a, 28, CAMPIONI_GIU * 6);
   assert.equal(cambi[0].a, 1, 'il primo cambio porta al livello 1');
   assert.ok(cambi.every((c, i) => c.a === i + 1), 'e poi uno alla volta');
   assert.equal(a.livello, 4, 'fino in fondo, e non oltre');
-  assert.equal(corri(a, 10, 20).length, 0, 'in fondo alla scala non scende più');
+  assert.equal(corri(a, 28, 20).length, 0, 'in fondo alla scala non scende più');
 });
 
 test('non scende più spesso dell\'attesa: la scena deve assestarsi', () => {
@@ -35,8 +38,14 @@ test('non scende più spesso dell\'attesa: la scena deve assestarsi', () => {
   // ⚠ MISURE FITTE: senza l'attesa, tre misure a 10 ms l'una farebbero
   // precipitare la scala fino in fondo prima che il primo gradino abbia avuto
   // il tempo di fare effetto.
-  const cambi = corri(a, 10, 60, ATTESA_AVVIO, 10);
-  assert.equal(cambi.length, 1, 'un solo gradino in 600 ms');
+  // ⚠ L'ATTESA È FRA DUE CAMBI, NON FRA DUE MISURE, e la distinzione conta: le
+  // prime tre misure ravvicinate un gradino lo fanno scendere (ed è giusto,
+  // sono tre misure sotto soglia), ma da lì in poi il cronometro le blocca. Il
+  // difetto che questa prova presidia è la CASCATA — sessanta misure a dieci
+  // millisecondi che precipitano fino in fondo prima che il primo gradino abbia
+  // fatto effetto.
+  const cambi = corri(a, 28, 60, ATTESA_AVVIO, 10);
+  assert.equal(cambi.length, 1, 'un solo gradino in 600 ms, non cinque');
 });
 
 test('su uno schermo a 144 Hz il bersaglio resta 60', () => {
@@ -65,8 +74,8 @@ test('il gradino che non ha retto non si riprova subito', () => {
   const a = new Adattatore({ quanti: 5, hz: 60 });
   let t = ATTESA_AVVIO;
   const passo = ATTESA_CAMBIO + 100;
-  // va male: scende a 1
-  for (let i = 0; i < CAMPIONI_GIU; i++) { a.osserva(10, t); t += passo; }
+  // va male, ma non malissimo: scende di uno
+  for (let i = 0; i < CAMPIONI_GIU; i++) { a.osserva(28, t); t += passo; }
   assert.equal(a.livello, 1);
   // ora va bene: dovrebbe voler risalire a 0, ma 0 è il gradino che ha fallito.
   // ⚠ E IL CICLO DEVE STARE DENTRO IL MINUTO: la prima stesura ne faceva 24 da
@@ -90,9 +99,9 @@ test('in mezzo alle due soglie i contatori si azzerano', () => {
   // sparsi in un minuto sommerebbero fino a far scendere una macchina sana.
   const a = new Adattatore({ quanti: 5, hz: 60 });
   let t = ATTESA_AVVIO; const passo = ATTESA_CAMBIO + 100;
-  for (let i = 0; i < CAMPIONI_GIU - 1; i++) { a.osserva(10, t); t += passo; }
+  for (let i = 0; i < CAMPIONI_GIU - 1; i++) { a.osserva(28, t); t += passo; }
   a.osserva(45, t); t += passo;                      // né su né giù
-  for (let i = 0; i < CAMPIONI_GIU - 1; i++) { a.osserva(10, t); t += passo; }
+  for (let i = 0; i < CAMPIONI_GIU - 1; i++) { a.osserva(28, t); t += passo; }
   assert.equal(a.livello, 0, 'due volte «quasi» non fanno un cambio');
 });
 
@@ -122,8 +131,33 @@ test("i primi secondi non si giudicano: all'avvio tutto singhiozza", () => {
   for (let t = 0; t < ATTESA_AVVIO; t += 100) if (a.osserva(3, t) >= 0) cambi++;
   assert.equal(cambi, 0, "durante l'avvio non deve decidere niente");
   assert.equal(a.livello, 0);
-  // e subito dopo sì
-  let dopo = 0;
-  for (let i = 0; i < CAMPIONI_GIU; i++) if (a.osserva(3, ATTESA_AVVIO + i * (ATTESA_CAMBIO + 100)) >= 0) dopo++;
-  assert.equal(dopo, 1);
+  // e subito dopo sì — e a tre fotogrammi al secondo basta UNA misura
+  assert.ok(a.osserva(3, ATTESA_AVVIO) >= 0, 'passato l\'avvio deve reagire subito');
+});
+
+test('a fps disastrosi scende subito e di più gradini', () => {
+  // ⚠ È IL DIFETTO CHE IL COMMITTENTE HA FOTOGRAFATO: 23 fps sul telefono e la
+  // qualità ferma a q1 su cinque. Ogni gradino costava tre misure a 2,5 s
+  // l'una — trentasette secondi per arrivare in fondo, che nessuno aspetta.
+  const a = new Adattatore({ quanti: 6, hz: 60 });
+  const primo = a.osserva(23, ATTESA_AVVIO);
+  assert.ok(primo >= 2, 'a 23 fps su 60 deve saltare almeno due gradini, non uno: ' + primo);
+  // ⚠ E IL NUMERO CHE CONTA È IL TEMPO: sei gradini saltandone due, tre misure
+  // a 2,5 s l'una fanno sette secondi e mezzo invece di trentasette.
+  let t = ATTESA_AVVIO + ATTESA_CAMBIO + 100;
+  a.osserva(23, t); t += ATTESA_CAMBIO + 100;
+  a.osserva(23, t);
+  assert.equal(a.livello, 5, 'tre misure devono bastare per arrivare in fondo');
+});
+
+test('ma un calo lieve resta prudente', () => {
+  // ⚠ IL DIFETTO OPPOSTO: scendere per un singhiozzo. A 28 fps su 60 si è sotto
+  // soglia ma non in crollo, quindi servono tre misure e si scende di UNO.
+  const a = new Adattatore({ quanti: 6, hz: 60 });
+  let t = ATTESA_AVVIO;
+  assert.equal(a.osserva(28, t), -1, 'la prima misura non deve bastare');
+  t += ATTESA_CAMBIO + 100;
+  assert.equal(a.osserva(28, t), -1);
+  t += ATTESA_CAMBIO + 100;
+  assert.equal(a.osserva(28, t), 1, 'alla terza scende, di un gradino solo');
 });

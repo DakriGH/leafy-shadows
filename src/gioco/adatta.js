@@ -16,6 +16,28 @@ export const ATTESA_CAMBIO = 2500;
 /** Quante misure consecutive sotto soglia prima di scendere. Poche: chi soffre
  *  lo deve smettere di soffrire subito. */
 export const CAMPIONI_GIU = 3;
+
+/**
+ * SOTTO QUESTA FRAZIONE DEL BERSAGLIO SI SCENDE SUBITO, e di più gradini.
+ *
+ * ⚠ SERVE PERCHÉ LA SCALA ERA TROPPO LENTA, e il committente l'ha vista sul suo
+ * telefono: 23 fotogrammi al secondo e la qualità ferma a q1 su cinque. Non era
+ * rotta — era che ogni gradino costa tre misure a 2,5 s l'una, cioè 7,5
+ * secondi, e arrivare in fondo voleva dire trentasette secondi di gioco
+ * ingiocabile. Nessuno aspetta trentasette secondi per vedere se migliora.
+ *
+ * Sotto questa soglia non c'è niente da confermare: una misura basta, e il salto
+ * è proporzionale a quanto si è lontani. Sopra, la prudenza resta — scendere per
+ * un singhiozzo isolato è il difetto opposto.
+ *
+ * ⚠ E NON PUÒ VALERE 0,5, che è quello che avevo scritto: `sogliaGiu` vale già
+ * metà del bersaglio, quindi le due soglie coincidevano e il ramo PRUDENTE non
+ * girava mai — qualunque calo diventava un crollo. L'ha trovato una prova che
+ * si aspettava tre misure e ne vedeva bastare una. Con 0,4 la soglia cade sui
+ * ventiquattro fotogrammi, che è il numero che questo file chiama già «sotto,
+ * il gioco non è lento: è rotto».
+ */
+export const CROLLO = 0.4;
 /** E quante sopra soglia prima di risalire. Tante: risalire è una scommessa. */
 export const CAMPIONI_SU = 8;
 /** Quanto si aspetta prima di riprovare un gradino che non ha retto. */
@@ -83,7 +105,13 @@ export class Adattatore {
     else if (fps >= this.sogliaSu) { this._su++; this._giu = 0; }
     else { this._giu = 0; this._su = 0; }   // in mezzo: si sta bene, fermi
 
-    if (this._giu >= CAMPIONI_GIU && this.livello < this.quanti - 1) {
+    // ⚠ IL CROLLO NON SI CONFERMA, SI CURA. Con gli fps sotto metà del
+    // bersaglio non c'è nessuna ambiguità da risolvere con altre due misure:
+    // si scende, e di quanti gradini serve.
+    const crollo = fps < Math.max(24, this.bersaglio * CROLLO);
+    const bastano = crollo ? 1 : CAMPIONI_GIU;
+
+    if (this._giu >= bastano && this.livello < this.quanti - 1) {
       // ⚠ SI RICORDA QUALE GRADINO NON HA RETTO. Senza, la scala oscilla: si
       // risale, il gradino di sopra non regge, si riscende, e qualche secondo
       // dopo si riprova — un su-e-giù continuo, che a schermo è la qualità che
@@ -91,7 +119,12 @@ export class Adattatore {
       // MAI, e un difetto che non si vede sostituisce quello che si vede.
       this._livelloFallito = this.livello;
       this._quandoFallito = adesso;
-      return this._vaiA(this.livello + 1, adesso);
+      // ⚠ IL SALTO È PROPORZIONALE: a metà del bersaglio si scende di uno, a un
+      // terzo di due, a un quarto di tre. Il tetto è tre perché oltre si
+      // rischia di finire in fondo per un singhiozzo — e risalire costa otto
+      // misure, cioè molto più che scendere di un gradino di troppo.
+      const passi = Math.max(1, Math.min(3, Math.round(this.bersaglio / Math.max(fps, 1)) - 1));
+      return this._vaiA(Math.min(this.quanti - 1, this.livello + passi), adesso);
     }
     if (this._su >= CAMPIONI_SU && this.livello > 0) {
       // il gradino che ha già fallito si riprova, ma dopo un minuto: la scena

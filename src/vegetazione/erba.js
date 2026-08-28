@@ -566,6 +566,15 @@ sPos[j + 1] = y;
     }
     this._coda.sort((a, b) => a.dc - b.dc);
     this._n = 0;
+    // ⚠ OGNI RISEMINA VA SCAMBIATA, ANCHE SE IL CONTO NON CAMBIA, e questa riga
+    // chiude un difetto che si vedeva solo come un prato VERDE sopra un terreno
+    // INNEVATO. Lo scambio dei due buffer girava solo «se il numero di lamelle è
+    // diverso da prima», cioè usava il CONTEGGIO come prova che qualcosa fosse
+    // cambiato. Una risemina di stagione cambia solo i COLORI: stesse celle,
+    // stessi hash, stesso numero — 101.263 identico al byte in tutte le misure,
+    // ed è stato quel numero troppo uguale a farmelo trovare. I colori nuovi
+    // restavano nel buffer di scorta e non arrivavano mai in GPU.
+    this._daScambiare = true;
   }
 
   /**
@@ -584,6 +593,7 @@ sPos[j + 1] = y;
    * un intervallo vecchio più largo rimetterebbe in piedi il carico intero.
    */
   _scambia() {
+    this._daScambiare = false;
     const n = this._n;
     this.iPos.set(this.sPos.subarray(0, n * 4));
     this.iDati.set(this.sDati.subarray(0, n * 4));
@@ -670,7 +680,7 @@ sPos[j + 1] = y;
       this._seminaChunk(mondo, c.kc, c.dc);
       fatti++;
     }
-    if (!this._coda.length && this._n !== this.fili) this._scambia();
+    if (!this._coda.length && (this._daScambiare || this._n !== this.fili)) this._scambia();
     // ⚠ UN PACCHETTO SOLO, non venti uniform. La semina calcola grandezze di
     // GIOCO (dove tira il vento, dove sta l'occhio, dove finisce il campo) e le
     // consegna; tradurle in uniform è mestiere del motore. È lo stesso confine
@@ -695,6 +705,23 @@ sPos[j + 1] = y;
   }
 
   risemina() { this._ccx = 1e9; this._ccz = 1e9; }
+
+  /**
+   * SCORDA I CIUFFI GIÀ SEMINATI, e non è la stessa cosa di `risemina`.
+   *
+   * ⚠ LA DIFFERENZA È COSTATA UN PRATO VERDE SOPRA UN TERRENO INNEVATO.
+   * `risemina` riapre la coda ma i chunk escono dalla CACHE, e la chiave della
+   * cache tiene densità, revisione del chunk e mobili posati — NON la stagione.
+   * Cambiando stagione il terreno diventava bianco (misurato: #bdd0c7 nel
+   * buffer, il verde d'inverno esatto) e le lamelle restavano verdi, perché il
+   * colore se lo prendono quando NASCONO e nessuno le aveva fatte rinascere.
+   *
+   * ⚠ E NON SI METTE LA STAGIONE NELLA CHIAVE: la cache serve a non ricalcolare
+   * i chunk mentre si CAMMINA, e la stagione cambia una volta ogni tanto.
+   * Aggiungere una colonna alla chiave costerebbe a ogni passo per servire un
+   * caso raro; svuotarla costa una volta.
+   */
+  scorda() { this._cache.clear(); this.risemina(); }
 
   imposta(on) {
     this.attiva = !!on;

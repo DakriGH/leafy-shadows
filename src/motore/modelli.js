@@ -23,7 +23,13 @@ import '@babylonjs/core/Meshes/thinInstanceMesh.js';
 const CARTELLA = './modelli/';
 
 export class Modelli {
-  constructor(scena, rig) {
+  constructor(scena, rig, fabbrica = null) {
+    // ⚠ SERVE LA FABBRICA, e solo per le stagioni: è lei a tenere l'elenco dei
+    // materiali che hanno una mappa da ritingere (`materialiConMappa`), che è
+    // il canale da cui `world/stagioni.js` fa passare il fogliame d'autunno.
+    // Senza, l'elenco resta vuoto e la ritinta gira a vuoto — che è esattamente
+    // com'era: alberi verdi sotto la neve.
+    this.fabbrica = fabbrica;
     this.scena = scena;
     this.rig = rig;
     this._caricati = new Map();   // nome → { mesh, matrici, n }
@@ -94,6 +100,7 @@ export class Modelli {
     if (tex) {
       m.diffuseTexture = tex;
       tex.hasAlpha = true;
+      this._registraPerStagioni(m, tex);
       // ⚠ RITAGLIO, NON TRASPARENZA. Le chiome sono piani incrociati con
       // l'alfa nella texture: con la trasparenza vera andrebbero ORDINATE per
       // profondità (e fra loro non c'è un ordine giusto), e nella mappa d'ombra
@@ -122,6 +129,45 @@ export class Modelli {
     const voce = { mesh: fuso, matrici: null, n: 0 };
     this._caricati.set(nome, voce);
     return voce;
+  }
+
+  /**
+   * PREPARA UN MATERIALE ALLA RITINTA STAGIONALE.
+   *
+   * ⚠ IL RIMAPPAGGIO VIVE IN `world/stagioni.js` E NON QUI, ed è giusto: è
+   * matematica su HSL e vale su qualunque motore. Ma vuole una IMMAGINE da cui
+   * partire, e una texture di Babylon non è un'immagine — è roba in GPU. Qui la
+   * si riporta a terra: si leggono i pixel, si mettono in un canvas, e lo si
+   * appende come `mapOriginale`. Da lì in poi le stagioni non sanno più che
+   * motore ci sia sotto.
+   *
+   * ⚠ `userData` NON ESISTE SU UN MATERIALE DI BABYLON — è un'idea di three, e
+   * `stagioni.js` la cerca lì perché veniva da lì. Si crea: cambiarle nome
+   * vorrebbe dire toccare il mondo per una faccenda del motore.
+   *
+   * ⚠ ED È ASINCRONA perché `readPixels` lo è. Chi chiama non aspetta: se la
+   * stagione cambia prima che sia pronta, quel cambio non ritinge il fogliame e
+   * il successivo sì. Meglio un ritardo che un blocco all'avvio.
+   */
+  async _registraPerStagioni(materiale, tex) {
+    if (!this.fabbrica) return;
+    try {
+      if (!tex.isReady()) await new Promise((ok) => tex.onLoadObservable.addOnce(() => ok()));
+      const { width: w, height: h } = tex.getSize();
+      const px = await tex.readPixels();
+      if (!px || !w || !h) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      const img = ctx.createImageData(w, h);
+      img.data.set(new Uint8ClampedArray(px.buffer, px.byteOffset, px.byteLength));
+      ctx.putImageData(img, 0, 0);
+      materiale.userData = materiale.userData || {};
+      materiale.userData.mapOriginale = { image: canvas };
+      this.fabbrica.materialiConMappa().add(materiale);
+    } catch (e) {
+      console.warn('stagioni: non ho potuto leggere la texture di', materiale.name, e);
+    }
   }
 
   /**

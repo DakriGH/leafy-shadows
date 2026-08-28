@@ -115,16 +115,23 @@ export const LIVELLI = {
   // ⚠ SU MOBILE SI PARTE GIÀ SCARICHI, e non è pessimismo: partire in alto vuol
   // dire dare al giocatore i primi dieci secondi a sei fotogrammi, che è quando
   // decide se il gioco funziona. Si scende in fretta e si risale piano.
+  // ⚠ E L'ERBA SCENDE MOLTO PRIMA DI PRIMA, per un numero che il committente ha
+  // fotografato: 489×919 — meno di mezzo megapixel — e ancora 43 ms per
+  // fotogramma. Mezzo megapixel non è un problema di RIEMPIMENTO per nessuna
+  // GPU degli ultimi dieci anni: se a quella risoluzione si fatica, il collo di
+  // bottiglia è altrove, e le prime due cose che stanno «altrove» sono i
+  // VERTICI e la CPU. Cinquantaduemila lamelle sono l'unica cosa in scena che
+  // ne conta a decine di migliaia — e le semina la CPU.
   mobile: [
-    { scala: 1.00, cascate: 2, mappa: 1024, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, fxaa: false, particelle: true },
-    { scala: 0.85, cascate: 2, mappa: 1024, pcf: false, sole: true,  dist:  95, erba: 3.0, erbaR: 3, fxaa: false, particelle: true },
-    { scala: 0.72, cascate: 2, mappa:  768, pcf: false, sole: true,  dist:  80, erba: 2.0, erbaR: 2, fxaa: false, particelle: false },
-    { scala: 0.60, cascate: 2, mappa:  512, pcf: false, sole: true,  dist:  65, erba: 1.2, erbaR: 2, fxaa: false, particelle: false },
+    { scala: 1.00, cascate: 2, mappa: 1024, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, fxaa: false, particelle: true },
+    { scala: 0.85, cascate: 2, mappa:  768, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, fxaa: false, particelle: false },
+    { scala: 0.72, cascate: 2, mappa:  512, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, fxaa: false, particelle: false },
+    { scala: 0.60, cascate: 2, mappa:  512, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
     // ⚠ GLI ULTIMI DUE SONO LA CORSIA D'EMERGENZA: brutti, ma GIOCABILI. In
     // Lantern esistono per la stessa ragione — senza, le GPU più deboli
     // restavano incollate sotto i trenta senza via d'uscita.
-    { scala: 0.50, cascate: 2, mappa:  512, pcf: false, sole: false, dist:  55, erba: 0.8, erbaR: 1, fxaa: false, particelle: false },
-    { scala: 0.42, cascate: 2, mappa:  512, pcf: false, sole: false, dist:  45, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
+    { scala: 0.50, cascate: 2, mappa:  512, pcf: false, sole: false, dist:  50, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
+    { scala: 0.42, cascate: 2, mappa:  512, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
   ],
   desktop: [
     { scala: 1.00, cascate: 4, mappa: 2048, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, fxaa: true,  particelle: true },

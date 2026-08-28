@@ -23,6 +23,9 @@ import { Decoro } from './gioco/decoro.js';
 import { registraDecorazioni, DECORAZIONI } from './world/decorazioni.js';
 import { ascoltaClic } from './gioco/puntatore.js';
 import { Barra } from './ui/barra.js';
+import { ComandiTocco } from './ui/comandi.js';
+import { PannelloCielo } from './ui/cielo.js';
+import { STAGIONI, stagioneCorrente, avviaTransizione, aggiornaTransizione } from './world/stagioni.js';
 import { defDi } from './world/blocks.js';
 import { geometriaSingola } from './world/mesher.js';
 import { ScalaQualita, misuraHz } from './motore/qualita.js';
@@ -83,6 +86,11 @@ const erba = new Erba(rig.scena, {
 // ---- chi cammina ------------------------------------------------------------
 const passeggero = new Passeggero(mondo, { x: 0.5, y: cima + 1, z: 0.5 });
 const intento = tastiera();
+// ⚠ SOLO DOVE SERVE: su un desktop col mouse un joystick a schermo è ingombro.
+// La classe del dispositivo l'ha già decisa il motore (`rig.dispositivo`), e
+// «tocco» è la domanda giusta — non «mobile», che è la classe GRAFICA: un
+// convertibile aperto a tablet ha uno schermo veloce e le dita.
+const comandi = rig.dispositivo.tocco ? new ComandiTocco(intento) : null;
 // un segnaposto: il gatto vero arriva col suo modello. Serve a vedere DOVE si è.
 const corpo = fabbrica.segnaposto();
 // ⚠ LA CAMERA SEGUE, NON INSEGUE. Un pedinamento morbido su un personaggio che
@@ -96,7 +104,7 @@ let quotaMorbida = passeggero.y;
 // non è istantaneo, e bloccare l'avvio per gli alberi vorrebbe dire una pagina
 // bianca su una connessione lenta. Il mondo si vede subito; gli alberi
 // compaiono quando ci sono.
-const modelli = new Modelli(rig.scena, rig);
+const modelli = new Modelli(rig.scena, rig, fabbrica);
 const decoro = new Decoro();
 decoro.scansiona(mondo);
 const aloni = fabbrica.aloni(96);
@@ -297,8 +305,22 @@ const barra = new Barra({
   onScegli: (i) => cantiere.scegli(i),
 });
 
-// ---- il ciclo del giorno ----------------------------------------------------
+// ---- il ciclo del giorno, e il pannello per pilotarlo ------------------------
 const giorno = new Giorno(rig, { durata: 300, ora: 0.42 });
+
+// ⚠ LE STAGIONI C'ERANO GIÀ TUTTE — quattro palette, la transizione morbida, la
+// ritinta del fogliame nelle texture — e non le collegava nessuno. Erano
+// arrivate con lo strato mondo e stavano lì dalla migrazione: 300 righe che
+// giravano a vuoto. Committente: «mancano anche le stagioni».
+const cielo = new PannelloCielo({
+  stagioni: STAGIONI,
+  stagione: stagioneCorrente(),
+  onOra: (t) => { giorno.t = t; giorno.applica(); },
+  // ⚠ `null` VUOL DIRE «alterna», un booleano vuol dire «metti così»: la barra
+  // dell'ora deve poter SPEGNERE il ciclo senza rischiare di riaccenderlo.
+  onCiclo: (v) => { giorno.auto = v === null ? !giorno.auto : v; },
+  onStagione: (k) => { if (avviaTransizione(k)) cielo.stagione(k); },
+});
 
 // ⚠ I TASTI SI LEGGONO PER CODICE FISICO (`e.code`), non per carattere: su una
 // tastiera italiana `,` e `.` stanno dove stanno, e leggendo `e.key` i comandi
@@ -388,13 +410,45 @@ rig.avvia((dt) => {
   // mette in coda. Senza questa riga si poteva rompere quanto si voleva e a
   // schermo non cambiava niente — il mondo era giusto, l'immagine vecchia.
   mesher.aggiorna(mondo, passeggero);
-  // ⚠ I LAMPIONI SEGUONO LA NOTTE, come in Lantern: si accendono da soli quando
-  // il sole scende, e l'interruttore a mano vale fino al prossimo cambio.
+  // ⚠ LA STAGIONE CAMBIA IN QUATTRO SECONDI, non di colpo: `aggiornaTransizione`
+  // dà i colori intermedi e a metà strada ritinge il fogliame dei modelli. Il
+  // remesh serve solo entrando o uscendo dall'inverno, che è l'unica stagione
+  // che cambia anche la SABBIA — cioè la geometria dei colori, non solo l'erba.
+  const st = aggiornaTransizione(dt);
+  if (st) {
+    mesher.ritintaErba(st.colorePer);
+    if (st.fine) {
+      // ⚠ E IL PRATO VA RISEMINATO, che è una cosa DIVERSA dal ritingere il
+      // terreno. `ritintaErba` riscrive i colori nel buffer dei chunk — le cime
+      // dei blocchi d'erba — e infatti quelle diventano bianche subito
+      // (misurato: #bdd0c7 nel buffer, il verde d'inverno esatto). Ma le
+      // LAMELLE si prendono il colore quando NASCONO, dalla rampa di stagione,
+      // e nessuno le ha più toccate: a schermo restava un prato verde sopra un
+      // terreno innevato. Si vede solo guardando, ed è per questo che l'ho visto
+      // dopo aver misurato il buffer e averlo trovato giusto.
+      // ⚠ «scorda», NON «risemina»: la seconda riapre la coda ma i chunk
+      // escono dalla CACHE, che non ha la stagione nella chiave — e tornano
+      // fuori i ciuffi vecchi, col colore vecchio.
+      erba.scorda();
+      if (st.remesh) mesher.ricostruisciTutto(mondo);
+    }
+  }
+
   // ⚠ I LAMPIONI SEGUONO LA NOTTE, come in Lantern: si accendono da soli quando
   // il sole scende, e l'interruttore a mano vale fino al prossimo cambio.
   if (decoro.aggiornaNotte(giorno.t < 0.24 || giorno.t > 0.80)) applicaLuciDecoro();
   aggiornaDecoro();
   aggiornaMira();
+  // il quadrante del cielo: dove sta il sole, dove guardo io
+  const d = rig.sole.direction;
+  cielo.aggiorna({
+    t: giorno.t, orologio: giorno.orologio, auto: giorno.auto,
+    // ⚠ LA DIREZIONE DEL SOLE PUNTA VERSO LA SCENA, non verso il sole: per
+    // sapere DOVE STA il sole si gira di segno. È lo stesso segno che nello
+    // shader fa `-uSoleVerso`, e sbagliarlo qui darebbe un quadrante
+    // specchiato — che si nota solo confrontandolo con le ombre vere.
+    altezza: -d.y, dir: { x: -d.x, z: -d.z }, vista: rig.versoCamera(),
+  });
   barra.aggiorna(cantiere.scelto, cosaFa
     ? `<b>${NOME_AZIONE[cosaFa]}</b> · ${cosaFa === 'interagisci' ? 'lampione' : cantiere.nomeScelto}`
     : `— · ${cantiere.nomeScelto}`);

@@ -38,7 +38,7 @@ const erba = new Erba(rig.scena, {
   densita: rig.profilo.erba, raggioChunk: rig.profilo.erbaR,
 });
 const giorno = new Giorno(rig, { durata: 240, ora: 0.42 });
-const modelli = new Modelli(rig.scena, rig);
+const modelli = new Modelli(rig.scena, rig, fabbrica);
 const particelle = new Particelle(rig.scena, rig);
 
 // ⚠ E STA QUI, DOPO le particelle: l'`applica` le nomina, e in JS una const
