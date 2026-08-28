@@ -492,8 +492,22 @@ sPos[j + 1] = y;
         // I quattro TIPI restano, ma per il NUMERO di lamelle, la larghezza e
         // l'apertura del ciuffo: quelle non disegnano una superficie e non
         // possono fare né gradini né cupole.
-        const mB = manto(px, pz);
-        sDati[d + 1] = ALTO_MEDIO * (0.55 + 0.90 * mB) * (0.78 + 0.44 * h4);
+        // ⚠ E LA VARIAZIONE ERA TROPPO STRETTA: misurata, lo scarto tipo era il
+        // 18% della media e l'ottanta per cento delle lamelle stava in una
+        // fascia di 1,6× — cioè «tutta alta uguale», che è quello che il
+        // committente ha visto. Due cause, tutt'e due statistiche:
+        //
+        //  1. IL MANTO SI CONCENTRA AL CENTRO. Sommare tre ottave di rumore è
+        //     sommare tre variabili quasi indipendenti: per il teorema del
+        //     limite centrale il risultato si stringe attorno a 0,5 e i pesi
+        //     0,46/0,32/0,22 mentono su quanto varia davvero. Si riapre con un
+        //     guadagno attorno al centro.
+        //  2. LA PARTE CASUALE ERA UNIFORME E STRETTA (±22%). Ma l'erba vera non
+        //     è uniforme: ci sono tanti fili medi e QUALCUNO che spunta. Una
+        //     potenza sull'uniforme dà proprio quella forma — coda lunga verso
+        //     l'alto, gobba in basso — e costa una moltiplicazione.
+        const mB = Math.min(1, Math.max(0, 0.5 + (manto(px, pz) - 0.5) * 1.7));
+        sDati[d + 1] = ALTO_MEDIO * (0.62 + 0.80 * mB) * (0.52 + 1.15 * Math.pow(h4, 1.5));
         sDati[d + 2] = tipo.largo * (0.80 + 0.40 * h5);
         sDati[d + 3] = (h4 + h3) * 6.283;
         // ogni lamella un filo più chiara o più scura: senza, un ciuffo è una
