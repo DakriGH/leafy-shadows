@@ -507,6 +507,58 @@ export class Fabbrica {
     m.position.set(cella[0] + 0.5, cella[1] + 0.5, cella[2] + 0.5);
   }
 
+  /**
+   * IL COLPETTO — una COPIA del blocco che si gonfia e torna.
+   *
+   * ⚠ IL MONDO NON CAMBIA DI UN BIT, ed è il vincolo del committente: «solo
+   * graficamente mi raccomando». Un blocco vero è cotto dentro la mesh del suo
+   * chunk e non si può scalare da solo senza rifare il chunk — che sarebbe
+   * lavoro vero per un effetto di due decimi di secondo.
+   *
+   * Quindi si disegna una COPIA sopra: stessa geometria (`geometriaSingola`),
+   * stessi colori di vertice, stesso materiale del mondo. Gonfiata dell'uno per
+   * cento è già più grande dell'originale e lo nasconde dentro di sé, quindi a
+   * schermo sembra che sia il blocco a respirare. Quando finisce, sparisce.
+   *
+   * ⚠ E USA IL MATERIALE DEL MONDO, non uno suo: con un materiale diverso il
+   * blocco cambierebbe COLORE mentre si gonfia — e allora non sembrerebbe più
+   * lui, sembrerebbe un'altra cosa comparsa al suo posto.
+   */
+  colpetto() {
+    const m = new Mesh('colpetto', this.scena);
+    m.material = this.matMondo;
+    m.isPickable = false;
+    m.receiveShadows = true;
+    // ⚠ NON PROIETTA OMBRA: per due decimi di secondo l'ombra del blocco
+    // diventerebbe più grande, e quel movimento a terra si nota più del
+    // colpetto stesso.
+    m.setEnabled(false);
+    return m;
+  }
+
+  /** Mette il colpetto su una cella con una certa scala. `scala <= 1` lo spegne. */
+  muoviColpetto(m, dati, cella, scala) {
+    if (!cella || !dati || scala <= 1) { if (m.isEnabled()) m.setEnabled(false); return; }
+    if (m._tipo !== dati.tipo) {
+      m._tipo = dati.tipo;
+      const vd = new VertexData();
+      vd.positions = dati.pos;
+      vd.colors = dati.col;
+      const n = dati.pos.length / 3;
+      const idx = new Uint32Array(n);
+      // ⚠ STESSO GIRO DEI TRIANGOLI DEL MONDO: il mesher scrive antiorario.
+      for (let i = 0; i < n; i += 3) { idx[i] = i; idx[i + 1] = i + 2; idx[i + 2] = i + 1; }
+      vd.indices = idx;
+      const nor = new Float32Array(n * 3);
+      VertexData.ComputeNormals(vd.positions, vd.indices, nor);
+      vd.normals = nor;
+      vd.applyToMesh(m, true);
+    }
+    if (!m.isEnabled()) m.setEnabled(true);
+    m.position.set(cella[0] + 0.5, cella[1] + 0.5, cella[2] + 0.5);
+    m.scaling.setAll(scala);
+  }
+
   /** Sposta il mirino su una cella, o lo spegne se non c'è bersaglio. */
   muoviMirino(m, cella, colore) {
     if (!cella) { if (m.isEnabled()) m.setEnabled(false); return; }

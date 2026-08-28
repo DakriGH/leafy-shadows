@@ -22,11 +22,14 @@ import { Cantiere, CASSETTA, NOME_AZIONE } from './gioco/cantiere.js';
 import { Decoro } from './gioco/decoro.js';
 import { registraDecorazioni, DECORAZIONI } from './world/decorazioni.js';
 import { ascoltaClic } from './gioco/puntatore.js';
+import { scalaColpetto, inCorso, DURATA as DURATA_COLPETTO } from './gioco/colpetto.js';
 import { Barra } from './ui/barra.js';
 import { ComandiTocco } from './ui/comandi.js';
 import { PannelloCielo } from './ui/cielo.js';
-import { STAGIONI, stagioneCorrente, avviaTransizione, aggiornaTransizione } from './world/stagioni.js';
+import { STAGIONI, stagioneCorrente, stagioneAlGiorno, impostaMescolanza,
+         INIZIO_STAGIONE } from './world/stagioni.js';
 import { defDi } from './world/blocks.js';
+import { paletteBlocco, ritingiFogliame } from './world/stagioni.js';
 import { geometriaSingola } from './world/mesher.js';
 import { ScalaQualita, misuraHz } from './motore/qualita.js';
 
@@ -95,7 +98,15 @@ const comandi = rig.dispositivo.tocco ? new ComandiTocco(intento) : null;
  *  due modi diversi per la stessa cosa, perché i due dispositivi hanno cose
  *  diverse da premere. Il nome è uno solo, e l'etichetta sopra la barra dice
  *  sempre la verità su cosa farà il prossimo clic. */
-const demolisce = () => !!(comandi && comandi.demolisci);
+// ⚠ E SUL COMPUTER È SHIFT: il tasto destro serviva a rompere e adesso serve a
+// interagire, quindi rompere senza svuotarsi le mani vuole un modificatore. Si
+// legge dallo stato dei tasti, non da un evento, perché il clic può arrivare da
+// un punto qualunque del giro.
+let shiftGiu = false;
+addEventListener('keydown', (e) => { if (e.key === 'Shift') shiftGiu = true; });
+addEventListener('keyup', (e) => { if (e.key === 'Shift') shiftGiu = false; });
+addEventListener('blur', () => { shiftGiu = false; });
+const demolisce = () => shiftGiu || !!(comandi && comandi.demolisci);
 // un segnaposto: il gatto vero arriva col suo modello. Serve a vedere DOVE si è.
 const corpo = fabbrica.segnaposto();
 // ⚠ LA CAMERA SEGUE, NON INSEGUE. Un pedinamento morbido su un personaggio che
@@ -132,7 +143,7 @@ function aggiornaDecoro() {
   _versioneDisegnata = decoro.versione;
   for (const nome of modelliPronti) {
     const voci = decoro.diTipo(nome);
-    modelli.piazza(nome, voci.map((v) => ({ x: v.x + 0.5, y: v.y, z: v.z + 0.5, giro: v.giro })));
+    modelli.piazza(nome, voci.map((v) => ({ x: v.x + 0.5, y: v.y, z: v.z + 0.5, giro: v.giro, scala: v.scala || 1 })));
   }
   applicaLuciDecoro();
 }
@@ -181,11 +192,52 @@ mondo.onEvento = (e) => {
   erba.risemina();
 };
 
+/**
+ * LA STAGIONE SEGUE IL CALENDARIO, con quattordici giorni di passaggio.
+ *
+ * ⚠ E SI RIDIPINGE A GRADINI, non a ogni fotogramma. Ritingere vuol dire
+ * camminare i buffer dei colori di tutti i chunk e riseminare centomila
+ * lamelle: farlo sessanta volte al secondo per due settimane di gioco sarebbe
+ * assurdo. Venti gradini su due settimane sono un passo ogni diciassette ore di
+ * gioco — invisibile all'occhio e gratis per la macchina.
+ */
+const PASSI_STAGIONE = 20;
+let _passoStagione = -1;
+function aggiornaStagione() {
+  const s = stagioneAlGiorno(giorno.giorno);
+  const passo = Math.round(s.mix * PASSI_STAGIONE);
+  const chiave = `${s.da}|${s.a}|${passo}`;
+  if (chiave === _passoStagione) return;
+  const primaCorrente = stagioneCorrente();
+  _passoStagione = chiave;
+  impostaMescolanza(s.da, s.a, passo / PASSI_STAGIONE);
+  // il terreno: si ritingono le cime d'erba marcate dal mesher
+  mesher.ritintaErba((y) => {
+    const p = paletteBlocco('erba', y);
+    return { r: ((p.cima >> 16) & 255) / 255, g: ((p.cima >> 8) & 255) / 255, b: (p.cima & 255) / 255 };
+  });
+  // ⚠ «scorda», NON «risemina»: la seconda riapre la coda ma i chunk escono
+  // dalla CACHE, che non ha la stagione nella chiave — e tornano fuori i ciuffi
+  // vecchi, col colore vecchio.
+  erba.scorda();
+  // ⚠ E IL REMESH SOLO QUANDO CAMBIA LA STAGIONE DOMINANTE: l'inverno cambia
+  // anche la SABBIA, che è cotta nella geometria e non passa da `ritintaErba`.
+  // Farlo a ogni gradino vorrebbe dire ricostruire il mondo venti volte.
+  if (stagioneCorrente() !== primaCorrente) {
+    ritingiFogliame();
+    if (stagioneCorrente() === 'inverno' || primaCorrente === 'inverno') mesher.ricostruisciTutto(mondo);
+  }
+}
+
 // ---- il cantiere: rompere, posare, illuminare -------------------------------
 const cantiere = new Cantiere(mondo, rig.luci);
 cantiere.scegli(1);                       // si parte con l'erba in mano
 const mirino = fabbrica.mirino();
 const anteprima = fabbrica.anteprima();
+const meshColpetto = fabbrica.colpetto();
+/** Chi sta rispondendo al tocco, e da quando. ⚠ UNO SOLO: due colpetti insieme
+ *  si leggerebbero come un tremolio, e comunque si clicca una cosa per volta. */
+let colpo = null;
 /** Dov'è il puntatore, in pixel di tela. Null = mira al centro dello schermo. */
 let puntatore = { x: 0, y: 0 };
 /** Il bersaglio calcolato una volta per fotogramma, riusato da HUD e clic. */
@@ -251,9 +303,48 @@ function formaDi(tipo) {
 /** Fa quello che il mirino sta promettendo. */
 function agisci() {
   if (!bersaglio || !cosaFa) return;
-  if (cosaFa === 'interagisci') { decoro.alterna(bersaglio.dato); applicaLuciDecoro(); }
+  if (cosaFa === 'interagisci') { decoro.alterna(bersaglio.dato); applicaLuciDecoro(); tocca(); }
   else if (cosaFa === 'rompi') cantiere.rompi(...(bersaglio.dato ? bersaglio.dato.cella : bersaglio.cella));
   else if (cosaFa === 'posa') cantiere.posa(...bersaglio.prima);
+}
+
+/**
+ * TOCCA quello che si sta guardando: si gonfia un momento e torna.
+ *
+ * ⚠ IL MONDO NON CAMBIA DI UN BIT — è il vincolo del committente, «solo
+ * graficamente mi raccomando». E serve: fino a ora cliccare una cosa che non fa
+ * niente non dava nessun segnale, e un gesto senza risposta si legge come
+ * «rotto» anche quando è solo «niente da fare qui».
+ */
+function tocca() {
+  if (!bersaglio) return false;
+  if (bersaglio.dato) colpo = { voce: bersaglio.dato, t0: performance.now() };
+  else if (bersaglio.cella && mondo.tipo(...bersaglio.cella)) {
+    colpo = { cella: bersaglio.cella, tipo: mondo.tipo(...bersaglio.cella), t0: performance.now() };
+  }
+  return !!colpo;
+}
+
+/** Un fotogramma di colpetto. ⚠ Si spegne DA SOLO: `scalaColpetto` torna
+ *  esattamente 1 fuori dalla finestra, e su quell'1 si smette di disegnare. */
+function aggiornaColpetto() {
+  if (!colpo) return;
+  const s = scalaColpetto(performance.now() - colpo.t0);
+  if (colpo.voce) {
+    // ⚠ UNA DECORAZIONE SI GONFIA NELLA SUA MATRICE, e quindi si ridisegnano le
+    // istanze di quel modello. Costa una manciata di matrici per fotogramma per
+    // due decimi di secondo — e solo mentre dura.
+    colpo.voce.scala = s;
+    _versioneDisegnata = -1;
+    aggiornaDecoro();
+  } else {
+    fabbrica.muoviColpetto(meshColpetto, formaDi(colpo.tipo), colpo.cella, s);
+  }
+  if (!inCorso(performance.now() - colpo.t0)) {
+    if (colpo.voce) { colpo.voce.scala = 1; _versioneDisegnata = -1; aggiornaDecoro(); }
+    else fabbrica.muoviColpetto(meshColpetto, null, null, 1);
+    colpo = null;
+  }
 }
 
 addEventListener('pointermove', (e) => { puntatore.x = e.clientX; puntatore.y = e.clientY; });
@@ -279,10 +370,18 @@ ascoltaClic(tela, (e) => {
     e.preventDefault();
     return;
   }
-  // ⚠ IL DESTRO ROMPE SEMPRE, ed è l'unica scorciatoia che resta legata a un
-  // tasto: serve a rompere senza svuotarsi le mani, e su un telefono non
-  // manca a nessuno perché lì si tocca la casella della mano vuota.
-  if (e.button === 2 && bersaglio) { cantiere.rompi(...(bersaglio.dato ? bersaglio.dato.cella : bersaglio.cella)); return; }
+  // ⚠ IL DESTRO ADESSO INTERAGISCE, NON ROMPE PIÙ. Committente: «dammi la
+  // possibilità di interagire con la qualunque, anche con i blocchi». Quindi:
+  // se il bersaglio si accende, si accende; e in OGNI caso dà il colpetto —
+  // anche un cubo di pietra, che di suo non fa niente. È la differenza fra un
+  // mondo che risponde e uno che ignora.
+  // ⚠ E PER ROMPERE C'È SHIFT (o il piccone sul telefono): un tasto solo non
+  // può fare due cose, e fra le due quella che mancava era questa.
+  if (e.button === 2 && bersaglio) {
+    if (decoro.interattivo(bersaglio.dato)) { decoro.alterna(bersaglio.dato); applicaLuciDecoro(); }
+    tocca();
+    return;
+  }
   if (e.button === 0) agisci();
 });
 
@@ -324,7 +423,15 @@ const cielo = new PannelloCielo({
   // ⚠ `null` VUOL DIRE «alterna», un booleano vuol dire «metti così»: la barra
   // dell'ora deve poter SPEGNERE il ciclo senza rischiare di riaccenderlo.
   onCiclo: (v) => { giorno.auto = v === null ? !giorno.auto : v; },
-  onStagione: (k) => { if (avviaTransizione(k)) cielo.stagione(k); },
+  // ⚠ CLICCARE UNA STAGIONE ADESSO SPOSTA LA DATA, non fa partire una
+  // dissolvenza: da quando l'anno è un asse vero, «mettimi in autunno» vuol
+  // dire «portami al 15 ottobre». Una dissolvenza slegata dal calendario
+  // avrebbe fatto due verità sulla stessa cosa.
+  onStagione: (k) => {
+    const i = INIZIO_STAGIONE.findIndex((s) => s.chiave === k);
+    if (i >= 0) giorno.impostaGiorno(INIZIO_STAGIONE[i].giorno + 25);
+  },
+  onGiorno: (g) => giorno.impostaGiorno(g),
 });
 
 // ⚠ I TASTI SI LEGGONO PER CODICE FISICO (`e.code`), non per carattere: su una
@@ -350,6 +457,13 @@ addEventListener('keydown', (e) => {
     if (n >= 1 && n <= 9) cantiere.scegli(n - 1);
   }
 });
+
+/** La data come la legge un umano: «15 apr». */
+const MESI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+function etichettaData() {
+  const d = new Date(Date.UTC(giorno.anno, 0, 1) + giorno.giorno * 86400000);
+  return `${d.getUTCDate()} ${MESI[d.getUTCMonth()]}`;
+}
 
 // ---- il contatore onesto ---------------------------------------------------
 // ⚠ NON GLI FPS: i MILLISECONDI. In Lantern ho passato una giornata a dire «va
@@ -395,6 +509,7 @@ function aggiornaStato() {
     `worldgen ${tGen.toFixed(0)} ms   mesh ${tMesh.toFixed(0)} ms\n` +
     `\n${giorno.orologio}${giorno.auto ? '' : ' (fermo)'}\n` +
     `clic = quello che hai in mano · destro rompe · centrale copia\n` +
+    `destro tocca e accende · maiusc+clic rompe\n` +
     `1-9 / R mano   , . ora   P ciclo   K qualità   I ispettore`;
 }
 
@@ -415,29 +530,10 @@ rig.avvia((dt) => {
   // mette in coda. Senza questa riga si poteva rompere quanto si voleva e a
   // schermo non cambiava niente — il mondo era giusto, l'immagine vecchia.
   mesher.aggiorna(mondo, passeggero);
-  // ⚠ LA STAGIONE CAMBIA IN QUATTRO SECONDI, non di colpo: `aggiornaTransizione`
-  // dà i colori intermedi e a metà strada ritinge il fogliame dei modelli. Il
-  // remesh serve solo entrando o uscendo dall'inverno, che è l'unica stagione
-  // che cambia anche la SABBIA — cioè la geometria dei colori, non solo l'erba.
-  const st = aggiornaTransizione(dt);
-  if (st) {
-    mesher.ritintaErba(st.colorePer);
-    if (st.fine) {
-      // ⚠ E IL PRATO VA RISEMINATO, che è una cosa DIVERSA dal ritingere il
-      // terreno. `ritintaErba` riscrive i colori nel buffer dei chunk — le cime
-      // dei blocchi d'erba — e infatti quelle diventano bianche subito
-      // (misurato: #bdd0c7 nel buffer, il verde d'inverno esatto). Ma le
-      // LAMELLE si prendono il colore quando NASCONO, dalla rampa di stagione,
-      // e nessuno le ha più toccate: a schermo restava un prato verde sopra un
-      // terreno innevato. Si vede solo guardando, ed è per questo che l'ho visto
-      // dopo aver misurato il buffer e averlo trovato giusto.
-      // ⚠ «scorda», NON «risemina»: la seconda riapre la coda ma i chunk
-      // escono dalla CACHE, che non ha la stagione nella chiave — e tornano
-      // fuori i ciuffi vecchi, col colore vecchio.
-      erba.scorda();
-      if (st.remesh) mesher.ricostruisciTutto(mondo);
-    }
-  }
+  // ⚠ LA STAGIONE SEGUE IL CALENDARIO, non un cronometro: vedi
+  // `aggiornaStagione` più su. La vecchia transizione a tempo è sparita perché
+  // diceva una seconda verità sulla stessa cosa — l'anno adesso è un asse.
+  aggiornaStagione();
 
   // ⚠ I LAMPIONI SEGUONO LA NOTTE, come in Lantern: si accendono da soli quando
   // il sole scende, e l'interruttore a mano vale fino al prossimo cambio.
@@ -453,6 +549,15 @@ rig.avvia((dt) => {
     // shader fa `-uSoleVerso`, e sbagliarlo qui darebbe un quadrante
     // specchiato — che si nota solo confrontandolo con le ombre vere.
     altezza: -d.y, dir: { x: -d.x, z: -d.z }, vista: rig.versoCamera(),
+    // ⚠ LA LUNA HA LA SUA POSIZIONE, non è più «l'opposto del sole»: a mezzo
+    // mese sta a novanta gradi, ed è quello che si chiama primo quarto.
+    luna: giorno.astroLuna && {
+      x: -Math.sin(giorno.astroLuna.azimut * Math.PI / 180),
+      z: Math.cos(giorno.astroLuna.azimut * Math.PI / 180),
+      altezza: Math.sin(giorno.astroLuna.altezza * Math.PI / 180),
+      fase: giorno.astroLuna.fase, illuminata: giorno.astroLuna.illuminata,
+    },
+    giorno: giorno.giorno, data: etichettaData(), stagione: stagioneCorrente(),
   });
   barra.aggiorna(cantiere.scelto, cosaFa
     ? `<b>${NOME_AZIONE[cosaFa]}</b> · ${cosaFa === 'interagisci' ? 'lampione' : cantiere.nomeScelto}`

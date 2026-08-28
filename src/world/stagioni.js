@@ -47,6 +47,96 @@ let corrente = 'primavera';
 
 export function stagioneCorrente() { return corrente; }
 
+// ---- LE STAGIONI LUNGO L'ANNO ----------------------------------------------
+//
+// ⚠ SONO ASTRONOMICHE, non da calendario: cominciano agli equinozi e ai
+// solstizi, che sono gli stessi giorni in cui il modello del cielo
+// (`world/astro.js`) ha la declinazione a zero o al massimo. Tenerle su due
+// definizioni diverse vorrebbe dire un mondo che diventa estivo mentre il sole
+// dice ancora primavera — e visto che adesso il sole lo calcoliamo davvero,
+// quello scarto si vedrebbe.
+
+/** Il giorno dell'anno in cui comincia ogni stagione (anno non bisestile). */
+export const INIZIO_STAGIONE = [
+  { giorno: 79,  chiave: 'primavera' },   // ~20 marzo, equinozio
+  { giorno: 172, chiave: 'estate' },      // ~21 giugno, solstizio
+  { giorno: 265, chiave: 'autunno' },     // ~22 settembre, equinozio
+  { giorno: 355, chiave: 'inverno' },     // ~21 dicembre, solstizio
+];
+
+/**
+ * QUANTO DURA IL PASSAGGIO fra una stagione e l'altra, in giorni.
+ * ⚠ DUE SETTIMANE, ed è una richiesta esplicita: «vorrei che avvenissero
+ * durante 2 settimane tra una stagione e l'altra». Centrate sul confine — una
+ * settimana prima e una dopo — perché un passaggio che comincia il giorno
+ * esatto del solstizio farebbe arrivare l'estate piena con una settimana di
+ * ritardo su sé stessa.
+ */
+export const GIORNI_PASSAGGIO = 14;
+
+/** Il giorno dell'anno, 0..365. */
+export function giornoDellAnno(data) {
+  const capodanno = Date.UTC(data.getUTCFullYear(), 0, 1);
+  return (data.getTime() - capodanno) / 86400000;
+}
+
+/**
+ * CHE STAGIONE È, in un punto qualunque dell'anno.
+ * @returns `{ da, a, mix }` — con `mix` 0 si è in pieno `da`, con 1 in pieno `a`.
+ */
+export function stagioneAlGiorno(giorno) {
+  const g = ((giorno % 365) + 365) % 365;
+  const n = INIZIO_STAGIONE.length;
+  const mezzo = GIORNI_PASSAGGIO / 2;
+
+  // ⚠ SI CERCA IL CONFINE PIÙ VICINO NEL TEMPO, avanti O indietro, e questa è
+  // la correzione al mio primo tentativo. Là guardavo solo il confine davanti:
+  // il giorno DOPO un solstizio la stagione era già cambiata, quindi il confine
+  // davanti era a tre mesi di distanza e la seconda metà del passaggio non
+  // esisteva. Risultato: mix sempre zero, cioè le stagioni scattavano di colpo
+  // — proprio la cosa che le due settimane devono togliere.
+  for (let k = 0; k < n; k++) {
+    const confine = INIZIO_STAGIONE[k].giorno;
+    // distanza CON SEGNO al confine, sul cerchio dell'anno: negativa se è
+    // passato, positiva se deve arrivare
+    let d = confine - g;
+    if (d > 182.5) d -= 365;
+    if (d < -182.5) d += 365;
+    if (Math.abs(d) >= mezzo) continue;
+    const prima = INIZIO_STAGIONE[(k - 1 + n) % n].chiave;
+    const dopo = INIZIO_STAGIONE[k].chiave;
+    // d = +mezzo → siamo all'inizio della finestra → mix 0
+    // d = −mezzo → alla fine → mix 1
+    return { da: prima, a: dopo, mix: (mezzo - d) / GIORNI_PASSAGGIO };
+  }
+
+  // fuori da ogni finestra: la stagione è quella cominciata per ultima
+  let i = n - 1;
+  for (let k = 0; k < n; k++) if (INIZIO_STAGIONE[k].giorno <= g) i = k;
+  if (g < INIZIO_STAGIONE[0].giorno) i = n - 1;
+  const c = INIZIO_STAGIONE[i].chiave;
+  return { da: c, a: c, mix: 0 };
+}
+
+/**
+ * LA MESCOLANZA CORRENTE — due stagioni e quanto pesano.
+ *
+ * ⚠ STA QUI E NON NEL CHIAMANTE perché `paletteBlocco` è il punto UNICO da cui
+ * escono i colori: mettendola qui, l'erba seminata, i colori dei chunk e
+ * l'anteprima di un blocco vedono tutti la stessa stagione senza saperne
+ * niente. È lo stesso motivo per cui la rampa per quota sta lì.
+ */
+let mescolanza = null;
+
+export function impostaMescolanza(da, a, mix) {
+  if (mix <= 0 || da === a) { corrente = da; mescolanza = null; return; }
+  if (mix >= 1) { corrente = a; mescolanza = null; return; }
+  corrente = mix < 0.5 ? da : a;      // la «corrente» resta quella dominante
+  mescolanza = { da, a, mix };
+}
+
+export function mescolanzaCorrente() { return mescolanza; }
+
 /** I colori di un blocco per (tipo, quota). Punto unico: qui entrerà l'override per cella. */
 /** Sposta un colore verso un altro di una frazione k (0..1). */
 function verso(colore, meta, k) {
@@ -57,6 +147,35 @@ function verso(colore, meta, k) {
 }
 
 export function paletteBlocco(tipo, y) {
+  // ⚠ SE C'È UNA MESCOLANZA, si calcolano le due palette e si fondono. Costa il
+  // doppio, ma solo durante i quattordici giorni di passaggio — e in cambio
+  // TUTTO segue la stagione dallo stesso punto: erba, chunk, anteprima.
+  if (mescolanza) {
+    const salva = corrente;
+    corrente = mescolanza.da; const A = _paletteSecca(tipo, y);
+    corrente = mescolanza.a;  const B = _paletteSecca(tipo, y);
+    corrente = salva;
+    const k = mescolanza.mix;
+    return {
+      cima: _fondi(A.cima, B.cima, k),
+      lato: _fondi(A.lato, B.lato, k),
+      fondo: _fondi(A.fondo, B.fondo, k),
+      facce: A.facce,
+    };
+  }
+  return _paletteSecca(tipo, y);
+}
+
+/** ⚠ Interpolazione in sRGB, come `_mescola`: cambiare spazio qui cambierebbe
+ *  l'aspetto di tutte le transizioni stagionali a schermo. */
+function _fondi(a, b, k) {
+  const r = Math.round(((a >> 16) & 255) + (((b >> 16) & 255) - ((a >> 16) & 255)) * k);
+  const g = Math.round(((a >> 8) & 255) + (((b >> 8) & 255) - ((a >> 8) & 255)) * k);
+  const l = Math.round((a & 255) + ((b & 255) - (a & 255)) * k);
+  return (r << 16) | (g << 8) | l;
+}
+
+function _paletteSecca(tipo, y) {
   // defDi (non BLOCCHI[tipo]) perché ha il fallback "blocco perduto": un mondo
   // salvato può contenere un blocco custom poi CANCELLATO dall'Officina, e qui
   // destrutturare undefined faceva morire il boot con "Qualcosa è andato storto".

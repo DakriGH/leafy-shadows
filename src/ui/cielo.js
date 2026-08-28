@@ -39,6 +39,8 @@ const CSS = `
 #cielo button { font: 11px ui-monospace, monospace; color: #0d2a1a; cursor: pointer;
   background: #fff; border: 1px solid rgba(13,42,26,.2); border-radius: 4px; padding: 2px 5px; }
 #cielo button.acceso { background: #0d2a1a; color: #fff; border-color: #0d2a1a; }
+#cielo .et { font-size: 9px; opacity: .55; width: 26px; }
+#cielo .data { font-size: 10px; opacity: .7; text-align: center; margin-top: 3px; }
 #cielo .stagioni { display: flex; gap: 3px; margin-top: 6px; }
 #cielo .stagioni button { flex: 1; padding: 3px 0; font-size: 12px; }
 @media (max-width: 700px) { #cielo { width: 118px; right: 6px; top: 46px; } }
@@ -53,7 +55,7 @@ export class PannelloCielo {
    * @param opzioni.onCiclo   (acceso) → void
    * @param opzioni.onStagione(chiave) → void
    */
-  constructor({ stagioni, stagione, onOra, onCiclo, onStagione }) {
+  constructor({ stagioni, stagione, onOra, onCiclo, onStagione, onGiorno }) {
     const stile = document.createElement('style');
     stile.textContent = CSS;
     document.head.appendChild(stile);
@@ -72,7 +74,8 @@ export class PannelloCielo {
           <line x1="${C}" y1="${C - R}" x2="${C}" y2="${C + R}" stroke="rgba(13,42,26,.14)"/>
           <line x1="${C - R}" y1="${C}" x2="${C + R}" y2="${C}" stroke="rgba(13,42,26,.14)"/>
           <path class="camera" d="M0 0" fill="rgba(13,42,26,.16)"/>
-          <circle class="luna" r="4" fill="#dfe6f2" stroke="rgba(13,42,26,.35)"/>
+          <circle class="luna" r="4.5" fill="#dfe6f2" stroke="rgba(13,42,26,.35)"/>
+          <path class="fase" fill="rgba(13,42,26,.55)"/>
           <circle class="sole" r="5.5" fill="#ffcf4d" stroke="rgba(120,80,0,.5)"/>
           <text x="${C}" y="9" text-anchor="middle" font-size="8" fill="rgba(13,42,26,.55)">N</text>
           <text x="${C + R + 3}" y="${C + 3}" text-anchor="middle" font-size="8" fill="rgba(13,42,26,.55)">E</text>
@@ -81,12 +84,15 @@ export class PannelloCielo {
           <button class="ciclo" title="ferma o riavvia il ciclo">⏸</button>
           <input class="barra" type="range" min="0" max="1000" value="420">
         </div>
+        <div class="riga"><span class="et">anno</span><input class="barraAnno" type="range" min="0" max="364" value="105"></div>
+        <div class="data">—</div>
         <div class="stagioni"></div>
       </div>`;
     document.body.appendChild(root);
 
     this.el = (s) => root.querySelector(s);
-    this.sole = this.el('.sole'); this.luna = this.el('.luna');
+    this.sole = this.el('.sole'); this.luna = this.el('.luna'); this.fase = this.el('.fase');
+    this.testoData = this.el('.data');
     this.camera = this.el('.camera'); this.testoOra = this.el('.ora');
     const barra = this.barra = this.el('.barra');
     const bCiclo = this.bCiclo = this.el('.ciclo');
@@ -99,6 +105,14 @@ export class PannelloCielo {
     // molla. Chi tocca la barra sta facendo una prova, non guardando un tramonto.
     barra.addEventListener('pointerdown', () => onCiclo(false));
     bCiclo.addEventListener('click', () => onCiclo(null));
+
+    // ⚠ LO SLIDER DELL'ANNO È SOLO CROMATICO E ASTRONOMICO, non tocca il ciclo
+    // giorno/notte: committente, «uno slider che ci fa muovere durante l'anno,
+    // solo a livello cromatico, non ciclo vero giorno notte». Sposta il GIORNO,
+    // e con lui la declinazione del sole e la mescolanza delle stagioni; l'ora
+    // resta quella che è.
+    this.barraAnno = this.el('.barraAnno');
+    this.barraAnno.addEventListener('input', () => onGiorno(Number(this.barraAnno.value)));
 
     const sta = this.el('.stagioni');
     this.bStagioni = {};
@@ -123,7 +137,7 @@ export class PannelloCielo {
    * @param dir      da che parte sta il sole, sul piano: {x, z} (versore)
    * @param vista    dove guarda la camera, sul piano: {x, z}
    */
-  aggiorna({ t, orologio, auto, altezza, dir, vista }) {
+  aggiorna({ t, orologio, auto, altezza, dir, vista, luna, giorno, data, stagione }) {
     // ⚠ IL CENTRO È LO ZENIT E IL BORDO L'ORIZZONTE, quindi il raggio è
     // l'inverso dell'altezza. E un astro SOTTO l'orizzonte si disegna fuori dal
     // cerchio — si vede che è tramontato invece di sparire, che per una prova è
@@ -135,10 +149,20 @@ export class PannelloCielo {
       el.setAttribute('opacity', alt < -0.05 ? 0.35 : 1);
     };
     punta(this.sole, dir.x, dir.z, altezza);
-    // ⚠ LA LUNA STA SEMPRE ALL'OPPOSTO, ed è una semplificazione dichiarata: qui
-    // non c'è un'orbita lunare, c'è un astro solo che gira. Disegnarla opposta
-    // dice la verità di questo mondo — quando il sole è sotto, lei è sopra.
-    punta(this.luna, -dir.x, -dir.z, -altezza);
+    // ⚠ E LA LUNA ADESSO HA LA SUA ORBITA, non è più «l'opposto del sole». La
+    // semplificazione di prima diceva una bugia visibile: a mezzo mese la luna
+    // sta a novanta gradi dal sole, non a centottanta, e quella differenza è
+    // esattamente quello che si chiama «primo quarto».
+    if (luna) {
+      punta(this.luna, luna.x, luna.z, luna.altezza);
+      // la parte in ombra: una mezzaluna disegnata come due archi
+      const cx = +this.luna.getAttribute('cx'), cy = +this.luna.getAttribute('cy'), r = 4.5;
+      const k = 1 - 2 * luna.illuminata;          // +1 nuova, −1 piena
+      this.fase.setAttribute('d',
+        `M${cx} ${cy - r} A${r} ${r} 0 0 ${luna.fase < 0.5 ? 0 : 1} ${cx} ${cy + r} ` +
+        `A${Math.abs(r * k)} ${r} 0 0 ${k < 0 ? (luna.fase < 0.5 ? 0 : 1) : (luna.fase < 0.5 ? 1 : 0)} ${cx} ${cy - r} Z`);
+      this.fase.setAttribute('opacity', luna.altezza < -0.05 ? 0.2 : 0.75);
+    }
 
     // il cono di dove guarda la camera: un settore largo mezzo quadrante
     const a = Math.atan2(vista.x, -vista.z), ap = 0.45;
@@ -151,5 +175,8 @@ export class PannelloCielo {
     // farebbe saltare il cursore sotto il dito. Si aggiorna solo se il ciclo
     // sta muovendo l'ora per conto suo.
     if (auto) { const v = Math.round(t * 1000); if (v !== Number(this.barra.value)) this.barra.value = v; }
+    if (giorno !== undefined && Number(this.barraAnno.value) !== giorno) this.barraAnno.value = giorno;
+    if (data !== this._data) { this.testoData.textContent = data; this._data = data; }
+    if (stagione !== this._st) { this.stagione(stagione); this._st = stagione; }
   }
 }

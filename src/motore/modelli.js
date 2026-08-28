@@ -181,13 +181,17 @@ export class Modelli {
     const dati = new Float32Array(n * 16);
     const m = new Matrix();
     const q = new Quaternion();
-    const uno = new Vector3(1, 1, 1);
+    // ⚠ LA SCALA NON È PIÙ FISSA A UNO: serve al «colpetto», la risposta
+    // grafica al tocco (vedi `gioco/colpetto.js`). Chi non la passa resta a 1,
+    // quindi nessun chiamante vecchio se ne accorge.
+    const dim = new Vector3(1, 1, 1);
     const pos = new Vector3();
     for (let i = 0; i < n; i++) {
       const d = dove[i];
       Quaternion.RotationAxisToRef(Vector3.UpReadOnly, d.giro || 0, q);
       pos.set(d.x, d.y, d.z);
-      Matrix.ComposeToRef(uno, q, pos, m);
+      dim.setAll(d.scala || 1);
+      Matrix.ComposeToRef(dim, q, pos, m);
       m.copyToArray(dati, i * 16);
     }
     voce.mesh.thinInstanceSetBuffer('matrix', dati, 16, true);

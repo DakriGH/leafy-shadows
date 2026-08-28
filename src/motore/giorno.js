@@ -17,6 +17,7 @@
 
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { posizioneSole, posizioneLuna, versoRaggio, LUOGO } from '../world/astro.js';
 
 /**
  * LE ORE CHIAVE, E SONO QUELLE DI LANTERN, numero per numero.
@@ -98,6 +99,8 @@ function tintaOmbra(cielo, alt, notte, fuori) {
  *  mappa le regge. È la stessa scelta di Leafy-Lantern, presa per lo stesso
  *  motivo, e lì costava anche una passata d'ombra che non serviva a niente. */
 const ALTEZZA_MIN = 0.24;
+/** Lo stesso pavimento, ma in GRADI: il modello astronomico parla in gradi. */
+const ALTEZZA_MIN_GRADI = Math.asin(ALTEZZA_MIN) * 180 / Math.PI;
 
 function fraOre(t) {
   const u = ((t % 1) + 1) % 1;
@@ -115,18 +118,59 @@ function fraOre(t) {
 
 export class Giorno {
   /** @param durata quanti secondi dura un giorno intero */
-  constructor(rig, { durata = 300, ora = 0.42 } = {}) {
+  constructor(rig, { durata = 300, ora = 0.42, giorno = 105, anno = 2024, luogo = LUOGO } = {}) {
     this.rig = rig;
     this.durata = durata;
-    this.t = ora;
     this.auto = true;
+    this.luogo = luogo;
+    this.anno = anno;
+    /**
+     * ⚠ LA VERITÀ SONO IL GIORNO E L'ORA, e la data si DERIVA da loro.
+     *
+     * La prima stesura teneva la data come stato e ci riscriveva dentro l'ora:
+     * ma la data porta già dentro lo scarto di longitudine, quindi ogni
+     * chiamata lo applicava di nuovo e il giorno scivolava indietro di
+     * cinquanta minuti alla volta. Un difetto che si vede solo dopo un po', e
+     * che si sarebbe presentato come «il calendario va all'indietro».
+     */
+    this._giorno = giorno;
+    this.t = ((ora % 1) + 1) % 1;
+    this.applica();
+  }
+
+  /**
+   * LA DATA, ricostruita da giorno e ora.
+   * ⚠ SI TOGLIE LA LONGITUDINE perché `t` è l'ora LOCALE VERA (0,5 =
+   * mezzogiorno, il sole a sud) mentre il modello astronomico lavora in UTC.
+   * Senza, a Roma il sole culminerebbe con cinquanta minuti di ritardo sul
+   * mezzogiorno del gioco.
+   */
+  get data() {
+    return new Date(Date.UTC(this.anno, 0, 1)
+      + this._giorno * 86400000 + this.t * 86400000
+      - (this.luogo.lon / 15) * 3600000);
+  }
+
+  get giorno() { return this._giorno; }
+
+  impostaOra(t) {
+    const u = ((t % 1) + 1) % 1;
+    // ⚠ E IL GIORNO AVANZA QUANDO L'ORA GIRA: se no il cielo resterebbe fermo
+    // al 15 aprile per sempre, e non si vedrebbe mai una stagione cambiare.
+    if (t >= 1) this._giorno = (this._giorno + Math.floor(t)) % 365;
+    else if (t < 0) this._giorno = ((this._giorno + Math.floor(t)) % 365 + 365) % 365;
+    this.t = u;
+    this.applica();
+  }
+
+  impostaGiorno(g) {
+    this._giorno = ((Math.round(g) % 365) + 365) % 365;
     this.applica();
   }
 
   aggiorna(dt) {
     if (!this.auto) return;
-    this.t = (this.t + dt / this.durata) % 1;
-    this.applica();
+    this.impostaOra(this.t + dt / this.durata);
   }
 
   applica() {
@@ -139,26 +183,37 @@ export class Giorno {
     // all'orizzonte: la nebbia denuncia il confine invece di nasconderlo.
     r.scena.fogColor.set(cielo[0], cielo[1], cielo[2]);
 
-    // IL SOLE gira su un arco inclinato: sorge a est, culmina a sud, tramonta a
-    // ovest. L'inclinazione serve a non farlo passare per lo zenit — a picco le
-    // ombre spariscono e il diorama si appiattisce.
-    const a = (this.t - 0.25) * Math.PI * 2;
-    const altVera = Math.sin(a) * 0.85 + 0.06;
-    const alt = Math.max(ALTEZZA_MIN, altVera);
-    const oriz = Math.sqrt(Math.max(0, 1 - alt * alt));
-    r.sole.direction.set(-Math.cos(a) * oriz, -alt, -0.42 * oriz);
+    // ---- IL SOLE VERO -------------------------------------------------------
+    // ⚠ NON PIÙ UN ARCO FISSO. Prima il sole girava sempre uguale: stessa
+    // altezza tutti i giorni, alba sempre alla stessa ora, e quindi NIENTE
+    // equinozi e niente solstizi — un solo giorno, ripetuto per sempre. Adesso
+    // la posizione la calcola `world/astro.js` dalla data e dal luogo, e le
+    // stagioni del cielo vengono da sole.
+    // ⚠ NOMI DIVERSI DA `rig.sole`, che è la LUCE del motore: qui c'è la
+    // posizione astronomica, là l'oggetto che illumina. Chiamarli uguale
+    // sarebbe il modo di confonderli in un punto e non capirlo più.
+    const d = this.data;
+    this.astroSole = posizioneSole(d, this.luogo.lat, this.luogo.lon);
+    this.astroLuna = posizioneLuna(d, this.luogo.lat, this.luogo.lon);
+
+    // ⚠ MA L'ALTEZZA RESTA CON UN PAVIMENTO, e non è una bugia astronomica: è
+    // una bugia detta alla MAPPA D'OMBRA. Col sole a sei gradi le cascate si
+    // stirano per chilometri e il bordo dell'ombra diventa una scalinata di
+    // texel — il committente l'ha fotografata. Il cielo dice la verità
+    // (`this.sole.altezza`), la LUCE viene tenuta a quattordici gradi.
+    const alt = Math.max(ALTEZZA_MIN_GRADI, this.astroSole.altezza);
+    const v = versoRaggio(alt, this.astroSole.azimut);
+    r.sole.direction.set(v.x, v.y, v.z);
     r.sole.direction.normalize();
     // ⚠ E LA POSIZIONE VA MOSSA CON LA DIREZIONE: la mappa a cascata la usa per
-    // inquadrare, e lasciandola ferma le cascate si sganciano dal sole. È un
-    // difetto che si vede solo a certe ore, cioè il peggior tipo.
+    // inquadrare, e lasciandola ferma le cascate si sganciano dal sole.
     r.sole.position.set(-r.sole.direction.x * 90, -r.sole.direction.y * 90, -r.sole.direction.z * 90);
 
-    // ⚠ L'OMBRA SI CALCOLA CON L'ALTEZZA VERA, non con quella tenuta al minimo.
-    // `ALTEZZA_MIN` è una bugia detta alla MAPPA D'OMBRA (col sole a sei gradi
-    // le cascate si stirano e il bordo diventa una scalinata); dirla anche
-    // all'ombra vorrebbe dire che a mezzanotte il mondo si comporta come
-    // all'alba, cioè che la notte non arriva mai.
-    this._ombra = tintaOmbra(cielo, altVera, altVera <= 0, this._ombra || [0, 0, 0]);
+    // ⚠ L'OMBRA SI CALCOLA CON L'ALTEZZA VERA, non con quella tenuta al minimo:
+    // se no a mezzanotte il mondo si comporterebbe come all'alba, cioè la notte
+    // non arriverebbe mai.
+    const altVera = Math.sin(this.astroSole.altezza * Math.PI / 180);
+    this._ombra = tintaOmbra(cielo, altVera, this.astroSole.altezza <= 0, this._ombra || [0, 0, 0]);
     r.ombraTinta.set(this._ombra[0], this._ombra[1], this._ombra[2]);
   }
 
