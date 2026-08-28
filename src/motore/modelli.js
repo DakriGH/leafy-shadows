@@ -12,6 +12,7 @@
 // il bosco di Leafy, quando ci sarà tutto, di alberi ne ha centinaia.
 
 import { LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader.js';
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial.js';
 import { applicaStilePiatto } from './stile.js';
@@ -65,13 +66,23 @@ export class Modelli {
     // Qui si misura il riquadro una volta e si sposta la geometria in modo che
     // y=0 sia la base. Da lì in poi chi piazza ragiona in quote di mondo e non
     // deve sapere niente di come è stato esportato il file.
-    fuso.refreshBoundingInfo();
-    const giu = fuso.getBoundingInfo().boundingBox.minimum.y;
-    if (Math.abs(giu) > 1e-4) {
-      fuso.position.y = -giu;
-      fuso.bakeCurrentTransformIntoVertices();
-      fuso.refreshBoundingInfo();
+    // ⚠ SI SPOSTANO I VERTICI, NON LA MESH. Passare da `position` +
+    // `bakeCurrentTransformIntoVertices` sembrava equivalente e non lo è: la
+    // mesh viene poi disegnata a ISTANZE, e la sua matrice locale non ha più
+    // voce in capitolo — restava un offset che nessuno applicava, e gli alberi
+    // fluttuavano. Qui si guarda l'array delle posizioni, si trova il minimo, e
+    // lo si sottrae. Dopo, y=0 È la base, e chi piazza ragiona in quote di mondo.
+    //
+    // (Il .glb dell'albero ha un nodo con traslazione y = 1,275 dentro: l'origine
+    // di un modello non sta sui piedi, e non ha nessun obbligo di starci.)
+    const vp = fuso.getVerticesData(VertexBuffer.PositionKind);
+    let giu = Infinity;
+    for (let i = 1; i < vp.length; i += 3) if (vp[i] < giu) giu = vp[i];
+    if (isFinite(giu) && Math.abs(giu) > 1e-4) {
+      for (let i = 1; i < vp.length; i += 3) vp[i] -= giu;
+      fuso.updateVerticesData(VertexBuffer.PositionKind, vp);
     }
+    fuso.refreshBoundingInfo();
 
     // ⚠ LO STESSO STILE DEL MONDO. Un albero illuminato con la legge del motore
     // accanto a un terreno illuminato con la nostra è il difetto che in Leafy
@@ -98,7 +109,13 @@ export class Modelli {
     fuso.material = m;
 
     fuso.isPickable = false;
-    fuso.receiveShadows = true;          // ⚠ falso di fabbrica: vedi CLAUDE.md
+    // ⚠ UN ALBERO PROIETTA MA NON RICEVE, ed è una scelta di stile. Una chioma è
+    // una pila di coni: se riceve la propria ombra, i piani bassi finiscono al
+    // buio e l'albero esce mezzo nero — «il colore degli alberi è fuoristile».
+    // In Leafy il fogliame è tinta piatta e l'ombra la proietta soltanto. Il
+    // prezzo è che un albero dentro l'ombra di un altro non si scurisce: si vede
+    // pochissimo, e costa molto meno di un bosco a chiazze scure.
+    fuso.receiveShadows = false;
     this.rig.proietta(fuso);
     fuso.setEnabled(false);              // finché non ha istanze non si disegna
 

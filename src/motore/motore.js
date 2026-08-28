@@ -155,11 +155,19 @@ export class Rig {
     // sessione e un picco da 3,8 ms. Qui sono quattro righe.
     this.ombre = new CascadedShadowGenerator(2048, this.sole);
     this.ombre.numCascades = 4;
-    this.ombre.lambda = 0.85;               // come si spartiscono le cascate
+    // ⚠ `lambda` VICINO A 1 = TESSITURA DENSA DOVE SI GUARDA. Spartisce le
+    // cascate in modo logaritmico invece che lineare: la prima copre pochi metri
+    // con tutti i suoi texel, l'ultima copre il resto. È la manopola che decide
+    // se il bordo dell'ombra è netto o a scalini.
+    this.ombre.lambda = 0.94;
     this.ombre.stabilizeCascades = true;    // il bordo non «striscia» camminando
     this.ombre.filteringQuality = CascadedShadowGenerator.QUALITY_HIGH;
     this.ombre.usePercentageCloserFiltering = true;
-    this.ombre.shadowMaxZ = 140;            // oltre, l'ombra non si vede più
+    // ⚠ NOVANTA E NON CENTOQUARANTA: la distanza d'ombra è il denominatore della
+    // risoluzione. Ogni metro in più che si pretende di ombreggiare toglie texel
+    // a quelli vicini — e l'ombra a novanta blocchi non la guarda nessuno,
+    // mentre la scaletta a dieci la vedono tutti.
+    this.ombre.shadowMaxZ = 90;
     this.ombre.depthClamp = true;
     this.ombre.autoCalcDepthBounds = true;
 
@@ -167,8 +175,21 @@ export class Rig {
     // (acne sulle diagonali, ombre staccate da terra). Qui parte dai valori
     // consigliati e si tara GUARDANDO, con il sole basso: è l'angolo che
     // smaschera l'acne, ed è quello da cui non guardavo.
-    this.ombre.bias = 0.008;
-    this.ombre.normalBias = 0.02;
+    // ⚠ LO SCARTO PER NORMALE È PICCOLO, E VA TENUTO PICCOLO. Sposta il punto
+    // campionato LUNGO LA NORMALE della superficie che riceve: serve contro
+    // l'acne, ma vicino al bordo di un'ombra quello spostamento fa uscire il
+    // campione da sotto l'occlusore, e si accende una LINEETTA sul contorno.
+    // Il committente l'ha vista e descritta esatta: «è come se prendesse lo
+    // sbalzo del blocco d'erba e ci passasse la luce». Con lo stile piatto quel
+    // filo di luce si vede il doppio, perché non c'è nessuna sfumatura a
+    // nasconderlo.
+    //
+    // Qui l'acne la tiene a bada soprattutto altro: le facce che guardano
+    // dall'altra parte del sole sono in ombra per geometria (vedi `stile.js`),
+    // e il sole non scende mai troppo (vedi `giorno.js`). Quindi lo scarto può
+    // restare quasi zero, che è dove il bordo è pulito.
+    this.ombre.bias = 0.002;
+    this.ombre.normalBias = 0.006;
 
     // ---- L'ANTIALIASING DEI BORDI SOTTILI ------------------------------------
     // ⚠ L'MSAA DELLA TELA NON BASTA QUI, e il motivo è la geometria: le terrazze
@@ -220,6 +241,13 @@ export class Rig {
    *  in Lantern la polarità sbagliata metteva in mappa farfalle, nuvole e
    *  pioggia, e se n'è accorto il committente guardando, non un errore. */
   proietta(mesh) { this.ombre.addShadowCaster(mesh, true); return mesh; }
+
+  /** Dove guarda la camera, proiettato sul piano. È l'unica cosa che il
+   *  giocatore ha bisogno di sapere della vista per muoversi coerentemente. */
+  versoCamera() {
+    const c = this.camera;
+    return { x: c.target.x - c.position.x, z: c.target.z - c.position.z };
+  }
 
   /** Il conto onesto del fotogramma: non gli fps, i millisecondi di lavoro. */
   get ms() { return this.motore.getDeltaTime(); }

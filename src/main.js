@@ -118,7 +118,9 @@ function aggiornaStato() {
 
 rig.avvia((dt) => {
   giorno.aggiorna(dt);
-  passeggero.aggiorna(dt, intento, rig.camera.alpha);
+  // ⚠ IL VERSO SI CHIEDE ALLA CAMERA, non si ricava dal suo angolo: `alpha` da
+  // solo non basta a sapere dove punta, e il conto sbagliato si sente subito.
+  passeggero.aggiorna(dt, intento, rig.versoCamera());
   quotaMorbida += (passeggero.y - quotaMorbida) * Math.min(1, dt * 9);
   rig.camera.target.set(passeggero.x, quotaMorbida + 0.6, passeggero.z);
   fabbrica.muoviSegnaposto(corpo, passeggero);

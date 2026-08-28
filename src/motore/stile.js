@@ -108,8 +108,27 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   // per metà nero, che è il difetto che il committente ha visto («i colori degli
   // alberi sbagliati»). Il fogliame in Leafy è tinta piatta, e l'ombra gliela dà
   // la mappa. Stessa ragione per cui l'erba non lo usa.
+  //
+  // ⚠ E LA SOGLIA NON È ZERO, ED È LA CURA ALL'ACNE CHE RESTAVA. L'acne nasce
+  // dove la superficie è quasi PARALLELA ai raggi: lì la profondità in
+  // spazio-luce varia di tantissimo dentro un texel, e nessuno scarto costante
+  // la copre — viene il tratteggio che il committente ha fotografato sui fianchi
+  // marroni delle terrazze.
+  //
+  // Alzare lo scarto è la cura sbagliata: sposta il difetto e in cambio accende
+  // una lineetta lungo il bordo delle ombre (l'ho fatto, e si è vista subito).
+  //
+  // La cura giusta viene dallo stile. La banda dove nasce l'acne è LA STESSA
+  // dove la luce radente non vuol dire niente: una faccia colpita di striscio
+  // non è «un po' illuminata», in Leafy — o vede il sole o no. Quindi si sposta
+  // la soglia dentro quella banda e il problema sparisce per costruzione,
+  // gratis, e in stile.
+  //
+  // ⚠ 0,12 E NON PIÙ: il terreno piatto col sole al minimo (0,24 di seno, vedi
+  // «giorno.js») ha un prodotto scalare di 0,24. Una soglia più alta glielo
+  // spegnerebbe, e all'alba il mondo diventerebbe tutto ombra.
   m.Fragment_Before_Lights(facce ? `
-    float facciaAlSole = step(0.0, dot(normalize(vNormalW), -normalize(uSoleVerso)));
+    float facciaAlSole = step(0.12, dot(normalize(vNormalW), -normalize(uSoleVerso)));
     normalW = normalize(-uSoleVerso);
   ` : `
     float facciaAlSole = 1.0;

@@ -39,12 +39,15 @@ const ORE = [
   [1.00, [0.30, 0.34, 0.52], [0.42, 0.46, 0.70], [0.07, 0.09, 0.18]],  // e si richiude
 ];
 
-/** L'arco del sole. ⚠ NON SCENDE MAI SOTTO L'ORIZZONTE di una quantità che
- *  conti: la mappa a cascata con il sole rasente dà ombre lunghe chilometri e
- *  acne dappertutto. Di notte l'illuminazione la fa l'ambiente, e il sole resta
- *  appena sopra — è la stessa scelta di Leafy-Lantern, presa per lo stesso
+/** L'arco del sole non scende mai sotto l'orizzonte: di notte illumina
+ *  l'ambiente, e il sole resta appena sopra.
+ *  ⚠ ALZATA DA 0,10 A 0,24, e non è pigrizia: con il sole a sei gradi le
+ *  cascate si stirano per chilometri e la tessitura d'ombra collassa — sul pelo
+ *  dell'acqua il bordo diventa una SCALINATA di texel, che il committente ha
+ *  fotografato. A quattordici gradi le ombre sono ancora lunghe (è l'alba) ma la
+ *  mappa le regge. È la stessa scelta di Leafy-Lantern, presa per lo stesso
  *  motivo, e lì costava anche una passata d'ombra che non serviva a niente. */
-const ALTEZZA_MIN = 0.10;
+const ALTEZZA_MIN = 0.24;
 
 function fraOre(t) {
   const u = ((t % 1) + 1) % 1;

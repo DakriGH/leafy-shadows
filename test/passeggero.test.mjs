@@ -14,7 +14,9 @@ function terreno(quota = 6, raggio = 12) {
   return m;
 }
 const fermo = { avanti: 0, destra: 0, salta: false };
-const giri = (p, n, m, intento = fermo) => { for (let i = 0; i < n; i++) p.aggiorna(1 / 60, intento, 0); return p; };
+// guardando verso -Z, che è la vista di partenza
+const AVANTI = { x: 0, z: -1 };
+const giri = (p, n, m, intento = fermo, av = AVANTI) => { for (let i = 0; i < n; i++) p.aggiorna(1 / 60, intento, av); return p; };
 
 test('SI POSA, e ci resta: niente rimbalzo fra due quote', () => {
   // ⚠ È IL DIFETTO CHE HO FATTO. Con la sonda dei piedi dentro il corpo, il
@@ -74,6 +76,36 @@ test('UN FOTOGRAMMA LUNGO NON LO TELETRASPORTA sotto il terreno', () => {
   const m = terreno(6);
   const p = new Passeggero(m, { x: 0.5, y: 40, z: 0.5 });
   // mezzo secondo in un colpo: succede quando la scheda torna in primo piano
-  for (let i = 0; i < 40; i++) p.aggiorna(0.5, fermo, 0);
+  for (let i = 0; i < 40; i++) p.aggiorna(0.5, fermo, AVANTI);
   assert.ok(p.y >= 7, `è finito a quota ${p.y.toFixed(2)}: è passato attraverso il mondo`);
+});
+
+test('IL MOVIMENTO SEGUE LA CAMERA, e la destra è a destra', () => {
+  // ⚠ È IL DIFETTO CHE IL COMMITTENTE HA SENTITO SUBITO: «c'è un problema con il
+  // movimento del player rispetto alla telecamera». Ricavavo il verso da
+  // `camera.alpha` con un seno e un coseno, cioè indovinavo una convenzione del
+  // motore da dentro un file che il motore non lo conosce nemmeno.
+  //
+  // La regola, e si prova senza GPU: guardando verso -Z, «avanti» va a -Z e
+  // «destra» va a +X. Girando la vista di 90°, girano tutt'e due con lei.
+  const m = terreno(6, 30);
+  const nuovo = () => { const p = new Passeggero(m, { x: 0.5, y: 10, z: 0.5 }); giri(p, 120, m); return p; };
+
+  const a = nuovo(); const z0 = a.z;
+  giri(a, 60, m, { avanti: 1, destra: 0, salta: false }, { x: 0, z: -1 });
+  assert.ok(a.z < z0 - 1, `«avanti» guardando a -Z ha portato z da ${z0} a ${a.z.toFixed(2)}`);
+
+  const b = nuovo(); const x0 = b.x;
+  giri(b, 60, m, { avanti: 0, destra: 1, salta: false }, { x: 0, z: -1 });
+  assert.ok(b.x > x0 + 1, `«destra» guardando a -Z ha portato x da ${x0} a ${b.x.toFixed(2)}`);
+
+  // vista ruotata: adesso si guarda verso +X, quindi «avanti» va a +X
+  const c = nuovo(); const cx = c.x;
+  giri(c, 60, m, { avanti: 1, destra: 0, salta: false }, { x: 1, z: 0 });
+  assert.ok(c.x > cx + 1, `«avanti» guardando a +X ha portato x da ${cx} a ${c.x.toFixed(2)}`);
+
+  // e la destra di chi guarda a +X è +Z
+  const d = nuovo(); const dz = d.z;
+  giri(d, 60, m, { avanti: 0, destra: 1, salta: false }, { x: 1, z: 0 });
+  assert.ok(d.z > dz + 1, `«destra» guardando a +X ha portato z da ${dz} a ${d.z.toFixed(2)}`);
 });

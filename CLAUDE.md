@@ -148,6 +148,40 @@ corrette, dati corretti, schermo vuoto.
 ⚠ E l'errore vero **non** è in `forceCompilation` (che rispondeva «ok»): sta in
 `subMesh.effect.getCompilationError()`.
 
+### ⚠ L'ACNE SI CURA CON LA SOGLIA, NON COL BIAS
+L'acne nasce dove la superficie è quasi **parallela** ai raggi: lì la profondità
+in spazio-luce varia di tantissimo dentro un texel e nessuno scarto costante la
+copre. Con lo stile piatto si vede il doppio, perché non c'è nessuna sfumatura
+a nasconderla.
+
+⚠ **Alzare `normalBias` è la cura sbagliata.** Sposta il campione lungo la
+normale di chi riceve: vicino al bordo di un'ombra quel campione esce da sotto
+l'occlusore e si accende una **lineetta** sul contorno. Provato, e il committente
+l'ha vista subito — «è come se prendesse lo sbalzo del blocco d'erba e ci
+passasse la luce».
+
+**La cura viene dallo stile**: la banda dove nasce l'acne è *la stessa* dove la
+luce radente non vuol dire niente. Una faccia colpita di striscio, in Leafy, non
+è «un po' illuminata» — o vede il sole o no. Quindi `facciaAlSole` usa una
+**soglia di 0,12** invece di zero, e il difetto sparisce per costruzione, gratis.
+⚠ Non più di 0,12: il terreno piatto col sole al minimo ha un prodotto scalare di
+0,225, e una soglia più alta all'alba spegnerebbe il mondo intero.
+
+E le altre due manopole che contano davvero, tutte e due sulla **risoluzione**:
+`lambda` vicino a 1 (tessitura densa dove si guarda) e `shadowMaxZ` corto — ogni
+metro che si pretende di ombreggiare toglie texel a quelli vicini. Col sole a
+sei gradi le cascate si stirano e il bordo diventa una scalinata: per questo il
+sole non scende sotto i **14°** (`ALTEZZA_MIN` in `giorno.js`).
+
+### ⚠ MODELLI: proiettano ma NON ricevono
+Una chioma è una pila di coni: se riceve la propria ombra i piani bassi vanno al
+buio e l'albero esce mezzo nero. In Leafy il fogliame è tinta piatta.
+⚠ E `facce: false` per i modelli e per l'erba: il termine «faccia al sole» è la
+verità geometrica su un CUBO, non su piani incrociati né su un filo d'erba — la
+cui normale, per giunta, dipende da quanto il vento lo sta piegando.
+⚠ E l'origine di un `.glb` **non sta sui piedi**: si sposta l'array delle
+posizioni, non la mesh — con le thin instance la matrice locale non ha più voce.
+
 ### ⚠ ALTRE TRAPPOLE DI BABYLON già pagate
 - **`thinInstanceBufferUpdated` spedisce l'INTERO array**, cioè il tetto. Con
   buffer allocati a 500.000 e 101.698 istanze vive: **12,4 ms**. La variante

@@ -82,10 +82,17 @@ export class Passeggero {
    * Un passo di simulazione.
    * @param dt      secondi
    * @param intento { avanti, destra, salta } — avanti/destra in [-1..1]
-   * @param angolo  di dove guarda la camera, in radianti: il movimento è
-   *                RELATIVO ALLA VISTA, che è l'unico modo che non confonde
+   * @param avanti  il VERSORE di dove guarda la camera, sul piano: {x, z}
+   *
+   * ⚠ SI PASSA IL VERSORE, NON L'ANGOLO. Prima prendevo `camera.alpha` e ne
+   * ricavavo il verso con un seno e un coseno: sbagliato, e il committente l'ha
+   * sentito subito — «c'è un problema con il movimento del player rispetto alla
+   * telecamera». Il legame fra `alpha` e la direzione di una ArcRotateCamera
+   * dipende da convenzioni del motore (mano destra o sinistra, da dove si conta
+   * l'angolo) che qui dentro NON si devono conoscere: questo file non sa nemmeno
+   * che esiste un motore. Chi ha la camera sa dove guarda; lo dica, e basta.
    */
-  aggiorna(dt, intento, angolo) {
+  aggiorna(dt, intento, avanti) {
     const passo = Math.min(dt, 0.05);   // ⚠ un fotogramma lungo non teletrasporta
 
     // ---- il piano ----------------------------------------------------------
@@ -93,10 +100,15 @@ export class Passeggero {
     const lung = Math.hypot(av, de);
     let mx = 0, mz = 0;
     if (lung > 0.01) {
-      const c = Math.cos(angolo), s = Math.sin(angolo);
-      // avanti = dove guarda la camera, proiettato sul piano
-      const fx = -s, fz = -c;
-      const dx = c, dz = -s;
+      // il versore avanti sul piano, normalizzato qui: chi lo passa non deve
+      // ricordarsi di farlo
+      let fx = avanti ? avanti.x : 0, fz = avanti ? avanti.z : -1;
+      const n = Math.hypot(fx, fz) || 1;
+      fx /= n; fz /= n;
+      // ⚠ LA DESTRA È «AVANTI RUOTATO DI -90° ATTORNO A Y», in mano destra con Y
+      // in su: (fx, fz) → (-fz, fx). Guardando verso -Z la destra è +X, che è
+      // quello che si aspetta chiunque abbia mai premuto D.
+      const dx = -fz, dz = fx;
       mx = (fx * av + dx * de) / lung;
       mz = (fz * av + dz * de) / lung;
       this.verso = Math.atan2(mx, mz);
