@@ -7378,11 +7378,16 @@ ${s?`    // \u26A0 IL CAMMINO SI PAGA SOLO DENTRO LA SFERA E SOLO SE LA LAMPADA 
   vRiva = aRiva;
   vAcquaPos = position;
 `,yW=`
-  vec4 acquaLargo = texture2D(uTratto, acquaUv * 0.317 + vec2(17.0, 9.0));
-  vec2 acquaDeriva = (acquaLargo.ga - 0.5) * uAcquaMis.z;
-  vec4 acquaCampoA = texture2D(uTratto, acquaUv + acquaDeriva);
-  vec4 acquaCampoB = texture2D(uTratto, acquaUv * 0.737 + vec2(31.7, 11.3) - acquaDeriva);
-  vec4 acquaCampo = mix(acquaCampoA, acquaCampoB, smoothstep(0.32, 0.68, acquaLargo.g));
+  vec4 acquaGuida = texture2D(uTratto, acquaUv * 0.213 + vec2(5.3, 3.7));
+  vec2 acquaPiega = (acquaGuida.gb - 0.5) * (0.05 + uAcquaMis.z * 1.1);
+  vec2 acquaUvP = acquaUv + acquaPiega;
+  vec2 acquaDeriva = (acquaGuida.ga - 0.5) * uAcquaMis.z;
+  mat2 acquaGira = mat2(0.8, -0.6, 0.6, 0.8);
+  vec4 acquaCampoA = texture2D(uTratto, acquaUvP + acquaDeriva);
+  vec4 acquaCampoB = texture2D(uTratto, acquaGira * acquaUvP * 0.737 + vec2(31.7, 11.3) - acquaDeriva);
+  vec4 acquaCampoC = texture2D(uTratto, acquaGira * acquaGira * acquaUvP * 1.611 + vec2(7.3, 23.9));
+  vec4 acquaCampo = mix(acquaCampoA, acquaCampoB, smoothstep(0.34, 0.66, acquaGuida.g));
+  acquaCampo = mix(acquaCampo, acquaCampoC, smoothstep(0.46, 0.62, acquaGuida.r));
 `,PW=`
   vec4 acquaCampo = texture2D(uTratto, acquaUv);
 `,DW=`
@@ -7486,9 +7491,17 @@ ${s?`    // \u26A0 IL CAMMINO SI PAGA SOLO DENTRO LA SFERA E SOLO SE LA LAMPADA 
 `,ch={liscia:LW,bande:wW,rete:FW,creste:NW,tratti:BW,scaglie:UW,gocce:VW,mosaico:GW,vetro:zW,inchiostro:kW,pixel:qW},YW=`
   float acquaViaFattore = 1.0 - smoothstep(uSfumaVia.x, uSfumaVia.y, length(vPositionW));
   acquaLinea = acquaLinea * acquaViaFattore;
-  acquaFondale = max(acquaFondale, (acquaSuMuro + acquaScivolo) * 0.85);
+  // \u26A0 IL COLORE DELLA CADUTA ARRIVA PER GRADI, e su una rampa PI\xD9 LUNGA di
+  // quella del disegno: \xABlo stacco cromatico nella cascata \xE8 troppo netto\xBB.
+  // Il disegno pu\xF2 cambiare in fretta senza dare fastidio (un motivo che si
+  // stira \xE8 un movimento), ma un salto di TINTA sul ciglio si legge come un
+  // bordo dipinto \u2014 due materiali che si toccano. Due blocchi e mezzo di
+  // sfumatura, contro l'uno e mezzo del disegno: quando la lama ha finito di
+  // schiarirsi, il ciglio \xE8 gi\xE0 lontano dall'occhio.
+  float acquaCadTinta = smoothstep(0.0, 2.6, acquaCadGiu) * acquaSuMuro;
+  acquaFondale = max(acquaFondale, max(acquaCadTinta, acquaScivolo * 0.55) * 0.85);
   acquaTinta = mix(uAcquaFonda, uAcquaBassa, acquaFondale);
-  acquaTinta = mix(acquaTinta, mix(acquaTinta, uSchiuma, 0.30), acquaSuMuro);
+  acquaTinta = mix(acquaTinta, mix(acquaTinta, uSchiuma, 0.30), acquaCadTinta);
   acquaAlfa = mix(uAcquaAlfa.x, uAcquaAlfa.y, acquaFondale) * acquaVelo;
   vec3 acquaSegno = mix(uAcquaChiara, uAcquaScura, acquaInchiostro);
   acquaTinta = mix(acquaTinta, acquaSegno, acquaLinea);
@@ -7512,7 +7525,7 @@ ${s?`    // \u26A0 IL CAMMINO SI PAGA SOLO DENTRO LA SFERA E SOLO SE LA LAMPADA 
   // della schiuma. Quello che resta trasparente \xE8 solo dove i nastri si
   // separano davvero \u2014 cio\xE8 lo sfrangiamento, che rientra qui in coda.
   float acquaMuroAlfa = mix(acquaAlfa, uAcquaAlfa.z, 0.7) * max(acquaMuroCorpo, acquaSchiuma);
-  acquaAlfa = mix(acquaAlfa, acquaMuroAlfa, acquaSuMuro);
+  acquaAlfa = mix(acquaAlfa, acquaMuroAlfa, acquaCadTinta);
 `,YN={trattini:`
 float acquaMotivo(vec2 acquaMuv, float acquaMt) {
   float acquaSfaso = step(0.5, fract(floor(acquaMuv.y) * 0.5)) * 0.5;
@@ -7526,38 +7539,23 @@ float acquaMotivo(vec2 acquaMuv, float acquaMt) {
 }
 `,archetti:`
 float acquaMotivo(vec2 acquaMuv, float acquaMt) {
-  float acquaSfaso = step(0.5, fract(floor(acquaMuv.y) * 0.5)) * 0.5;
-  vec2 acquaCasella = vec2(acquaMuv.x + acquaSfaso, acquaMuv.y);
-  float acquaCaso = fract(sin(dot(floor(acquaCasella), vec2(41.3, 289.1))) * 43758.5453);
-  vec2 acquaFraz = fract(acquaCasella) - vec2(0.5, 0.36);
-  float acquaRaggio = length(acquaFraz);
-  float acquaArco = step(abs(acquaRaggio - 0.27), 0.05) * step(acquaFraz.y, 0.02) * step(abs(acquaFraz.x), 0.24);
-  float acquaVivo = step(0.55, fract(acquaCaso + acquaMt * 0.08));
-  return acquaArco * acquaVivo;
+  vec2 acquaP = acquaMuv * 0.5;
+  acquaP += 0.42 * vec2(sin(acquaP.y * 1.31 + acquaMt * 0.33), cos(acquaP.x * 1.17 - acquaMt * 0.27));
+  float acquaLunga = sin(acquaP.x * 0.62 + acquaP.y * 1.05
+    + sin(acquaP.y * 1.9 - acquaMt * 0.4) * 0.75
+    + sin(acquaP.x * 2.7 + acquaMt * 0.22) * 0.35);
+  float acquaFine = sin(acquaP.x * 1.7 - acquaP.y * 0.9 + sin(acquaP.x * 3.1 + acquaMt * 0.5) * 0.6 - acquaMt * 0.3);
+  return max(smoothstep(0.80, 0.96, acquaLunga), smoothstep(0.90, 0.99, acquaFine) * 0.6);
 }
 `,cerchi:`
-float acquaCerchiStrato(vec2 acquaP, float acquaMt, float acquaSem) {
-  float acquaRis = 0.0;
-  for (int acquaGy = -1; acquaGy <= 1; acquaGy++) {
-    for (int acquaGx = -1; acquaGx <= 1; acquaGx++) {
-      vec2 acquaVic = vec2(float(acquaGx), float(acquaGy));
-      vec2 acquaCel = floor(acquaP) + acquaVic;
-      vec2 acquaSeme = fract(sin(vec2(dot(acquaCel, vec2(127.1, 311.7)), dot(acquaCel, vec2(269.5, 183.3)) + acquaSem)) * 43758.5453);
-      float acquaVuota = step(0.35, acquaSeme.x);
-      vec2 acquaCentro = acquaVic + 0.25 + acquaSeme * 0.5 - fract(acquaP);
-      float acquaRaggio = 0.16 + 0.22 * acquaSeme.y;
-      float acquaAnello = step(abs(length(acquaCentro) - acquaRaggio), 0.045);
-      acquaRis = max(acquaRis, acquaAnello * acquaVuota);
-    }
-  }
-  return acquaRis;
-}
 float acquaMotivo(vec2 acquaMuv, float acquaMt) {
-  vec2 acquaOndeggio = vec2(sin(acquaMuv.y * 2.2 + acquaMt * 0.8), cos(acquaMuv.x * 1.9 - acquaMt * 0.6)) * 0.16;
-  vec2 acquaDove = acquaMuv + acquaOndeggio;
-  float acquaStratoUno = acquaCerchiStrato(acquaDove + vec2(acquaMt * 0.05, 0.0), acquaMt, 0.0);
-  float acquaStratoDue = acquaCerchiStrato(acquaDove * 1.13 + vec2(0.47, 0.31 - acquaMt * 0.04), acquaMt, 1.7);
-  return max(acquaStratoUno, acquaStratoDue * 0.8);
+  vec2 acquaP = acquaMuv * 0.42;
+  acquaP += 0.55 * vec2(sin(acquaP.y * 0.83 + acquaMt * 0.21), cos(acquaP.x * 0.71 - acquaMt * 0.17));
+  float acquaLenta = sin(acquaP.y * 0.9 - acquaP.x * 0.35 + sin(acquaP.x * 1.4 + acquaMt * 0.26) * 1.1);
+  float acquaMedia = sin(acquaP.x * 1.25 + acquaP.y * 0.5 + sin(acquaP.y * 2.1 - acquaMt * 0.35) * 0.9 + acquaMt * 0.18);
+  float acquaLarga = smoothstep(0.62, 0.93, acquaLenta);
+  float acquaStretta = smoothstep(0.88, 0.99, acquaMedia);
+  return max(acquaLarga * 0.75, acquaStretta);
 }
 `,nuvole:`
 float acquaMotivo(vec2 acquaMuv, float acquaMt) {
