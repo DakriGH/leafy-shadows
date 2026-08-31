@@ -27,7 +27,15 @@ const sovrappone = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 <
  */
 function ingombroVero(p) {
   const posati = [];
-  const finto = { metti: (x, y, z) => posati.push([x, z]) };
+  // ⚠ ANCHE `togli`, e non è un vezzo: una piazzola può SCAVARE (quella
+  // dell'acqua lo fa, per il letto del ruscello), e una cella scavata fa parte
+  // dell'ingombro esattamente come una posata — è terreno che quella piazzola
+  // ha toccato. Con il solo `metti` il finto mondo esplodeva alla prima vasca,
+  // e la prova che deve dire «invadi la vicina» moriva prima di guardare.
+  const finto = {
+    metti: (x, y, z) => posati.push([x, z]),
+    togli: (x, y, z) => posati.push([x, z]),
+  };
   p.costruisci(finto, p.x * PASSO, p.z * PASSO);
   if (!posati.length) return null;
   let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
@@ -103,7 +111,12 @@ test('la griglia dei muri dello zoo sta sotto il paracadute del mesher', async (
     z0 = Math.min(z0, g.z0); z1 = Math.max(z1, g.z1);
     // l'altezza vera: la si misura posando, come l'ingombro
     const quote = [];
-    p.costruisci({ metti: (x, y) => quote.push(y) }, p.x * PASSO, p.z * PASSO);
+    // ⚠ ANCHE QUI SERVE `togli` (vedi il finto mondo più su), e la quota si
+    // registra anche scavando: sovrastimare l'altezza fa scattare il paracadute
+    // in anticipo, sottostimarla lo fa mancare — e questa prova esiste proprio
+    // per il caso in cui si sbaglia dalla parte sbagliata.
+    const finto = { metti: (x, y) => quote.push(y), togli: (x, y) => quote.push(y) };
+    p.costruisci(finto, p.x * PASSO, p.z * PASSO);
     y1 = Math.max(y1, ...quote);
   }
   // il margine che `scatolaPerMondo` aggiunge attorno (2 di lato, 6 sopra e sotto)

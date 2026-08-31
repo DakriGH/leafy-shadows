@@ -8,6 +8,7 @@
 
 import { Rig } from './motore/motore.js';
 import { Fabbrica } from './motore/fabbrica.js';
+import { STILI } from './motore/acqua.js';
 import { Giorno } from './motore/giorno.js';
 import { Modelli } from './motore/modelli.js';
 import { Particelle } from './motore/particelle.js';
@@ -48,7 +49,7 @@ const particelle = new Particelle(rig.scena, rig);
 // occhi mentre si sta confrontando due scatti. K la fa scendere di un gradino.
 const scala = new ScalaQualita({
   mobile: rig.dispositivo.mobile,
-  applica: (p) => rig.applicaProfilo(p, { erba, particelle }),
+  applica: (p) => rig.applicaProfilo(p, { erba, particelle, fabbrica }),
 });
 scala.fissa(0);
 // ⚠ E QUANTO VA LO SCHERMO SI MISURA, non si chiede: `screen.refreshRate` non
@@ -125,6 +126,11 @@ addEventListener('keydown', (e) => {
   else if (e.code === 'KeyV') rig.voxel.attiva = !rig.voxel.attiva;
   else if (e.code === 'KeyN') particelle.mostra(!particelle.accese);
   else if (e.code === 'KeyK') scala.fissa((scala.livello + 1) % scala.quanti);
+  // ⚠ GLI STILI DELL'ACQUA SI CICLANO A CALDO, e serve: fermi non si giudicano.
+  // Metà di quello che distingue un disegno dall'altro è COME SI MUOVE — un
+  // tratteggio che scorre e una rete che respira, da fermi, sono due immagini
+  // che si somigliano.
+  else if (e.code === 'KeyH') stileAcqua = fabbrica.cambiaStileAcqua(NOMI_STILE[(NOMI_STILE.indexOf(stileAcqua) + 1) % NOMI_STILE.length]);
 });
 let raggiSalvati = null;
 function scambiaLuci(accese) {
@@ -136,8 +142,21 @@ function scambiaLuci(accese) {
 const finestra = [];
 let ultimo = performance.now();
 
+/** Il tempo dell'acqua: si accumula qui perché il motore passa solo il DELTA. */
+let tAcqua = 0;
+/** Gli stili del pelo, per il tasto H. L'elenco lo dà il motore. */
+const NOMI_STILE = Object.keys(STILI);
+let stileAcqua = NOMI_STILE[NOMI_STILE.length - 1];
+
 rig.avvia((dt) => {
   giorno.aggiorna(dt);
+  // ⚠ IL DISEGNO DELL'ACQUA SCORRE A TEMPO, NON A FOTOGRAMMI: a 144 Hz e a 30
+  // la corrente deve andare alla stessa velocità, se no su un telefono lento il
+  // ruscello rallenta insieme agli fps e si legge come un difetto della fisica.
+  // È lo stesso inciampo della scia della schiuma in Lantern, che svaniva in un
+  // quarto di secondo a 120 fps e in un secondo a 30.
+  tAcqua += dt;
+  fabbrica.animaAcqua(tAcqua);
   // le lampade in moto: una funzione del tempo, niente stato
   for (const mo of mobili) {
     const a = giorno.t * Math.PI * 40;
@@ -169,7 +188,8 @@ rig.avvia((dt) => {
     `${rig.dispositivo.mobile ? 'MOBILE' : 'desktop'} q${scala.livello}/${scala.quanti - 1}   ` +
     `${rig.motore.getRenderWidth()}×${rig.motore.getRenderHeight()}\n` +
     `← → piazzola   ↑ ↓ ora   spazio ciclo   G erba   L luci   O ombre del sole\n` +
-    `V ombre delle lampade   N particelle   K qualità   I ispettore`;
+    `V ombre delle lampade   N particelle   K qualità   I ispettore\n` +
+    `H stile dell'acqua: ${stileAcqua}  (${NOMI_STILE.join(' · ')})`;
 });
 
 globalThis.ZOO = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, particelle, scala, PIAZZOLE, vaiA };

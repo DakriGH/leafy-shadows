@@ -79,6 +79,15 @@ const SENZA_CIMA = -32768;
 // svuota comunque in qualche decina di fotogrammi perche' quasi tutti i chunk
 // arrivano dalla cache. Meglio seminare piu' piano che rubare tempo al frame.
 const BUDGET_MS = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) ? 0.25 : 0.5;
+// ⚠ E UN BUDGET LARGO PER I GESTI. Camminare è continuo: lì mezzo millisecondo
+// per fotogramma è giusto, perché nessuno sta guardando quel chunk in
+// particolare e la coda ha tempo. Piantare un ciuffo è puntuale: c'è una
+// persona che ha appena cliccato e sta guardando ESATTAMENTE lì. Con il budget
+// da passeggiata il prato si riscambia dopo undici fotogrammi (misurato,
+// desktop q0), e undici fotogrammi dopo un clic si leggono come «non ha
+// funzionato». Con questo la coda finisce in uno o due: uno scatto di venti
+// millisecondi su un gesto voluto è invisibile, un ritardo di due decimi no.
+const BUDGET_GESTO = 14;
 
 /**
  * IL MANTO: un rumore liscio su coordinate di MONDO, a tre scale.
@@ -262,7 +271,15 @@ export class Erba {
     this._rasati = new Set();  // chiave(x,z)           forzate NO
     /** ⚠ SALE A OGNI CAMBIO ED È NELLA CHIAVE DELLA CACHE: senza, i chunk già
      *  seminati tornerebbero fuori identici e rasare non si vedrebbe. */
-    this._verPosati = 0;
+    // ⚠ UNA REVISIONE PER CHUNK, NON UNA PER IL MONDO. Era un contatore solo, e
+    // stava nella chiave della cache: piantare un ciuffo lo faceva salire, e
+    // salendo mandava a vuoto in un colpo TUTTE le 121 voci del ring. Il prato
+    // non si scambia finché la coda non è finita, quindi il ciuffo appariva
+    // secondi dopo il clic — il committente l'ha descritto come «quando la
+    // piazzi compare dopo parecchio», ed era esattamente questo.
+    // Misurato prima: 121 chunk riseminati per un ciuffo. Dopo: 1.
+    this._verChunk = new Map();
+    this._urgente = false;   // vedi BUDGET_GESTO: un clic non aspetta come un passo
 
     // DUE BUFFER: si semina in quello di SCORTA e si scambia a lavoro finito.
     // Senza, durante la semina progressiva si vedrebbe il prato costruirsi
@@ -271,6 +288,16 @@ export class Erba {
     this.iDati = new Float32Array(max * 4);
     this.iCol = new Float32Array(max * 3);
     this.iColCima = new Float32Array(max * 3);
+    // ⚠ I BUFFER DELL'ERBA LONTANA (l'ibrido quad/punte, scelta del
+    // committente: «vicino quadrata, lontana triangolare»): la coda di semina
+    // è ordinata per distanza, quindi le lamelle lontane sono la CODA dello
+    // staging — qui se ne tiene la copia viva per la seconda mesh del prato.
+    // Costa RAM di CPU (il tetto intero, perché da lontano può essere quasi
+    // tutto), e in cambio il carico resta parziale su tutte e due le mesh.
+    this.iPosL = new Float32Array(max * 4);
+    this.iDatiL = new Float32Array(max * 4);
+    this.iColL = new Float32Array(max * 3);
+    this.iColCimaL = new Float32Array(max * 3);
     this.sPos = new Float32Array(max * 4);
     this.sDati = new Float32Array(max * 4);
     this.sCol = new Float32Array(max * 3);
@@ -279,6 +306,16 @@ export class Erba {
     // esiste e che accetta `n` istanze coi quattro array qui sopra
     this.prato = _r.creaPrato(max);
 
+    // ⚠ IL CONFINE DELL'IBRIDO quad/punte, in CHUNK di distanza: entro questo
+    // le lamelle sono quad (lo stile scelto dal committente: «preferivo l'erba
+    // quadrata»), oltre diventano punte da un triangolo — la sua stessa
+    // proposta: «magari l'erba vicino quadrata, quella lontana triangolare?».
+    // A 1 (16 blocchi) le foto A/B della stessa inquadratura sono
+    // indistinguibili e si risparmia UN TERZO dei triangoli dell'erba
+    // (misurato: 37.587 su 114.062); a 2 il risparmio crolla al 6% perché il
+    // diradamento per distanza ha già assottigliato il lontano. Se in gioco la
+    // cucitura si vedesse, questa è la manopola: si alza a 2 e si riprova.
+    this.confineVicino = 1;
     this._apparso = 1;        // vedi _scambia: 0 = campo appena nato, si stacca dal terreno
     this.forzaMeteo = 0;      // 0 sereno, 1 rovescio: la muove main
     this._forza = 0;
@@ -344,7 +381,7 @@ export class Erba {
     // ⚠ LA DENSITÀ STA NELLA CHIAVE. Decide quante lamelle per ciuffo E quante
     // celle restano scoperte: un chunk seminato a densità 1 non vale a densità 8,
     // e senza questo pezzo la scala di qualità lasciava in giro il prato vecchio.
-    const ck = kc + '|' + passo + '|' + this.densita + '|' + this._verPosati + '|' + (mondo.revisione ? mondo.revisione(kc) : 0);
+    const ck = kc + '|' + passo + '|' + this.densita + '|' + (this._verChunk.get(kc) || 0) + '|' + (mondo.revisione ? mondo.revisione(kc) : 0);
     const pronto = this._cache.get(ck);
     if (pronto) {
       if (this._n + pronto.n > this.max) return 0;
@@ -364,7 +401,16 @@ export class Erba {
   /** Mette da parte le lamelle appena seminate. La cache è a coda: le voci più
    *  vecchie sono quelle dei chunk che ci si è lasciati alle spalle. */
   _ricorda(ck, i0, n) {
-    if (n <= 0) return;
+    // ⚠ ANCHE «QUI NON C'È NIENTE» È UNA RISPOSTA DA RICORDARE. Prima si usciva
+    // subito con n = 0, e quindi ogni chunk senza erba — roccia, acqua, il vuoto
+    // oltre il bordo del mondo — veniva riseminato a OGNI riapertura della coda:
+    // 256 colonne frugate per scoprire da capo che non c'è niente. Su un mondo
+    // dove metà del ring è pietra sono sessanta chunk rifatti per nulla a ogni
+    // sedici passi. La voce vuota costa quattro array di zero elementi.
+    // ⚠ MA NON SI RICORDA UN CHUNK TRONCATO: se la semina si è fermata perché il
+    // buffer era pieno, quello che ha scritto non è il chunk — è quel che ci
+    // stava. Ricordarlo vorrebbe dire servirlo mutilato per sempre.
+    if (n < 0 || this._troncato) return;
     this._cache.set(ck, {
       n,
       pos: this.sPos.slice(i0 * 4, (i0 + n) * 4),
@@ -378,6 +424,7 @@ export class Erba {
   }
 
   _seminaVero(mondo, kc, passo) {
+    this._troncato = false;
     const { qy, qt, ox, oz } = this._quoteChunk(mondo, kc);
     const { sPos, sDati, sCol, sColCima } = this;
     let n = this._n;
@@ -388,7 +435,7 @@ export class Erba {
     // resta scoperta. Sta qui e non nel ciclo perché dipende solo dalla densità.
     const copertura = Math.min(1, Math.max(0, (this.densita - 1) / 3));
     for (let i = 0; i < qy.length; i++) {
-      if (n >= this.max - LAMELLE_MAX) break;
+      if (n >= this.max - LAMELLE_MAX) { this._troncato = true; break; }
       const x = ox + ((i / CHUNK) | 0), z = oz + (i % CHUNK);
       const kc2 = chiaveCella(x, z);
       // ⚠ LA RASATURA VINCE SU TUTTO, anche su un ciuffo posato a mano: è
@@ -590,6 +637,7 @@ sPos[j + 1] = y;
     }
     this._coda.sort((a, b) => a.dc - b.dc);
     this._n = 0;
+    this._nVicine = 0;
     // ⚠ OGNI RISEMINA VA SCAMBIATA, ANCHE SE IL CONTO NON CAMBIA, e questa riga
     // chiude un difetto che si vedeva solo come un prato VERDE sopra un terreno
     // INNEVATO. Lo scambio dei due buffer girava solo «se il numero di lamelle è
@@ -619,16 +667,23 @@ sPos[j + 1] = y;
   _scambia() {
     this._daScambiare = false;
     const n = this._n;
-    this.iPos.set(this.sPos.subarray(0, n * 4));
-    this.iDati.set(this.sDati.subarray(0, n * 4));
-    this.iCol.set(this.sCol.subarray(0, n * 3));
-    this.iColCima.set(this.sColCima.subarray(0, n * 3));
+    // l'ibrido: le vicine (testa dello staging, coda ordinata per distanza)
+    // vanno nei buffer della mesh quad, le lontane in quelli della mesh a punte
+    const nV = Math.min(this._nVicine ?? n, n);
+    this.iPos.set(this.sPos.subarray(0, nV * 4));
+    this.iDati.set(this.sDati.subarray(0, nV * 4));
+    this.iCol.set(this.sCol.subarray(0, nV * 3));
+    this.iColCima.set(this.sColCima.subarray(0, nV * 3));
+    this.iPosL.set(this.sPos.subarray(nV * 4, n * 4));
+    this.iDatiL.set(this.sDati.subarray(nV * 4, n * 4));
+    this.iColL.set(this.sCol.subarray(nV * 3, n * 3));
+    this.iColCimaL.set(this.sColCima.subarray(nV * 3, n * 3));
     // ⚠ E IL CARICO PARZIALE ADESSO È DEL MOTORE. In Lantern questa era la
     // riga che costava 8,1 ms a ogni confine di chunk, finché non ho scoperto
     // che senza `addUpdateRange` three spedisce l'INTERO array — il tetto, non
     // le lamelle scritte. Babylon lo chiama `thinInstancePartialBufferUpdate`
     // ed è la stessa idea, ma non è una cosa che dobbiamo ricordarci noi.
-    _r.scriviPrato(this.prato, n, this);
+    _r.scriviPrato(this.prato, n, this, nV);
     // LA COMPARSA. Il campo che nasce da zero (mondo nuovo, erba riaccesa, primo
     // avvio) si stacca dal terreno in mezzo secondo invece di apparire in un
     // fotogramma; una riseminata normale — quella di quando cammini — non la
@@ -699,12 +754,18 @@ sPos[j + 1] = y;
     // sarebbe già finito prima di cominciare e la coda non scorrerebbe mai.
     const t0 = performance.now();
     let fatti = 0;
-    while (this._coda.length && (fatti === 0 || performance.now() - t0 < BUDGET_MS)) {
+    const budget = this._urgente ? BUDGET_GESTO : BUDGET_MS;
+    while (this._coda.length && (fatti === 0 || performance.now() - t0 < budget)) {
       const c = this._coda.shift();
       this._seminaChunk(mondo, c.kc, c.dc);
+      // il confine dell'ibrido quad/punte: la coda è ordinata per distanza,
+      // quindi finché il chunk è entro il confine TUTTO ciò che è stato
+      // scritto finora è «vicino» — l'ultimo aggiornamento vince
+      if (c.dc <= this.confineVicino) this._nVicine = this._n;
       fatti++;
     }
     if (!this._coda.length && (this._daScambiare || this._n !== this.fili)) this._scambia();
+    if (!this._coda.length) this._urgente = false;
     // ⚠ UN PACCHETTO SOLO, non venti uniform. La semina calcola grandezze di
     // GIOCO (dove tira il vento, dove sta l'occhio, dove finisce il campo) e le
     // consegna; tradurle in uniform è mestiere del motore. È lo stesso confine
@@ -713,19 +774,30 @@ sPos[j + 1] = y;
     _r.animaPrato(this.prato, this);
   }
 
-  /** Il mondo è cambiato sotto i piedi (blocco posato, mondo nuovo). */
+  /**
+   * SEGNA CHE QUESTO CHUNK È CAMBIATO — e solo questo.
+   *
+   * ⚠ È LA RIGA CHE FA COMPARIRE L'ERBA SUBITO. Toccare una cella invalida la
+   * cache del chunk che la contiene; gli altri centoventi escono dalla cache
+   * come memcpy, la coda si svuota nello stesso fotogramma e lo scambio dei
+   * buffer avviene prima del disegno successivo.
+   */
+  _sporca(x, z) {
+    const kc = Math.floor(x / CHUNK) + ',' + Math.floor(z / CHUNK);
+    this._verChunk.set(kc, (this._verChunk.get(kc) || 0) + 1);
+    this.risemina(true);
+  }
+
   /** Un ciuffo MESSO A MANO in questa cella (il furni «Ciuffo d'erba»). */
   posa(x, y, z) {
     this._posati.set(chiaveCella(x, z), { y });
-    this._verPosati++;
-    this.risemina();
+    this._sporca(x, z);
   }
 
   /** Via il ciuffo messo a mano. */
   togliPosa(x, z) {
     if (!this._posati.delete(chiaveCella(x, z))) return;
-    this._verPosati++;
-    this.risemina();
+    this._sporca(x, z);
   }
 
   /**
@@ -739,16 +811,14 @@ sPos[j + 1] = y;
     this._posati.delete(k);
     if (this._rasati.has(k)) return false;
     this._rasati.add(k);
-    this._verPosati++;
-    this.risemina();
+    this._sporca(x, z);
     return true;
   }
 
   /** Ricresca pure. */
   togliRasa(x, z) {
     if (!this._rasati.delete(chiaveCella(x, z))) return false;
-    this._verPosati++;
-    this.risemina();
+    this._sporca(x, z);
     return true;
   }
 
@@ -775,7 +845,14 @@ sPos[j + 1] = y;
     return !!(sotto && defDi(sotto).cappello);
   }
 
-  risemina() { this._ccx = 1e9; this._ccz = 1e9; }
+  /**
+   * RIAPRE LA CODA. `subito` = c'è qualcuno che ha appena cliccato e sta
+   * guardando: vedi BUDGET_GESTO. Camminare non è «subito», costruire sì.
+   */
+  risemina(subito = false) {
+    this._ccx = 1e9; this._ccz = 1e9;
+    if (subito) this._urgente = true;
+  }
 
   /**
    * SCORDA I CIUFFI GIÀ SEMINATI, e non è la stessa cosa di `risemina`.

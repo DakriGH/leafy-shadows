@@ -34,6 +34,25 @@ const latoMassimoVoxel = () => _f.latoMassimoVoxel();
 const mondoVelato      = () => _f.mondoVelato();
 import { CHUNK } from './world.js';
 
+/**
+ * QUANTI CHUNK ATTORNO AL GIOCATORE SI COSTRUISCONO SUBITO, all'avvio.
+ *
+ * ⚠ UNO, cioè un quadrato 3×3 = 9 chunk di 16 celle: quarantotto blocchi per
+ * lato attorno a chi guarda. Il resto arriva dalla coda, dal più vicino al più
+ * lontano, un chunk per fotogramma.
+ *
+ * ⚠ IL NUMERO VIENE DA UNA MISURA, non dal gusto. Con tutti e 49 in un colpo il
+ * blocco era 657 ms qui e 5.507 sul telefono del committente; con raggio 2
+ * (25 chunk su 49) scendeva solo a 443 — mezza misura per mezzo problema. Con
+ * raggio 1 sono 204 ms, e i 40 chunk rimasti entrano da soli in 803 ms senza
+ * che il gioco smetta di rispondere.
+ *
+ * ⚠ E IL PREZZO È CHE IL MONDO SI VEDE POPOLARE. Vale la pena: uno schermo fermo
+ * si legge come un gioco rotto, un mondo che si riempie si legge come un mondo
+ * che carica. Se un giorno il pop-in desse fastidio, questa è la manopola.
+ */
+const RAGGIO_SUBITO = 1;
+
 const U = 1 / 16;                 // 1 pixel in unità mondo
 const COPPIE_SMUSSO = [[0, 1], [0, 2], [1, 2]];
 const LATI = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -381,7 +400,7 @@ function rivaCella(solido) {
 // info = { livello, mioSopra, cascata, flusso:[fx,fz], vicinoAcqua, vicinoPieno }
 function acquaBox(b, cx, cy, cz, pal, info) {
   const F = 8 * U;
-  const { livello, mioSopra, cascata, flusso, vicinoAcqua, vicinoPieno, acquaA } = info;
+  const { livello, mioSopra, cascata, flusso, vicinoAcqua, vicinoPieno, acquaA, colonna } = info;
   // UNA sola lettura per colonna: rivaAngolo ne scandisce 25, e passare dal
   // paio vicinoAcqua+vicinoPieno (tre mondo.tipo/pieno a cella) le triplicava
   const solidoXZ = info.solidoXZ || ((dx, dz) => vicinoAcqua(dx, dz) === null && vicinoPieno(dx, 0, dz));
@@ -460,7 +479,13 @@ function acquaBox(b, cx, cy, cz, pal, info) {
     // le due quote in alto della parete = gli angoli di quel lato (rampa)
     const h1 = mioSopra ? F : angolo(dx - tx, dz - tz);
     const h2 = mioSopra ? F : angolo(dx + tx, dz + tz);
-    b.extra(0, 0, cascata ? 2 : 5);
+    // ⚠ LE PARETI DI CASCATA DICHIARANO LA COLONNA: (quota della cima, quota
+    // della base, 2). Il fragment ne ricava altezza totale e caduta percorsa,
+    // e da lì gli effetti PER FASCIA — labbro teso in cima, filamenti che si
+    // stirano accelerando, schiuma alla base dai tre blocchi in su. Prima qui
+    // c'erano due zeri sprecati, e la parete era cieca sulla propria altezza.
+    if (cascata && colonna) b.extra(colonna[0], colonna[1], 2);
+    else b.extra(0, 0, cascata ? 2 : 5);
     b.quad(
       p(dx * F - tx * F, base, dz * F - tz * F),
       p(dx * F + tx * F, base, dz * F + tz * F),
@@ -547,8 +572,25 @@ function costruisciBlocco(bSolidi, bAcqua, mondo, x, y, z, tipo) {
         bAcqua.impatti.push({ x: cx, y: y + h + (15 - 2 * Lc2) / 16 + 0.02, z: cz, ys: cy, h });
       }
     }
+    // LA COLONNA DELLA CASCATA: quanto sale e quanto scende, in quote di mondo.
+    // ⚠ La CIMA sale finché c'è acqua (il pelo in cima alla colonna); la BASE
+    // scende finché c'è acqua IN CADUTA — una sorgente sotto è il lago in cui
+    // si tuffa, e lì la colonna finisce: contarlo dentro gonfierebbe l'altezza
+    // di tutta la profondità del lago. Il tetto a 24 è un paracadute, non un
+    // limite di progetto.
+    let colonna = null;
+    if (mioSopra) {
+      let su = y, giu = y;
+      while (su - y < 24) { const t2 = mondo.tipo(x, su + 1, z); if (!t2 || !defDi(t2).acqua) break; su++; }
+      while (y - giu < 24) {
+        const t2 = mondo.tipo(x, giu - 1, z);
+        if (!t2 || !defDi(t2).acqua || livelloAcqua(t2) === 0) break;
+        giu--;
+      }
+      colonna = [su + 1, giu];
+    }
     acquaBox(bAcqua, cx, cy, cz, pal, {
-      livello: Lc, mioSopra, cascata: mioSopra, flusso, vicinoAcqua,
+      livello: Lc, mioSopra, cascata: mioSopra, flusso, vicinoAcqua, colonna,
       vicinoPieno: (dx, dy, dz) => mondo.pieno(x + dx, y + dy, z + dz),
       // "questa colonna ferma l'acqua?" con UNA lettura: stessa regola del
       // culling (acqua e forme non piene non contano). mondo.pieno() da solo
@@ -969,21 +1011,71 @@ export class Mesher {
     }
   }
 
+  /**
+   * I PUNTI DOVE L'ACQUA FA QUALCOSA: impatti delle cascate e correnti sul pelo.
+   *
+   * ⚠ IL MESHER LI CALCOLAVA GIÀ E LI BUTTAVA VIA — due array per chunk, riempiti
+   * a ogni ricostruzione e mai letti da nessuno, esattamente com'era per
+   * `dati.acq` prima che l'acqua imparasse a usarli. Non è un dato nuovo: è un
+   * dato che era lì. Questo getter è tutto quello che mancava.
+   *
+   * ⚠ E SI ENUMERA DAI CHUNK, non si tiene un elenco a parte: un elenco andrebbe
+   * tenuto in pari con le ricostruzioni parziali (una cascata che si prosciuga
+   * lascerebbe il suo impatto acceso per sempre), mentre le voci dei chunk
+   * muoiono insieme al chunk che le ha prodotte.
+   */
+  puntiAcqua() {
+    const impatti = [], flussi = [];
+    for (const e of this.chunks.values()) {
+      if (e.impatti) impatti.push(...e.impatti);
+      if (e.flussi) flussi.push(...e.flussi);
+    }
+    return { impatti, flussi };
+  }
+
   /** Ricostruzione totale (avvio, import, reset): via gli orfani, su tutto il resto. */
-  ricostruisciTutto(mondo) {
+  /**
+   * @param attorno  {x,z} — se c'è, si costruiscono SUBITO solo i chunk vicini
+   *                 e gli altri finiscono in coda (vedi `aggiorna`).
+   */
+  ricostruisciTutto(mondo, attorno = null) {
     const t0 = performance.now();
     this._ricalcolaLuce(mondo);
     for (const kc of [...this.chunks.keys()]) {
       if (!mondo.chunks.has(kc)) this._rimuovi(kc);
     }
-    for (const kc of mondo.chunks.keys()) this._chunk(mondo, kc);
+    // ⚠ NON TUTTI SUBITO, SE C'È UN POSTO DA CUI GUARDARE. Misurato: 12,7 ms per
+    // chunk su questa macchina, 49 chunk = 657 ms in un blocco solo; sul
+    // telefono del committente (Mali-G68) gli stessi 49 chunk sono 5.507 ms —
+    // cinque secondi e mezzo di pagina CONGELATA prima di vedere qualcosa.
+    //
+    // ⚠ E LA MACCHINA PER FARLO C'ERA GIÀ, inutilizzata: `aggiorna` scorre una
+    // coda con un bilancio di 3 ms per fotogramma, ORDINATA PER DISTANZA dal
+    // giocatore. Bastava non riempirla tutta di colpo. Adesso si costruisce
+    // quello che si ha addosso e il resto arriva mentre si guarda — che è come
+    // fanno tutti i giochi a blocchi, e non per estetica: un mondo che si
+    // popola si legge come un mondo che carica, uno schermo fermo si legge come
+    // un gioco rotto.
+    const raggio = attorno ? RAGGIO_SUBITO : Infinity;
+    const cx = attorno ? Math.floor(attorno.x / CHUNK) : 0;
+    const cz = attorno ? Math.floor(attorno.z / CHUNK) : 0;
+    for (const kc of mondo.chunks.keys()) {
+      if (raggio === Infinity) { this._chunk(mondo, kc); continue; }
+      const v = kc.indexOf(',');
+      const dx = +kc.slice(0, v) - cx, dz = +kc.slice(v + 1) - cz;
+      if (Math.max(Math.abs(dx), Math.abs(dz)) <= raggio) this._chunk(mondo, kc);
+      else this._codaPiena.add(kc);
+    }
     mondo.sporchi.clear();
     mondo.sporchiAcqua.clear();
-    // le code degli sporchi di PRIMA parlano di un mondo che non c'è più
-    this._codaPiena.clear();
+    // ⚠ E LA CODA DELL'ACQUA SI SVUOTA, ma non quella piena: parlano di un mondo
+    // che non c'è più — tranne quella che abbiamo appena riempito noi qui sopra
+    // apposta, con i chunk lontani da costruire con calma. Svuotarle tutte e
+    // due, com'era prima, vorrebbe dire che il resto del mondo non arriva mai.
     this._codaAcqua.clear();
     this.statistiche.ultimaMs = performance.now() - t0;
     this.statistiche.chunkAttivi = this.chunks.size;
+    this.statistiche.inCoda = this._codaPiena.size;
   }
 
   /**

@@ -5,3 +5,8 @@ www/
 # rigenerabile con `npm run ispettore` — 12,8 MB di attrezzo, non di gioco
 vendor/ispettore.js
 www/
+
+# il gettone della diagnostica: casuale, per-macchina, MAI nel repo
+diagnostica.chiave
+# e i rapporti ricevuti, che sono roba di sessione
+diagnostica/

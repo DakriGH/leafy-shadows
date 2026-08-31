@@ -23,6 +23,11 @@ import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera.js';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { CascadedShadowGenerator } from '@babylonjs/core/Lights/Shadows/cascadedShadowGenerator.js';
+// ⚠ SEMPRE PRESENTE, non solo per fare esperimenti. È l'unico strumento che si
+// ha su una macchina che non si può profilare: su un telefono non c'è una
+// console, e quello che arriva è uno SCATTO DELLO SCHERMO. Un pannello che dice
+// disegni e millisecondi trasforma «va piano» da opinione in misura.
+import { SceneInstrumentation } from '@babylonjs/core/Instrumentation/sceneInstrumentation.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { FxaaPostProcess } from '@babylonjs/core/PostProcesses/fxaaPostProcess.js';
@@ -38,7 +43,7 @@ import { CreatePickingRay } from '@babylonjs/core/Culling/ray.core.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { ambienteDiFabbrica } from './stile.js';
 import { Luci } from './luci.js';
-import { classeDispositivo, schedaDi, fissiDiAvvio, DPR_MAX, LIVELLI } from './qualita.js';
+import { classeDispositivo, schedaDi, gpuDaTelefono, fissiDiAvvio, DPR_MAX, LIVELLI } from './qualita.js';
 
 // ⚠ GLI SHADER VANNO IMPORTATI A MANO quando si importa in profondità. Babylon
 // registra i sorgenti dei suoi materiali come EFFETTI COLLATERALI di moduli
@@ -89,16 +94,17 @@ export class Rig {
     // Che è esattamente il posto giusto per una cosa che non si deve poter
     // perdere in silenzio.
     this.motore = new Engine(tela, true, {
-      // ⚠ SPENTO SU MOBILE, ED È UNA TRAPPOLA CLASSICA. Serve solo a poter
-      // leggere il canvas dopo il disegno (gli scatti di confronto). In cambio
-      // dice al driver che il contenuto del framebuffer va CONSERVATO a fine
-      // fotogramma — e su una GPU a tile, cioè su tutte quelle dei telefoni,
-      // quello impedisce di scartarlo e costringe a una copia per fotogramma.
-      // Su desktop non si sente; su mobile è banda buttata via.
-      preserveDrawingBuffer: !this.dispositivo.mobile,
+      // ⚠ SPENTO OVUNQUE (era `!mobile`): dice al driver che il framebuffer va
+      // CONSERVATO a fine fotogramma — su una GPU a tile è una copia intera per
+      // frame, e serviva solo agli scatti, che passano da `rig.scatto` (il
+      // bersaglio apposta che funziona comunque). Anche su desktop era banda
+      // pagata per niente. Vedi docs/STUDIO-RETRO.md.
+      preserveDrawingBuffer: false,
       stencil: false,
-      // ⚠ SPENTO SU MOBILE: quadruplica il riempimento su un chip che è già il
-      // collo di bottiglia, e a DPR alto non si vede la differenza.
+      // ⚠ RIBALTATO DALLO STUDIO TBDR (docs/STUDIO-RETRO.md): su un tiler l'MSAA
+      // è on-chip e quasi gratis, il post-process no — la tabella mobile spegne
+      // FXAA e qui il canvas tiene l'MSAA. La vecchia nota «quadruplica il
+      // riempimento» valeva per le GPU desktop.
       antialias: this.fissi.antialias,
       powerPreference: 'high-performance',
       // ⚠ IL MONDO GRANDE SI DECIDE QUI, ALLA CREAZIONE, O NON SI DECIDE PIÙ.
@@ -133,11 +139,57 @@ export class Rig {
     // riga senza la quale il contesto non torna più e la tela resta NERA per
     // sempre). In Leafy-Lantern quel gestore era nostro; qui non serve.
     this.scheda = schedaDi(this.motore);
+    // ⚠ L'USER-AGENT MENTE, LA GPU NO — e questo blocco viene da un rapporto 🩺
+    // vero: «desktop» a 6 fps, p50 179 ms, ombre 48 ms… su una Mali-G68. Era il
+    // telefono del committente con «richiedi sito desktop» attivo: l'UA diceva
+    // desktop, la classe gli credeva, e il profilo desktop pieno (4 cascate
+    // 2048², 269k triangoli) finiva su una GPU a tile. Con la scala automatica
+    // tolta per decisione, quel caso non ha più nessuna rete sotto: si corregge
+    // QUI, dove il nome della scheda è finalmente noto. Il motore è già nato
+    // (l'MSAA del canvas resta quello del contesto — su una GPU a tile è il
+    // costo minore), ma profilo, DPR e fissi si raddrizzano prima che nasca
+    // la scena.
+    if (gpuDaTelefono(this.scheda.nome) && !this.dispositivo.mobile) {
+      this.dispositivo.mobile = true;
+      this.dispositivo.uaMentiva = true;      // per il pannello e i rapporti
+      this.fissi = fissiDiAvvio(this.dispositivo);
+      this.dprMax = DPR_MAX.mobile;
+      this.profilo = LIVELLI.mobile[0];
+    }
     this._scala = 1;
     this.applicaScala(1);
 
     this.scena = new Scene(this.motore);
     this.scena.clearColor = new Color4(CIELO.r, CIELO.g, CIELO.b, 1);
+
+    // ---- LE MANOPOLE DI BABYLON CHE QUI ERANO TUTTE NELLA POSIZIONE SBAGLIATA
+    //
+    // ⚠ SONO IMPOSTAZIONI DI FABBRICA PENSATE PER UN EDITOR, non per un gioco:
+    // Babylon di suo è pronto a farsi cliccare le mesh, a ricontrollare i
+    // materiali e a tenersi le risorse in cache offline, perché il suo caso
+    // tipico è una scena in un browser dentro un'app. Un gioco che si disegna e
+    // basta paga tutte queste cose e non ne usa nessuna.
+    //
+    // ⚠ E QUESTA COSTA MENO DI QUANTO SEMBRA — misurata, dopo averlo scritto al
+    // contrario. Senza, Babylon fa una picking a ogni movimento del puntatore
+    // per sapere su quale mesh sta il mouse, e avevo scritto che voleva dire
+    // «intersecare mezzo milione di triangoli». Falso: quasi tutte le nostre
+    // mesh hanno «isPickable = false», quindi non c'è quasi niente da provare.
+    // Cronometrando 400 eventi: 11,5 ms in tutto senza, 8,1 con — nove
+    // MILLESIMI di millisecondo per evento. Si tiene perché è gratis e perché è
+    // vero che non ci serve (il bersaglio lo troviamo camminando la griglia in
+    // `gioco/mira.js`), non perché sposti i numeri.
+    this.scena.skipPointerMovePicking = true;
+    this.scena.constantlyUpdateMeshUnderPointer = false;
+    // ⚠ E LA CACHE OFFLINE (IndexedDB) non la usiamo: i modelli arrivano da
+    // `node_modules` e dal disco, che è già locale.
+    this.motore.enableOfflineSupport = false;
+    // ⚠ E I MATERIALI NON CAMBIANO A OGNI FOTOGRAMMA. Questo blocca il
+    // meccanismo che a ogni modifica di scena rimarca tutti i materiali come
+    // «da ricontrollare»: le uniform continuano ad andare in GPU, quello che
+    // sparisce è il giro di controlli. Chi cambia davvero un materiale lo
+    // sblocca da sé (`markAsDirty`), e qui dentro non succede mai.
+    this.scena.blockMaterialDirtyMechanism = true;
 
     // ---- LA NEBBIA, che è metà del LOD --------------------------------------
     // ⚠ E ADESSO SÌ, perché adesso c'è una distanza di resa da nascondere. Il
@@ -241,6 +293,14 @@ export class Rig {
     this.ambienteCol = amb.ambiente;   // quanto luccica in pieno sole
     this.ombraTinta = amb.ombra;       // di che colore vira l'ombra (NON un grigio)
     this.soleVerso = this.sole.direction;
+    // ⚠ IL SOLE HA UN PAVIMENTO, LA SUA LUCE NO. `sole.direction` non scende
+    // mai sotto i 14° (`giorno.js`, o le cascate d'ombra si stirano): a
+    // mezzanotte punta ancora in giù. Chi ha bisogno di sapere se c'è davvero
+    // il sole — il brillio dell'acqua — legge questo, che il ciclo del giorno
+    // ricalcola dall'altezza VERA. Senza, il lago luccica di notte.
+    this.soleLuce = 1;
+    this.lunaVerso = new Vector3(0, -1, 0);
+    this.lunaLuce = 0;                 // quanta luna c'è: fase per «è sopra l'orizzonte»
 
     // ---- LE OMBRE, che in Lantern erano 1.090 righe nostre -------------------
     // Tre sistemi scritti a mano (controluce, campoSole, marcia), una mappa
@@ -263,7 +323,34 @@ export class Rig {
     // mentre la scaletta a dieci la vedono tutti.
     this.ombre.shadowMaxZ = this.profilo.ombraZ;
     this.ombre.depthClamp = true;
-    this.ombre.autoCalcDepthBounds = true;
+    // ⚠ SOLO SU DESKTOP: `autoCalcDepthBounds` aderisce le cascate al depth
+    // range VERO della scena — più texel dove servono — ma lo fa con un DEPTH
+    // PASS FULLSCREEN in più (è il «DepthRenderer minmax» che compare
+    // nell'inventario delle passate). Su una GPU a tile una passata fullscreen
+    // è il pattern più caro che esista (store+load dell'intero frame — studio
+    // TBDR, docs/STUDIO-RETRO.md): su mobile si tiene il riparto per lambda,
+    // che con TEXEL_PER_BLOCCO fisso e la soglia anti-acne di casa regge.
+    this.ombre.autoCalcDepthBounds = !this.dispositivo.mobile;
+    // ⚠ E LA MAPPA NON SI RIFÀ A OGNI FOTOGRAMMA. Misurato con
+    // `SceneInstrumentation`: la resa dei bersagli d'ombra costa 2,12 ms su 5,98
+    // di CPU per fotogramma — più di un terzo — e disegna quattro volte gli
+    // stessi 112.430 triangoli, uno per cascata. Ma cosa cambia da un
+    // fotogramma al successivo? Il sole si muove di un quarto di grado al
+    // minuto, e la geometria è ferma finché non si rompe qualcosa. Rifarla ogni
+    // due giri dimezza la spesa e a schermo l'ombra è in ritardo di sedici
+    // millisecondi, che nessuno vede.
+    // ⚠ TRANNE SUL GRADINO PIÙ ALTO DEL DESKTOP, dove la scala non è lì per
+    // risparmiare: chi ha la macchina per farlo deve vedere il meglio.
+    this._ombraOgni(this.profilo.ombraOgni);
+
+    // ---- LO STRUMENTO ---------------------------------------------------
+    // ⚠ COSTA POCO E VALE MOLTO: accende i due contatori che dicono DOVE va il
+    // tempo — quante chiamate di disegno per fotogramma, e quanti millisecondi
+    // se ne va la mappa delle ombre. Misurato su questa macchina: 273 disegni
+    // di cui 208 di sole ombre, e 1,81 ms su 5,98 di CPU.
+    this._strumento = new SceneInstrumentation(this.scena);
+    this._strumento.captureRenderTargetsRenderTime = true;
+    this._sommaDisegni = 0; this._giriDisegni = 0; this._mediaDisegni = 0;
 
     // ⚠ IL BIAS È LA MANOPOLA CHE CI HA FATTO PENARE PER GIORNI in Lantern
     // (acne sulle diagonali, ombre staccate da terra). Qui parte dai valori
@@ -357,9 +444,177 @@ export class Rig {
    * `bersagli`, che la regia gli passa. Se no il motore dovrebbe conoscere la
    * vegetazione, e non è affar suo.
    */
+  /**
+   * UNO SCATTO DELLA SCENA, come dato da mandare.
+   *
+   * ⚠ NON SI LEGGE LA TELA. Su mobile «preserveDrawingBuffer» è spento apposta
+   * (costa banda su un chip che è già il collo di bottiglia), e con quello
+   * spento «toDataURL» torna un'immagine VUOTA. Ci sono già cascato: quattro
+   * misure di pixel di fila che tornavano zero, e per un giro ho creduto ai
+   * numeri invece che al metodo. Qui si ridisegna in un bersaglio apposta, che
+   * funziona in tutti e due i casi.
+   *
+   * ⚠ E SI RIMPICCIOLISCE: da un telefono con dpr 3 una figura a piena
+   * risoluzione sono megabyte, e un rapporto che non parte è peggio di un
+   * rapporto senza figura. Seicento pixel bastano per vedere se il prato c'è,
+   * se le ombre sono a scaletta, se l'immagine è stirata.
+   *
+   * ⚠ IMPORTATO AL VOLO: è un attrezzo che si usa una volta ogni tanto, e non
+   * deve pesare sull'avvio di chi non lo preme mai.
+   */
+  async scatto(larghezza = 600) {
+    const { CreateScreenshotUsingRenderTargetAsync } =
+      await import('@babylonjs/core/Misc/screenshotTools.js');
+    const alt = Math.round(larghezza * this.motore.getRenderHeight() / Math.max(1, this.motore.getRenderWidth()));
+    // ⚠ GLI ARGOMENTI SONO NOVE PRIMA DELLA QUALITÀ, e li avevo contati male:
+    // la qualità è l'undicesimo, e messa al decimo finiva in «useLayerMask» —
+    // cioè un numero al posto di un vero/falso, che non dà nessun errore e
+    // semplicemente ignora la compressione. Firma per esteso:
+    // (motore, camera, misura, tipo, campioni, antialias, nomeFile,
+    //  sprite, stencil, useLayerMask, qualità)
+    return CreateScreenshotUsingRenderTargetAsync(this.motore, this.camera,
+      { width: larghezza, height: alt }, 'image/webp', 1, false, undefined, false, false, true, 0.72);
+  }
+
+  /**
+   * I NUMERI CHE DICONO DOVE VA IL TEMPO. ⚠ Non si nomina Babylon fuori di qui:
+   * chi disegna il pannello riceve due numeri, non un oggetto di un motore.
+   */
+  get misura() {
+    if (!this._strumento) return { disegni: 0, ombreMs: 0 };
+    return {
+      // ⚠ LA MEDIA, NON L'ISTANTE, e non è pignoleria: da quando la mappa delle
+      // ombre si rifà ogni due fotogrammi, metà dei giri non hanno il passaggio
+      // d'ombra. Leggendo il contatore ISTANTANEO il numero esce 61 o 125
+      // secondo su quale dei due si capita — cioè una moneta. E siccome è il
+      // numero con cui diagnostico un telefono che non posso profilare, una
+      // moneta è peggio di niente: la prima misura buona mi avrebbe fatto
+      // credere di aver dimezzato le chiamate di disegno.
+      disegni: Math.round(this._mediaDisegni),
+      // ⚠ ZERO QUANDO IL SOLE È SPENTO, e non è pignoleria: quel contatore
+      // conserva l'ULTIMA media anche quando nessun bersaglio viene più
+      // disegnato. Col sole spento riportava 3,21 ms — PIÙ di quando le ombre
+      // c'erano (2,17) — mentre i disegni crollavano da 82 a 50, cioè la
+      // passata era davvero sparita. Sul Chromebook del committente il rapporto
+      // diceva «ombre 34 ms» su un fotogramma da 74, con il sole spento, e ho
+      // quasi passato mezz'ora a inseguire millisecondi che non esistevano.
+      // ⚠ UNO STRUMENTO CHE MENTE È PEGGIO DI UNO CHE MANCA: se non ci fosse
+      // stato, avrei cercato altrove; dicendo un numero grosso mi ha mandato
+      // dalla parte sbagliata con l'aria di avermi aiutato.
+      ombreMs: this.profilo.sole ? this._strumento.renderTargetsRenderTimeCounter.lastSecAverage : 0,
+    };
+  }
+
+  /**
+   * UN CAMPIONE PER FOTOGRAMMA, per il banco di misura (fase R1 del rework).
+   *
+   * ⚠ QUI SI LEGGE `current`, NON la media: il banco fa lui le statistiche
+   * (p50/p99 in `gioco/misure.js`, provato in Node), e una media di medie è il
+   * modo classico di lisciare via proprio gli scatti che si stanno cercando.
+   * ⚠ E `rtMs` è il tempo di TUTTI i bersagli di resa — ombre, specchio,
+   * rifrazione, profondità insieme: è il numero della «pipeline», quello che il
+   * rework deve far scendere. Il dettaglio per passata Babylon non lo dà
+   * gratis; quando servirà si misurerà spegnendo una passata alla volta.
+   */
+  campione() {
+    if (!this._strumento) return { disegni: NaN, rtMs: NaN };
+    return {
+      disegni: this._strumento.drawCallsCounter.current,
+      rtMs: this._strumento.renderTargetsRenderTimeCounter.current,
+    };
+  }
+
+  /**
+   * L'INVENTARIO DELLE PASSATE: cosa si disegna oltre alla scena, e quanto è
+   * grosso. È la tabella che la fase R2 deve tenere sotto controllo — ogni
+   * passata nuova si paga qui, visibile, non sepolta in un contatore unico.
+   */
+  passate() {
+    const voci = [];
+    for (const luce of this.scena.lights) {
+      const g = luce.getShadowGenerator && luce.getShadowGenerator();
+      if (!g) continue;
+      const mappa = g.getShadowMap();
+      voci.push({ nome: `ombre:${luce.name}`, lato: mappa.getSize().width, passate: g.numCascades || 1, mesh: mappa.renderList ? mappa.renderList.length : -1 });
+    }
+    for (const t of this.scena.customRenderTargets) {
+      voci.push({ nome: t.name, lato: t.getSize().width, passate: 1, mesh: t.renderList ? t.renderList.length : -1 });
+    }
+    for (const dr of Object.values(this.scena._depthRenderer || {})) {
+      const mappa = dr.getDepthMap();
+      voci.push({ nome: mappa.name || 'profondità', lato: mappa.getSize().width, passate: 1, mesh: mappa.renderList ? mappa.renderList.length : -1 });
+    }
+    return voci;
+  }
+
+  /**
+   * OGNI QUANTI FOTOGRAMMI SI RIFÀ LA MAPPA DELLE OMBRE.
+   * ⚠ 0 e 1 vogliono dire «tutti»; la mappa si segna anche come da rifare
+   * SUBITO, se no cambiando gradino si resterebbe con l'ultima disegnata alla
+   * risoluzione vecchia finché non scatta il turno.
+   */
+  _ombraOgni(n) {
+    const mappa = this.ombre && this.ombre.getShadowMap();
+    if (!mappa) return;
+    mappa.refreshRate = Math.max(1, n || 1);
+    mappa.resetRefreshCounter();
+    this._ombraPasso = Math.max(1, n || 1);
+  }
+
+  /**
+   * LA MAPPA D'OMBRA SI RIFÀ SOLO QUANDO QUALCOSA È CAMBIATO — fase R2.
+   *
+   * ⚠ IL NUMERO CHE L'HA DECISA: 208 chiamate di disegno su 296 erano le
+   * quattro cascate (52 mesh × 4), rifatte OGNI fotogramma anche col sole
+   * fermo, il mondo fermo e la camera ferma — cioè per la maggior parte del
+   * tempo di chi costruisce o guarda. Un'ombra di una scena immobile è
+   * un'immagine immobile: ridisegnarla è pagare per niente.
+   *
+   * Chi chiama passa una FIRMA: un numero che cambia quando cambia qualcosa
+   * che le ombre vedono (verso del sole, camera — le cascate seguono il suo
+   * frustum —, revisione del mondo, posizione dei proiettanti mobili). Qui
+   * dentro c'è solo l'isteresi: TRE fotogrammi con la stessa firma → si
+   * congela (`refreshRate 0`, che per Babylon è «una volta e basta»); firma
+   * nuova → si scongela subito e si riparte dal passo del profilo.
+   *
+   * ⚠ LA SOGLIA A TRE non è prudenza a caso: il congelamento all'ISTANTE
+   * farebbe da filtro passa-basso su chi si muove a scatti piccoli (un tocco
+   * di stick), congelando e scongelando a raffica — e ogni scongelo paga una
+   * mappa intera. Tre fotogrammi fermi vuol dire «si è fermato davvero».
+   */
+  /** Un proiettante nuovo scongela le ombre alla prossima firma, qualunque sia. */
+  _sporcaOmbre() { this._quieteFirma = null; }
+
+  quieteOmbre(firma) {
+    const mappa = this.ombre && this.ombre.getShadowMap();
+    if (!mappa || !this.sole.shadowEnabled) return;
+    if (firma === this._quieteFirma) {
+      if (this._quieteConta < 3) { if (++this._quieteConta === 3) mappa.refreshRate = 0; }
+      // ⚠ E SI RIAPPLICA SE QUALCUN ALTRO L'HA SCIOLTO: spegni-e-riaccendi il
+      // sole (la serie di misura lo fa) lasciava il contatore a 3 e la mappa
+      // viva — «già congelata» per il contatore, mai più congelata per la GPU.
+      // Trovato dalla serie stessa: 364 disegni nei passi dopo «senza ombre».
+      else if (mappa.refreshRate !== 0) mappa.refreshRate = 0;
+    } else {
+      this._quieteFirma = firma;
+      this._quieteConta = 0;
+      if (mappa.refreshRate === 0) {
+        mappa.refreshRate = this._ombraPasso || 1;
+        mappa.resetRefreshCounter();
+      }
+    }
+  }
+
   applicaProfilo(p, bersagli = {}) {
     this.applicaScala(p.scala);
     this.impostaDistanza(p.dist);
+    // ⚠ E FUORI DAL RAMO «se il sole c'è»: vale anche a sole spento, perché il
+    // costo è del campionamento, non del sole.
+    // ⚠ ARRIVA DA `bersagli` E NON DA UN CAMPO DEL RIG: la fabbrica conosce il
+    // rig, non il contrario, e girare la freccia per una riga vorrebbe dire due
+    // oggetti che si tengono per mano. `bersagli` è il canale che esiste già
+    // per questo — è come ci arrivano l'erba e le particelle.
+    if (bersagli.fabbrica) bersagli.fabbrica.ombreSullAcqua(p.ombraAcqua !== false);
 
     // le ombre del sole. ⚠ `shadowEnabled = false` toglie la mappa dai render
     // target (verificato nel sorgente della scena): non è solo il
@@ -372,6 +627,7 @@ export class Rig {
       // 1,5 ms, il filtro PCF solo 0,5. Non è il campionamento a costare: ogni
       // cascata è un RENDER della scena in una mappa di profondità.
       if (this.ombre.numCascades !== p.cascate) this.ombre.numCascades = p.cascate;
+      this._ombraOgni(p.ombraOgni);
       if (this.ombre.mapSize !== p.mappa) this.ombre.mapSize = p.mappa;
       // ⚠ E L'OMBRA SI ACCORCIA INSIEME ALLA MAPPA: quello che conta è
       // `mappa / ombraZ`, i texel per blocco. Cambiare una senza l'altra è
@@ -408,7 +664,7 @@ export class Rig {
   /** Un oggetto che proietta ombra. ⚠ È UN ELENCO, non «tutto meno qualcosa»:
    *  in Lantern la polarità sbagliata metteva in mappa farfalle, nuvole e
    *  pioggia, e se n'è accorto il committente guardando, non un errore. */
-  proietta(mesh) { this.ombre.addShadowCaster(mesh, true); return mesh; }
+  proietta(mesh) { this.ombre.addShadowCaster(mesh, true); this._sporcaOmbre(); return mesh; }
 
   /**
    * LA DISTANZA DI RESA, e da lì tutto il resto.
@@ -478,6 +734,23 @@ export class Rig {
     this.motore.runRenderLoop(() => {
       if (perFrame) perFrame(this.motore.getDeltaTime() / 1000);
       this.scena.render();
+      // ⚠ IL CONTO DEI DISEGNI SI CAMPIONA QUI, DOPO AVER DISEGNATO, e si fa la
+      // media da soli. Babylon una media ce l'ha («lastSecAverage») ma per
+      // questo contatore resta a ZERO: non è alimentata, e me ne sono accorto
+      // solo perché il pannello diceva «disegni 0» invece di un numero storto.
+      // E la media serve davvero: da quando la mappa d'ombra si rifà ogni due
+      // fotogrammi, il contatore ISTANTANEO esce 61 o 125 secondo su quale dei
+      // due giri capita la lettura — cioè una moneta. Per un numero con cui si
+      // diagnostica un telefono che non si può profilare, una moneta è peggio
+      // di niente: la prima misura buona mi avrebbe fatto credere di aver
+      // dimezzato le chiamate di disegno.
+      if (this._strumento) {
+        this._sommaDisegni += this._strumento.drawCallsCounter.current;
+        if (++this._giriDisegni >= 60) {
+          this._mediaDisegni = this._sommaDisegni / this._giriDisegni;
+          this._sommaDisegni = 0; this._giriDisegni = 0;
+        }
+      }
     });
   }
 }

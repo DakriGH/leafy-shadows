@@ -7,7 +7,9 @@
     "test": "node --test \"test/*.test.mjs\"",
     "ispettore": "node scripts/impacchetta-ispettore.mjs",
     "pubblica": "node scripts/pubblica.mjs",
-    "modelli": "node scripts/converti-modelli.mjs"
+    "modelli": "node scripts/converti-modelli.mjs",
+    "diagnostica": "node strumenti/diagnostica.mjs",
+    "leggi": "node strumenti/leggi-diagnostica.mjs"
   },
   "author": "Dakri",
   "license": "ISC",

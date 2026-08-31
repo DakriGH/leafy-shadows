@@ -60,3 +60,52 @@ export function ascoltaClic(bersaglio, onClic) {
     for (const k of [...giu.keys()]) if (k.startsWith(e.pointerId + ':')) giu.delete(k);
   });
 }
+
+/**
+ * CHIAMA `onInizio` QUANDO SI COMINCIA A TENERE PREMUTO, e `onFine` quando si
+ * smette — per rilascio, per annullamento, o perché il puntatore si è messo a
+ * TRASCINARE (e allora quello che sta facendo è girare la camera, non scavare).
+ *
+ * ⚠ È IL GEMELLO DI `ascoltaClic`, NON IL SUO SOSTITUTO. Un clic e una pressione
+ * tenuta rispondono a due domande diverse: «l'ha toccato?» e «lo sta ancora
+ * tenendo?». Servono tutte e due, perché i due tasti fanno cose di natura
+ * diversa — il destro posa (un istante), il sinistro scava (una durata).
+ *
+ * ⚠ LA SOGLIA È LA STESSA DEL CLIC, e deve esserlo: sopra `SCARTO` pixel
+ * `ascoltaClic` decide che era un trascinamento, e qui si smette di scavare. Se
+ * le due soglie fossero diverse ci sarebbe una fascia di movimento in cui non
+ * succede né l'una né l'altra cosa — cioè un gesto che non fa niente.
+ *
+ * ⚠ E NON C'È NESSUN TIMEOUT come in `ascoltaClic`: tenere premuto a lungo è
+ * esattamente quello che si vuole. Quella soglia lì serve a distinguere un
+ * tocco da un'esitazione; qui l'esitazione È il gesto.
+ */
+export function ascoltaPressione(bersaglio, { onInizio, onFine }, bottone = 0) {
+  let attivo = null;
+
+  const smetti = (motivo) => {
+    if (!attivo) return;
+    attivo = null;
+    if (onFine) onFine(motivo);
+  };
+
+  bersaglio.addEventListener('pointerdown', (e) => {
+    if (e.button !== bottone) return;
+    attivo = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    if (onInizio) onInizio(e);
+  });
+
+  bersaglio.addEventListener('pointermove', (e) => {
+    if (!attivo || e.pointerId !== attivo.id) return;
+    if (Math.hypot(e.clientX - attivo.x, e.clientY - attivo.y) > SCARTO) smetti('trascinamento');
+  });
+
+  const finito = (e) => { if (attivo && e.pointerId === attivo.id) smetti('rilascio'); };
+  bersaglio.addEventListener('pointerup', finito);
+  bersaglio.addEventListener('pointercancel', finito);
+  // ⚠ E ANCHE QUANDO LA FINESTRA PERDE IL FUOCO: su un desktop si può premere,
+  // cambiare finestra col tasto ancora giù e tornare. Senza questa riga il
+  // `pointerup` non arriva mai e si resterebbe a scavare per sempre — un blocco
+  // che si sbriciola da solo mentre non si sta nemmeno guardando la pagina.
+  addEventListener('blur', () => smetti('fuoco perso'));
+}

@@ -14,7 +14,11 @@
 // gli arriva da un dito o da WASD.
 
 const CSS = `
-#comandi { position: fixed; inset: 0; z-index: 15; pointer-events: none;
+/* ⚠ SI VEDONO SOLO IN MODALITÀ A DITO, e la classe la decide «ui/modo.js».
+   Prima i comandi si creavano solo se il browser diceva «tocco», e su un
+   convertibile quella era una scelta fatta una volta per sempre all'avvio. */
+#comandi { display: none; }
+.gui-tocco #comandi { display: block; position: fixed; inset: 0; z-index: 15; pointer-events: none;
   font: 12px/1 ui-monospace, monospace; color: #0d2a1a; user-select: none;
   -webkit-user-select: none; touch-action: none; }
 #comandi .stick { position: absolute; left: 18px; bottom: 96px; width: 116px; height: 116px;
@@ -60,9 +64,18 @@ export class ComandiTocco {
     root.innerHTML = `
       <div class="stick"><div class="knob"></div></div>
       <button class="btn salta" title="Salta">⤴</button>
-      <button class="btn demolisci" title="Demolisci: i tocchi rompono">⛏</button>`;
+      <!-- ⚠ SUL TELEFONO IL DITO È UN TASTO SOLO, e questo bottone dice quale
+           dei due sta emulando: acceso = il sinistro (rompe, a colpi ripetuti),
+           spento = il destro (posa, o accende a mano vuota). Senza di lui metà
+           dei verbi del gioco sarebbero irraggiungibili col tocco. -->
+      <button class="btn demolisci" title="Piccone: i tocchi rompono (a più colpi)">⛏</button>`;
     document.body.appendChild(root);
-    this.mostra(visibile);
+    // ⚠ NIENTE STILE IN LINEA PER LA VISIBILITÀ: uno stile in linea batte
+    // qualunque foglio, quindi «display: block» qui dentro vincerebbe sulla
+    // classe «gui-tocco» e i comandi si vedrebbero anche col mouse. A decidere
+    // se si vedono è la modalità dell'interfaccia (vedi «ui/modo.js»), che è una
+    // classe sulla radice — un posto solo, per tutta la GUI.
+    if (!visibile) this.mostra(false);
 
     const stick = root.querySelector('.stick');
     const knob = root.querySelector('.knob');
@@ -121,5 +134,20 @@ export class ComandiTocco {
     });
   }
 
-  mostra(v) { this.root.style.display = v ? 'block' : 'none'; }
+  /** ⚠ Spegne del tutto (uno stile in linea, che batte la classe). Serve a chi
+   *  vuole i comandi via SEMPRE, non a chi cambia modalità. */
+  mostra(v) { this.root.style.display = v ? '' : 'none'; }
+  /**
+   * TUTTO GIÙ. ⚠ Serve quando i comandi spariscono da sotto il dito: nascosti
+   * con «display: none» non ricevono più eventi, quindi l'ultimo valore del
+   * joystick resterebbe lì — e si camminerebbe da soli senza toccare niente.
+   */
+  azzera() {
+    this.intento.avanti = 0;
+    this.intento.destra = 0;
+    this.intento.salta = false;
+    const knob = this.root.querySelector('.knob');
+    if (knob) knob.style.transform = '';
+  }
+
 }

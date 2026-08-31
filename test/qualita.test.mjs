@@ -5,7 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LIVELLI, DPR_MAX, TEXEL_PER_BLOCCO, classeDispositivo, fissiDiAvvio, ScalaQualita } from '../src/motore/qualita.js';
 
-const CHIAVI = ['scala', 'cascate', 'mappa', 'ombraZ', 'pcf', 'sole', 'dist', 'erba', 'erbaR', 'fxaa', 'particelle'];
+const CHIAVI = ['scala', 'cascate', 'mappa', 'ombraZ', 'pcf', 'sole', 'dist', 'erba', 'erbaR',
+                'ombraOgni', 'ombraAcqua', 'fxaa', 'particelle'];
 
 for (const [nome, livelli] of Object.entries(LIVELLI)) {
   test(`«${nome}»: ogni gradino ha tutte le colonne`, () => {
@@ -55,14 +56,20 @@ test('su mobile si parte più scarichi che su desktop', () => {
   assert.ok(m.erba < d.erba, 'e con molta meno erba: è la cosa che si conta a decine di migliaia');
 });
 
-test('FXAA resta ACCESO sui primi gradini mobile', () => {
-  // ⚠ È UN'ECCEZIONE VOLUTA, e l'ho imparata spegnendolo. FXAA è UNA passata a
-  // schermo intero — a 0,68 Mpixel non si sente — e cura il difetto per cui è
-  // stato messo: «le terrazze di Leafy sono fianchi alti UN blocco, a cinquanta
-  // blocchi meno di un pixel», che il committente aveva chiamato «vibrazioni a
-  // distanza». Spegnendolo su mobile è tornato, e l'ha chiamato «acne ovunque».
-  assert.equal(LIVELLI.mobile[0].fxaa, true);
-  assert.equal(LIVELLI.mobile[1].fxaa, true);
+test('su mobile un anti-aliasing c\'è SEMPRE — ed è l\'MSAA, non FXAA', () => {
+  // ⚠ LA STORIA HA DUE CAPITOLI, e vanno tenuti tutti e due. Primo: spegnere
+  // OGNI AA su mobile riporta le «vibrazioni a distanza» delle terrazze (visto
+  // dal committente, chiamato «acne ovunque») — quindi un AA ci DEVE essere.
+  // Secondo (studio TBDR, docs/STUDIO-RETRO.md, fonti ARM/Android): su una GPU
+  // a tile l'MSAA del canvas si risolve on-chip (~500 MB/s) mentre FXAA è una
+  // passata fullscreen con store+rilettura dell'intero frame — su un tiler
+  // l'ordine di convenienza è l'OPPOSTO del desktop. Quindi: FXAA spento su
+  // TUTTI i gradini mobile, e il canvas con l'MSAA acceso (`antialias`).
+  for (const [i, p] of LIVELLI.mobile.entries()) {
+    assert.equal(p.fxaa, false, `mobile[${i}]: FXAA è la passata sbagliata su un tiler`);
+  }
+  assert.equal(fissiDiAvvio({ mobile: true }).antialias, true,
+    'e al suo posto il canvas tiene l\'MSAA: senza NESSUN AA tornano le vibrazioni');
 });
 
 test('la mappa d\'ombra e la sua portata scendono INSIEME', () => {
@@ -94,7 +101,6 @@ test('mobile: il cammino nei voxel non si compila proprio', () => {
   // l'occupancy crolla. È la lezione di Lantern, misurata: ~30% di fps.
   assert.equal(fissiDiAvvio({ mobile: true }).ombreLampade, false);
   assert.equal(fissiDiAvvio({ mobile: false }).ombreLampade, true);
-  assert.equal(fissiDiAvvio({ mobile: true }).antialias, false);
 });
 
 test('senza DOM la classe del dispositivo non esplode', () => {
@@ -137,4 +143,100 @@ test('il primo gradino è un TETTO generoso, non una resa', () => {
     // di essere stata scritta guardando quel dato.
     assert.ok(livelli[livelli.length - 1].scala < cima.scala * 0.7, `${nome}: e devono scendere davvero`);
   }
+});
+
+test('la mappa delle ombre si rifà più di rado man mano che si scende', () => {
+  // ⚠ MISURATO: la resa dei bersagli d'ombra costa 2,12 ms su 5,98 di CPU per
+  // fotogramma, e disegna quattro volte gli stessi 112.430 triangoli. Il sole
+  // si muove di un quarto di grado al minuto: rifarla ogni due giri non si vede.
+  for (const [nome, livelli] of Object.entries(LIVELLI)) {
+    for (const [i, p] of livelli.entries()) {
+      assert.ok(p.ombraOgni >= 1 && p.ombraOgni <= 6, `${nome}[${i}] = ${p.ombraOgni}`);
+      if (i > 0) assert.ok(p.ombraOgni >= livelli[i - 1].ombraOgni,
+        `${nome}[${i}] rifà le ombre più spesso del gradino sopra`);
+    }
+  }
+  // ⚠ E IL PRIMO GRADINO DEL DESKTOP NON RISPARMIA: chi ha la macchina per
+  // farlo deve vedere il meglio. È la stessa regola del tetto dell'erba.
+  assert.equal(LIVELLI.desktop[0].ombraOgni, 1);
+});
+
+// ---------------------------------------------------------------------------
+// LA FREQUENZA DELLO SCHERMO NON È «QUANTI FOTOGRAMMI FA».
+//
+// ⚠ È l'errore che ha fatto pompare la qualità sul Chromebook del committente:
+// si prendeva la MEDIANA degli intervalli, e su una macchina che disegna a 25
+// fps la mediana dice 25 — che il codice prendeva per uno schermo a 25 Hz.
+// Da lì il bersaglio diventava 25 e le soglie della scala si invertivano.
+import { hzDaIntervalli } from '../src/motore/qualita.js';
+
+test('uno schermo sincronizzato si riconosce e si crede', () => {
+  const a60 = Array.from({ length: 40 }, (_, i) => 16.7 + (i % 3) * 0.05);
+  assert.equal(hzDaIntervalli(a60), 60);
+  const a144 = Array.from({ length: 40 }, (_, i) => 6.94 + (i % 3) * 0.02);
+  assert.equal(hzDaIntervalli(a144), 144);
+  const a120 = Array.from({ length: 40 }, () => 8.33);
+  assert.equal(hzDaIntervalli(a120), 120);
+});
+
+test('una macchina che arranca NON è uno schermo lento', () => {
+  // ⚠ IL CASO CHE HA ROTTO TUTTO: intervalli sparpagliati attorno ai 40 ms.
+  // Prima usciva «25 Hz»; adesso si dice «non lo so» e si tiene 60, e sarà la
+  // scala di qualità a scendere — ma su una misura vera, non su un'ipotesi
+  // circolare («va piano, quindi il bersaglio è piano, quindi va bene»).
+  const affanno = [38, 51, 42, 61, 35, 47, 55, 39, 44, 58, 33, 49, 41, 66, 37, 52,
+                   43, 40, 57, 36, 48, 62, 34, 45, 53, 38, 50, 42, 59, 37];
+  assert.equal(hzDaIntervalli(affanno), 60);
+});
+
+test('e niente sotto 30, mai', () => {
+  // schermi più lenti in pratica non esistono: ogni numero più basso è la
+  // macchina che arranca travestita da schermo
+  const lentissimo = Array.from({ length: 40 }, () => 50);   // 20 Hz «regolari»
+  assert.ok(hzDaIntervalli(lentissimo) >= 30, hzDaIntervalli(lentissimo));
+});
+
+test('senza abbastanza misure si dice sessanta e basta', () => {
+  assert.equal(hzDaIntervalli([]), 60);
+  assert.equal(hzDaIntervalli([16.7, 16.7]), 60);
+  assert.equal(hzDaIntervalli(null), 60);
+});
+
+test('e non esce mai un numero assurdo', () => {
+  const impossibile = Array.from({ length: 40 }, () => 0.001);
+  assert.ok(hzDaIntervalli(impossibile) <= 250);
+  assert.ok(hzDaIntervalli(Array.from({ length: 40 }, () => 0)) === 60);
+});
+
+// ---------------------------------------------------------------------------
+// SI ALLEGGERISCE A GRADINI, NON TUTTO INSIEME.
+//
+// ⚠ Committente, dopo la prima versione: «la grafica è peggiorata di molto ma
+// ho guadagnato sì e no 5 fps». Aveva ragione due volte — il prezzo era alto, e
+// spegnendo tre cose in un colpo non sapevo nemmeno quale delle tre lo stesse
+// pagando. Tre modifiche e una misura sola non è una misura.
+import { GRADINI_FATICA } from '../src/motore/qualita.js';
+
+test('i gradini spengono UNA cosa per volta, e non ne riaccendono mai', () => {
+  for (let i = 1; i < GRADINI_FATICA.length; i++) {
+    const p = GRADINI_FATICA[i - 1], q = GRADINI_FATICA[i];
+    const spenteIn = (g) => Object.values(g).filter((v) => v === false).length;
+    assert.equal(spenteIn(q), spenteIn(p) + 1, `dal gradino ${i - 1} al ${i} se ne spegne più di una`);
+    // ⚠ E QUELLO CHE ERA SPENTO RESTA SPENTO: se un gradino riaccendesse qualcosa,
+    // salire potrebbe far PEGGIORARE gli fps — cioè la cura peggiorerebbe il male.
+    for (const k of Object.keys(p)) if (!p[k]) assert.equal(q[k], false, `gradino ${i}: «${k}» riacceso`);
+  }
+});
+
+test('il primo gradino è quello meno visibile e più caro', () => {
+  // ⚠ MISURATO (RTX 4060, 33 Mpx, notte, 13 lampioni): senza il cammino nei
+  // voxel 26,0 → 24,7 ms; acqua e MSAA dentro il rumore. Ed è anche il meno
+  // visibile dei tre: è la luce delle lampade che non attraversa i muri.
+  assert.equal(GRADINI_FATICA[1].voxel, false);
+  assert.equal(GRADINI_FATICA[1].msaa, true, 'l\'MSAA si vede: non è il primo da togliere');
+  assert.equal(GRADINI_FATICA[1].acqua, true, 'e l\'acqua è mezzo schermo');
+});
+
+test('il gradino zero non toglie niente', () => {
+  for (const v of Object.values(GRADINI_FATICA[0])) assert.equal(v, true);
 });

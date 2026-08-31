@@ -78,6 +78,17 @@ export function classeDispositivo() {
  * crollano e non c'è nessuna manopola che li recuperi. Meglio dirlo in faccia
  * che indagare a caso — in Lantern è successo su un Chromebook.
  */
+/**
+ * LA GPU È DA TELEFONO? Si giudica dal NOME del renderer, perché l'user-agent
+ * si può travestire («richiedi sito desktop») e la GPU no. Da un rapporto 🩺
+ * vero: Mali-G68 classificata desktop → profilo pieno → 6 fps.
+ * ⚠ Funzione pura e provata in Node (`test/gpu-telefono.test.mjs`): la lista
+ * dei nomi è esattamente il genere di cosa che si sbaglia in silenzio.
+ */
+export function gpuDaTelefono(nome) {
+  return /\b(Mali|Adreno|PowerVR|Apple GPU|Immortalis|Xclipse)\b/i.test(nome || '');
+}
+
 export function schedaDi(motore) {
   try {
     const gl = motore._gl;
@@ -142,6 +153,22 @@ export const LIVELLI = {
   // VERTICI e la CPU. Cinquantaduemila lamelle sono l'unica cosa in scena che
   // ne conta a decine di migliaia — e le semina la CPU.
   mobile: [
+    // ⚠ E L'ACQUA RICEVE LE OMBRE SOLO IN ALTO. Misurato (RTX 4060, 33 Mpx,
+    // notte): l'acqua che riceve costa 1,1 ms su 26 — il 4,2% del fotogramma —
+    // per l'ombra di un albero che cade sull'acqua. Si vede, quindi non si
+    // toglie a chi può permettersela; ma è fra le prime cose da lasciare andare
+    // quando il margine finisce, perché è un dettaglio su una superficie che di
+    // suo è già tutta movimento.
+    // ⚠ E NON È UN FISSO: si accende e si spegne a caldo, quindi sta nella scala
+    // e non in `fissiDiAvvio`.
+    //
+    // ⚠ LE OMBRE OGNI TRE GIRI SU MOBILE, e il numero viene da una misura sul
+    // telefono del committente (Mali-G68): la mappa d'ombra costava 5,22 ms
+    // spalmati su un fotogramma da 25,6 — il venti per cento del tempo, per una
+    // cosa che cambia di un quarto di grado al minuto. A tre giri sono 3,5.
+    // ⚠ E NON È «abbassare la qualità»: la mappa resta 1024 a due cascate, cioè
+    // l'ombra è LA STESSA. Cambia solo ogni quanto la si ridisegna.
+    //
     // ⚠ IL PRIMO GRADINO È IL TETTO, E DEVE ESSERE GENEROSO. Questo l'ho
     // sbagliato una volta: avevo abbassato l'erba QUI, sul gradino zero, per
     // curare un telefono lento — e siccome l'adattatore da q0 può solo
@@ -152,23 +179,33 @@ export const LIVELLI = {
     // due secondi e mezzo (sotto i 24 fps le basta UNA misura, vedi
     // `gioco/adatta.js`). Tarare il tetto è indovinare; far scendere la scala è
     // misurare.
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, fxaa: true,  particelle: true },
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, fxaa: true,  particelle: true },
-    { scala: 0.85, cascate: 2, mappa:  768, ombraZ: 34, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, fxaa: true,  particelle: false },
-    { scala: 0.72, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, fxaa: true,  particelle: false },
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, ombraOgni: 3, ombraAcqua: true , fxaa: false, particelle: true },
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: true },
+    { scala: 0.85, cascate: 2, mappa:  768, ombraZ: 34, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false },
+    { scala: 0.72, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false },
     // ⚠ GLI ULTIMI TRE SONO LA CORSIA D'EMERGENZA: brutti, ma GIOCABILI. In
     // Lantern esistono per la stessa ragione — senza, le GPU più deboli
     // restavano incollate sotto i trenta senza via d'uscita.
-    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
-    { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  50, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
-    { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, fxaa: false, particelle: false },
+    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
+    { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  50, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
+    { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
   ],
   desktop: [
-    { scala: 1.00, cascate: 4, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, fxaa: true,  particelle: true },
-    { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 130, erba: 6.0, erbaR: 5, fxaa: true,  particelle: true },
-    { scala: 0.85, cascate: 2, mappa: 1024, ombraZ: 45, pcf: true,  sole: true,  dist: 110, erba: 4.5, erbaR: 4, fxaa: true,  particelle: true },
-    { scala: 0.70, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist:  90, erba: 3.0, erbaR: 3, fxaa: true,  particelle: false },
-    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  70, erba: 1.5, erbaR: 2, fxaa: false, particelle: false },
+    { scala: 1.00, cascate: 4, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, ombraOgni: 1, ombraAcqua: true , fxaa: true,  particelle: true },
+    { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 130, erba: 6.0, erbaR: 5, ombraOgni: 2, ombraAcqua: true , fxaa: true,  particelle: true },
+    { scala: 0.85, cascate: 2, mappa: 1024, ombraZ: 45, pcf: true,  sole: true,  dist: 110, erba: 4.5, erbaR: 4, ombraOgni: 2, ombraAcqua: true , fxaa: true,  particelle: true },
+    { scala: 0.70, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist:  90, erba: 3.0, erbaR: 3, ombraOgni: 3, ombraAcqua: false, fxaa: true,  particelle: false },
+    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  70, erba: 1.5, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false },
+    // ⚠ ANCHE IL DESKTOP HA LA SUA CORSIA D'EMERGENZA, e mancava. Il commento
+    // due scale più su lo diceva già — «senza, le GPU più deboli restavano
+    // incollate sotto i trenta senza via d'uscita» — ma l'avevo scritto solo per
+    // mobile, come se «desktop» volesse dire «GPU da desktop».
+    // ⚠ NON VUOL DIRE. Il Chromebook del committente ha una Intel HD 400 del
+    // 2015, che è più debole del Mali-G68 del suo telefono; ma ha un mouse,
+    // quindi prendeva questa scala. Misurato: è sceso fino all'ULTIMO gradino
+    // (storia [0, 3, 4]) e faceva ancora 13 fps, senza più strada davanti.
+    { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  55, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
+    { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
   ],
 };
 
@@ -180,12 +217,108 @@ export const LIVELLI = {
  * queste vuol dire ricaricare la pagina — che è onesto, costa un secondo, e si
  * fa una volta per dispositivo invece che a ogni gradino.
  */
+/** Dove si ricorda quanto ha faticato questa macchina. */
+const CHIAVE_FATICA = 'leafy.fatica';
+
+/**
+ * QUANTO SI ALLEGGERISCE, A GRADINI.
+ *
+ * ⚠ NON TUTTO INSIEME, e la prima versione sbagliava proprio qui: spegneva le
+ * tre cose care in un colpo solo, e il committente ha risposto «la grafica è
+ * peggiorata di molto ma ho guadagnato sì e no 5 fps». Aveva ragione due volte:
+ * il prezzo era alto e non sapevo nemmeno quale delle tre lo stesse pagando.
+ * Tre modifiche e una misura sola non è una misura.
+ *
+ * ⚠ L'ORDINE VIENE DA UNA MISURA E DA UN LIMITE DICHIARATO. Misurato qui (RTX
+ * 4060, 33 Mpx, notte, 13 lampioni): senza il cammino nei voxel 26,0 → 24,7 ms;
+ * senza acqua ricca e senza MSAA, dentro il rumore. Quindi il voxel per primo:
+ * è l'unico che costi qualcosa di misurabile ed è anche il meno visibile — è la
+ * luce delle lampade che non attraversa i muri.
+ * ⚠ MA QUELLA MISURA NON SI TRASFERISCE a una GPU affamata di banda: l'MSAA
+ * quadruplica il framebuffer, e su una Intel HD 400 del 2015 può pesare dieci
+ * volte più che su una scheda con banda da vendere. Per questo è il secondo e
+ * non l'ultimo — e per questo la scelta la fa la MACCHINA, salendo di gradino
+ * solo quando quello prima non è bastato.
+ */
+export const GRADINI_FATICA = [
+  { voxel: true,  msaa: true,  acqua: true  },   // 0 — tutto acceso
+  { voxel: false, msaa: true,  acqua: true  },   // 1 — via il cammino nei voxel
+  { voxel: false, msaa: false, acqua: true  },   // 2 — via anche l'MSAA
+  { voxel: false, msaa: false, acqua: false },   // 3 — via anche l'acqua ricca
+];
+
+/**
+ * A CHE GRADINO DI FATICA È QUESTA MACCHINA — 0 = nessuna.
+ *
+ * ⚠ È UNA MISURA, NON UN INDOVINELLO. Le tre opzioni si compilano dentro lo
+ * shader e non si possono cambiare a caldo: vanno decise PRIMA di sapere quanto
+ * va la macchina. Fin qui la decisione era «ha un mouse?», che è un'ipotesi
+ * travestita da fatto — e sul Chromebook del committente (Intel HD 400 del
+ * 2015, più debole del suo telefono) era l'ipotesi sbagliata.
+ *
+ * ⚠ QUINDI SI GUARDA IL GIRO PRECEDENTE. Se l'ultima volta la scala di qualità
+ * è arrivata in fondo ed era ancora sotto, si sale di un gradino. Costa un
+ * ricaricamento per gradino, e in cambio non c'è nessun elenco di nomi di
+ * schede video da tenere aggiornato — che è la soluzione che sembra ovvia e
+ * marcisce in un anno.
+ */
+export function faticaRicordata() {
+  try {
+    // ⚠ E C'È UN MODO DI TORNARE INDIETRO, se no alleggerire è una porta a senso
+    // unico: una macchina che si è arresa una volta — magari per una scena
+    // storta o un fotogramma perso mentre costruiva — resterebbe leggera per
+    // sempre. Via URL e non con un tasto, perché il caso d'uso è un Chromebook
+    // piegato a tablet o un telefono, dove una scorciatoia da tastiera non c'è.
+    if (typeof location === 'object' && /[?&]pesante\b/.test(location.search)) {
+      ricordaFatica(0);
+      return 0;
+    }
+    const n = parseInt(localStorage.getItem(CHIAVE_FATICA), 10);
+    return Number.isFinite(n) ? Math.max(0, Math.min(GRADINI_FATICA.length - 1, n)) : 0;
+  } catch { return 0; }
+}
+
+/** Da chiamare quando la scala tocca il fondo e non basta ancora. */
+export function ricordaFatica(livello) {
+  try {
+    const n = Math.max(0, Math.min(GRADINI_FATICA.length - 1, livello | 0));
+    if (n === 0) localStorage.removeItem(CHIAVE_FATICA);
+    else localStorage.setItem(CHIAVE_FATICA, String(n));
+  } catch { /* navigazione privata */ }
+}
+
+/**
+ * COSA SPEGNERE, DA INDIRIZZO: `?senza=voxel,acqua,msaa` (o `?senza=tutto`).
+ *
+ * ⚠ SERVE A MISURARLI UNO PER UNO, ed è nato da un errore di metodo mio: la
+ * prima modalità leggera spegneva tutte e tre le cose care INSIEME, e quando il
+ * committente ha detto «la grafica è peggiorata di molto ma ho guadagnato sì e
+ * no 5 fps» non avevo modo di sapere QUALE delle tre gliela stesse rovinando né
+ * quale stesse pagando. Tre modifiche e una misura sola non è una misura.
+ *
+ * Con questo si mandano tre rapporti — `?senza=voxel`, `?senza=acqua`,
+ * `?senza=msaa` — e si legge quanto vale ciascuna sulla macchina vera, che è
+ * l'unica che conti: qui una RTX ha banda da vendere e l'MSAA non si sente,
+ * su una integrata del 2015 può essere il costo principale.
+ */
+function spentiDaIndirizzo() {
+  try {
+    const m = /[?&]senza=([a-z,]+)/.exec(location.search);
+    return m ? new Set(m[1].split(',')) : new Set();
+  } catch { return new Set(); }
+}
+
 export function fissiDiAvvio(dispositivo) {
+  // ⚠ UN TELEFONO PARTE DALL'ULTIMO GRADINO: lì la misura c'è già, da Lantern, e
+  // non serve farla scoprire a ogni telefono del mondo un ricaricamento per volta.
+  const g = GRADINI_FATICA[dispositivo.mobile ? GRADINI_FATICA.length - 1 : faticaRicordata()];
+  const senza = spentiDaIndirizzo();
+  const acceso = (nome) => g[nome] && !senza.has(nome) && !senza.has('tutto');
   return {
     // ⚠ SU MOBILE MAI, ed è la riga che pesa di più di tutto questo file: da
     // Lantern, misurato su Mali-G68, il cammino nei voxel costa ~30% degli fps.
     // E non basta spegnerlo con un `if` — non deve essere compilato.
-    ombreLampade: !dispositivo.mobile,
+    ombreLampade: acceso('voxel'),
     // ⚠ L'ACQUA RICCA È UNA LETTURA IN PIÙ PER FRAMMENTO, e la sua compagnia:
     // la deriva che rompe il ripetersi della tessitura, il riflesso della luna
     // e la scintilla delle lampade. Su mobile si compila la variante povera —
@@ -195,7 +328,26 @@ export function fissiDiAvvio(dispositivo) {
     // ⚠ E LA SCINTILLA DELLE LAMPADE SI SPEGNE INSIEME ALLE LORO OMBRE, che su
     // mobile sono già spente: sarebbe l'unico punto in cui tornerebbero a
     // costare, per un effetto che su uno schermo da sei pollici non si vede.
-    acquaRicca: !dispositivo.mobile,
+    // ⚠ L'ACQUA NON SI OTTIMIZZA — PER ADESSO, E DI PROPOSITO. Committente:
+    // «in gioco non noto alcuna miglioria dell'acqua, vedo roba ripetuta,
+    // splattellata… come se le novità non le avessi messe correttamente o le
+    // impostazioni grafiche automatiche non mi facciano vedere bene l'acqua.
+    // Per adesso l'acqua non deve avere ottimizzazioni, deve essere perfetta».
+    // Aveva ragione sulla diagnosi: su mobile (e su qualunque macchina che
+    // avesse toccato il fondo della scala) si compilava la variante POVERA —
+    // una lettura sola, quindi ZERO anti-tiling: niente warp, niente rotazione,
+    // niente terza scala, e `vera` forzata a 0, cioè niente profondità né
+    // rifrazione né caustiche. Tutto il lavoro sull'acqua semplicemente non
+    // esisteva nel sorgente che girava, e a schermo era indistinguibile da «le
+    // migliorie non sono state fatte».
+    //
+    // ⚠ E FINCHÉ L'ACQUA SI STA SCEGLIENDO, DEGRADARLA È PEGGIO CHE INUTILE:
+    // il senso di questa fase è guardarla per giudicarla, e un'ottimizzazione
+    // che cambia quello che si guarda falsa proprio la cosa da decidere — si
+    // finisce per bocciare un disegno per un difetto che sta nella scala. Si
+    // rimette `acceso('acqua')` quando la ricetta sarà scelta e ci sarà da
+    // farla girare sul telefono; il commento sopra spiega cosa si riaccende.
+    acquaRicca: true,
     // ⚠ L'MSAA DEL CANVAS RESTA SPENTO SU MOBILE (quadruplica il riempimento),
     // MA FXAA NO — e la distinzione è tutta la partita. FXAA è UNA passata a
     // schermo intero: a 0,68 Mpixel non si sente. L'avevo spento «perché è una
@@ -204,7 +356,14 @@ export function fissiDiAvvio(dispositivo) {
     // Leafy sono fianchi alti UN blocco, a cinquanta blocchi meno di un pixel;
     // un triangolo più piccolo del pixel scompare e riappare mentre la camera
     // si muove — il committente l'ha visto come vibrazioni a distanza».
-    antialias: !dispositivo.mobile,
+    // ⚠ RIBALTATO DALLO STUDIO TBDR (docs/STUDIO-RETRO.md): su una GPU a tile
+    // l'MSAA del canvas vive nella memoria on-chip e si risolve on-tile — ARM
+    // misura ~500 MB/s contro i ~5 GB/s del percorso a passata separata. È il
+    // POST-PROCESS a costare (load/store fullscreen), non l'MSAA: quindi su
+    // mobile MSAA acceso e FXAA spento in tabella — l'esatto contrario di
+    // prima, quando la nota «quadruplica il riempimento» applicava al tiler
+    // una verità da GPU desktop.
+    antialias: dispositivo.mobile ? !senza.has('msaa') && !senza.has('tutto') : acceso('msaa'),
   };
 }
 
@@ -229,14 +388,46 @@ export function misuraHz(quanti = 40) {
       if (prima >= 0) dt.push(t - prima);
       prima = t;
       if (dt.length < quanti) requestAnimationFrame(giro);
-      else {
-        dt.sort((a, b) => a - b);
-        const m = dt[dt.length >> 1];
-        risolvi(m > 0.5 ? Math.round(1000 / m) : 60);
-      }
+      else risolvi(hzDaIntervalli(dt));
     };
     requestAnimationFrame(giro);
   });
+}
+
+/**
+ * DA UN ELENCO DI INTERVALLI FRA FOTOGRAMMI, LA FREQUENZA DELLO SCHERMO.
+ *
+ * ⚠ E NON È LA STESSA COSA DI «QUANTI FOTOGRAMMI FA», che è l'errore che c'era
+ * qui e che è costato un'altalena vera. Prima si prendeva la MEDIANA degli
+ * intervalli: su una macchina che disegna a 25 fps la mediana dice 25, e il
+ * codice lo prendeva per uno schermo a 25 Hz. Da lì il bersaglio diventava 25,
+ * le due soglie della scala di qualità si INVERTIVANO, e la qualità pompava su
+ * e giù per sempre (vedi `margineMinimo` in `gioco/adatta.js`).
+ *
+ * ⚠ LA DIFFERENZA SI VEDE NELLA REGOLARITÀ, non nel valore. Uno schermo
+ * sincronizzato consegna intervalli quasi identici — 16,7 · 16,7 · 16,7. Una
+ * macchina che arranca li consegna sparpagliati — 38 · 51 · 42 · 61. Quindi:
+ * se sono regolari, quello è lo schermo e ci si crede; se sono sparsi, non
+ * sappiamo quanto va lo schermo e si dice sessanta, che è il caso quasi
+ * universale. Alla scala di qualità non serve saperlo: penserà lei a scendere,
+ * ma sulla base di una misura VERA invece che di un'ipotesi circolare.
+ *
+ * ⚠ NIENTE SOTTO 30, in nessun caso: schermi più lenti in pratica non esistono,
+ * e ogni numero più basso è la macchina che arranca travestita da schermo.
+ */
+export function hzDaIntervalli(dt) {
+  if (!dt || dt.length < 4) return 60;
+  const s = dt.slice().sort((a, b) => a - b);
+  const p10 = s[Math.floor(s.length * 0.1)];
+  const p50 = s[s.length >> 1];
+  if (!(p10 > 0.5)) return 60;
+  // ⚠ IL 25% DI SPARPAGLIAMENTO È LA SOGLIA: la sincronia verticale sta molto
+  // sotto (i suoi intervalli differiscono di frazioni di millisecondo), una
+  // macchina in affanno molto sopra.
+  const regolare = (p50 - p10) / p10 < 0.25;
+  if (!regolare) return 60;
+  const hz = Math.round(1000 / p50);
+  return hz < 30 ? 60 : Math.min(hz, 250);
 }
 
 /**
@@ -270,7 +461,22 @@ export class ScalaQualita {
    * ⚠ L'ORA SI PASSA DA FUORI: è quello che rende provabile la decisione.
    */
   osserva(fps, adesso) {
-    if (this.adatta.osserva(fps, adesso) < 0) return false;
+    const cambiato = this.adatta.osserva(fps, adesso);
+    // ⚠ SE SI È ARRESA, SE LO SEGNA PER IL PROSSIMO AVVIO. La scala ha finito la
+    // strada e non basta ancora: le cose che aiuterebbero davvero si compilano
+    // nello shader e non si cambiano a caldo (vedi `fissiDiAvvio`). L'unica cosa
+    // che si può fare è ricordarselo — e la prossima volta partire leggeri.
+    // ⚠ E NON SI CANCELLA MAI DA SÉ: in modalità leggera gli fps salgono, quindi
+    // una cancellazione automatica farebbe ripartire pesante, poi arrendersi,
+    // poi ripartire pesante — un'altalena a ogni ricaricamento. Si toglie a mano
+    // (il pannello dice che è attiva).
+    // ⚠ UN GRADINO PER VOLTA, e solo se questo giro non è bastato: si alleggerisce
+    // il minimo indispensabile invece di spegnere tutto e sperare.
+    if (this.adatta.arresa && !this._segnata) {
+      this._segnata = true;
+      ricordaFatica(faticaRicordata() + 1);
+    }
+    if (cambiato < 0) return false;
     this.cambi++;
     this._applica(this.profilo);
     return true;

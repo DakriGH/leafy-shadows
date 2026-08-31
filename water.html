@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Leafy-Shadows — banco dell'acqua</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd0e8; touch-action: none;
+               font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #0d2a1a; }
+  #tela { width: 100%; height: 100%; display: block; outline: none; }
+
+  /* ⚠ LA BARRA È UNA RIGA SOLA, e la ragione è un difetto visto dal telefono:
+     con tutte le famiglie di comandi aperte insieme erano ventisei bottoni,
+     quattro righe, e un dito d'acqua sotto. Committente: «la GUI copre il 99%
+     dello schermo e non si capisce nulla». Di ventisei scelte, in un dato
+     momento, ne serve UNA famiglia: le altre stanno chiuse dietro il loro nome. */
+  #barra { position: fixed; left: 0; right: 0; top: 0; z-index: 10; }
+  #scelte {
+    display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 8px;
+    background: rgba(255,255,255,.86); border-bottom: 1px solid rgba(13,42,26,.12);
+  }
+  /* ⚠ E IL PANNELLO NON SUPERA MAI DUE QUINTI DELLO SCHERMO, e scorre: un menu
+     lungo che si mangia la scena è lo stesso difetto di prima con un tocco in
+     più davanti. */
+  #pannello {
+    display: none; flex-wrap: wrap; gap: 5px; padding: 7px 8px 9px;
+    background: rgba(255,255,255,.94); border-bottom: 1px solid rgba(13,42,26,.14);
+    max-height: 40vh; overflow: auto;
+  }
+  button {
+    font: inherit; font-size: 12px; color: #0d2a1a; cursor: pointer;
+    background: rgba(13,42,26,.06); border: 1px solid rgba(13,42,26,.14);
+    border-radius: 5px; padding: 4px 10px; white-space: nowrap;
+  }
+  button:hover { background: rgba(13,42,26,.12); }
+  button.menu { background: rgba(13,42,26,.03); }
+  /* ⚠ L'ACCESO È PIENO, non un bordo: sapere QUALE stile si sta guardando è
+     metà del mestiere di questa pagina, e un bordo più scuro non si trova.
+     ⚠ E VA DOPO `.menu`, o lo sfondo chiaro di quella vince a parità di
+     specificità e resta il solo testo chiaro: bianco su bianco. Il bottone del
+     menu aperto spariva, ed è il difetto più beffardo possibile su una barra
+     che esiste per dire dove sei. */
+  button.acceso { background: #0d2a1a; border-color: #0d2a1a; color: #eaf6ef; }
+  /* il tasto GRANDE: è il mestiere della pagina, e si deve vedere da lontano */
+  button.grande { font-size: 15px; font-weight: 700; padding: 8px 16px; border-radius: 8px; }
+
+  /* la nota parte CHIUSA: è lunga apposta, e non deve stare davanti all'acqua */
+  #nota {
+    position: fixed; left: 8px; bottom: 40px; right: 8px; z-index: 10; max-width: 44em;
+    background: rgba(255,255,255,.9); padding: 9px 11px; border-radius: 7px;
+    display: none; pointer-events: none;
+  }
+  #nota.mostra { display: block; }
+  #fps {
+    position: fixed; right: 8px; bottom: 8px; z-index: 10; white-space: pre; text-align: right;
+    background: rgba(255,255,255,.72); padding: 3px 7px; border-radius: 6px;
+    font-size: 11px; line-height: 1.35; pointer-events: none;
+  }
+  /* «nascondi»: la scena e basta. Si torna toccando la scena. */
+  body.nudo #barra, body.nudo #nota, body.nudo #fps, body.nudo #tasti { display: none; }
+
+  /* ⚠ NIENTE LEGENDA DEI TASTI A SCHERMO: era rumore fisso in un angolo, e la
+     pagina deve mostrare ACQUA. H gira le ricette, e chi vuole il resto apre ⋯. */
+  #tasti { display: none; }
+
+  #guasto {
+    position: fixed; inset: 12px; z-index: 100; display: none;
+    color: #fff; background: #8b1d1d; padding: 14px; border-radius: 8px;
+    overflow: auto; white-space: pre-wrap;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "@babylonjs/core/": "./node_modules/@babylonjs/core/",
+    "@babylonjs/havok/": "./node_modules/@babylonjs/havok/",
+    "@babylonjs/materials/": "./node_modules/@babylonjs/materials/",
+    "@babylonjs/loaders/": "./node_modules/@babylonjs/loaders/",
+    "@babylonjs/inspector": "./vendor/ispettore.js"
+  }
+}
+</script>
+</head>
+<body>
+  <canvas id="tela"></canvas>
+  <div id="barra">
+    <div id="scelte"></div>
+    <div id="pannello"></div>
+  </div>
+  <div id="nota"></div>
+  <div id="fps">—</div>
+  <div id="tasti">← → vasca   H stile   ↑ ↓ ora   spazio ciclo   S verso il sole   G erba   K qualità</div>
+  <pre id="guasto"></pre>
+  <script type="module">
+    // ⚠ IL BANNER ROSSO PRIMA DI TUTTO. È il canale di diagnosi sul telefono,
+    // dove la console non si apre: se il modulo muore durante l'import, senza
+    // questo si vede solo uno schermo azzurro e non si sa perché.
+    const guasto = (e) => {
+      const p = document.getElementById('guasto');
+      p.style.display = 'block';
+      p.textContent += (p.textContent ? '\n\n' : '') + (e && e.stack ? e.stack : String(e));
+    };
+    window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
+    window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
+    import('./src/banco-acqua.js').catch(guasto);
+  </script>
+</body>
+</html>

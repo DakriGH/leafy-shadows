@@ -39,23 +39,46 @@ export class Prato {
     this.rig = rig;
     this.max = max;
 
+    // ⚠ DUE MESH, DUE GEOMETRIE, UN SOLO STILE — l'ibrido chiesto dal
+    // committente («l'erba vicino quadrata, quella lontana triangolare?»), che
+    // è il trucco di Spyro dallo studio retro: il dettaglio dove l'occhio lo
+    // distingue, la geometria dimezzata dove non può.
+    //  · VICINO (fino a ~32 blocchi): la lamella QUAD di sempre — è lo stile
+    //    scelto, e a quella distanza le cime squadrate SI VEDONO;
+    //  · LONTANO: la stessa lamella a UN TRIANGOLO — metà dei triangoli, un
+    //    quarto di vertici in meno, sulla voce che per ARM è il costo doppio
+    //    del tiler (binning + raster). A 32+ blocchi una lamella è più
+    //    stretta di un pixel: la differenza di forma non esiste per l'occhio,
+    //    la differenza di banda sì.
+    // Le due mesh condividono il materiale (una legge della luce sola) e i
+    // buffer di scorta dell'erba: le lamelle VICINE stanno già in testa al
+    // buffer perché la coda di semina è ordinata per distanza.
     this.mesh = new Mesh('prato', scena);
     const vd = new VertexData();
-    // La lamella è un QUAD, e i suoi vertici portano solo la forma: (-0.5..0.5)
-    // in larghezza, 0..1 in altezza. Tutto il resto — quanto è alta, quanto
-    // larga, come è girata — arriva per istanza. Quattro vertici per lamella,
-    // come in Lantern: quella parte era giusta.
     vd.positions = [-0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0];
     vd.normals = [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0];   // le raddrizza il vertex
     vd.uvs = [0, 0, 1, 0, 1, 1, 0, 1];
     vd.indices = [0, 2, 1, 0, 3, 2];                     // avvolgimento di Babylon
     vd.applyToMesh(this.mesh, false);
 
+    this.meshLontana = new Mesh('prato:lontano', scena);
+    const vdL = new VertexData();
+    vdL.positions = [-0.5, 0, 0, 0.5, 0, 0, 0, 1, 0];
+    vdL.normals = [0, 1, 0, 0, 1, 0, 0, 1, 0];
+    vdL.uvs = [0, 0, 1, 0, 0.5, 1];
+    vdL.indices = [0, 2, 1];
+    vdL.applyToMesh(this.meshLontana, false);
+
     this.mesh.material = this._materiale();
-    this.mesh.isPickable = false;
-    this.mesh.receiveShadows = true;      // ⚠ falso di fabbrica: vedi CLAUDE.md
-    this.mesh.doNotSyncBoundingInfo = true;
-    this.mesh.alwaysSelectAsActiveMesh = true;
+    // ⚠ LO STESSO MATERIALE SU TUTT'E DUE: una legge della luce sola, un
+    // compile solo, e le uniform (vento, occhio, congedo) si animano una volta.
+    this.meshLontana.material = this.mesh.material;
+    for (const m of [this.mesh, this.meshLontana]) {
+      m.isPickable = false;
+      m.receiveShadows = true;            // ⚠ falso di fabbrica: vedi CLAUDE.md
+      m.doNotSyncBoundingInfo = true;
+      m.alwaysSelectAsActiveMesh = true;
+    }
     // ⚠ L'ERBA NON PROIETTA OMBRA, ed è una decisione, non una dimenticanza.
     // Duecentomila quad dentro la mappa a cascata la riempiono di rumore e
     // costano quanto tutto il resto messo insieme; l'ombra che ne verrebbe è
@@ -76,6 +99,8 @@ export class Prato {
     // semina è sceso da 10,5 MB a 5,6.
     this.mesh.thinInstanceSetBuffer('matrix', this.matrici, 16, true);
     this.mesh.thinInstanceCount = 0;
+    this.meshLontana.thinInstanceSetBuffer('matrix', this.matrici, 16, true);
+    this.meshLontana.thinInstanceCount = 0;
     this._collegati = false;
   }
 
@@ -218,14 +243,30 @@ export class Prato {
     return m;
   }
 
-  /** I dati della semina diventano istanze. `e` è l'oggetto Erba. */
-  scrivi(n, e) {
+  /**
+   * I dati della semina diventano istanze. `e` è l'oggetto Erba.
+   *
+   * ⚠ `nVicine` È IL CONFINE DELL'IBRIDO: le prime `nVicine` lamelle (la coda
+   * di semina è ordinata per distanza, quindi sono QUELLE vicine) vanno alla
+   * mesh quad; le restanti alla mesh a punte, che legge gli stessi array vivi
+   * dell'erba ma da un buffer suo (`iPosL`…), riempito dall'erba con la coda
+   * del buffer. Senza `nVicine` (o con tutto vicino) la mesh lontana resta
+   * vuota e l'erba è identica a prima.
+   */
+  scrivi(n, e, nVicine = n) {
     if (n > this.max) n = this.max;
+    if (nVicine > n) nVicine = n;
     if (!this._collegati) {
       this.mesh.thinInstanceSetBuffer('iPos', e.iPos, 4, false);
       this.mesh.thinInstanceSetBuffer('iDati', e.iDati, 4, false);
       this.mesh.thinInstanceSetBuffer('iCol', e.iCol, 3, false);
       this.mesh.thinInstanceSetBuffer('iColCima', e.iColCima, 3, false);
+      if (e.iPosL) {
+        this.meshLontana.thinInstanceSetBuffer('iPos', e.iPosL, 4, false);
+        this.meshLontana.thinInstanceSetBuffer('iDati', e.iDatiL, 4, false);
+        this.meshLontana.thinInstanceSetBuffer('iCol', e.iColL, 3, false);
+        this.meshLontana.thinInstanceSetBuffer('iColCima', e.iColCimaL, 3, false);
+      }
       this._collegati = true;
     }
     // ⚠ PARZIALE, NON «aggiornato». È LA STESSA TRAPPOLA DI THREE, su un altro
@@ -238,9 +279,16 @@ export class Prato {
     // parziale è SEMPRE da chiedere, e il difetto non dà nessun segnale — non
     // un errore, non un avviso, solo un fotogramma che si ferma ogni tanto.
     for (const k of ['iPos', 'iDati', 'iCol', 'iColCima']) {
-      this.mesh.thinInstancePartialBufferUpdate(k, n, 0);
+      this.mesh.thinInstancePartialBufferUpdate(k, nVicine, 0);
     }
-    this.mesh.thinInstanceCount = n;
+    this.mesh.thinInstanceCount = nVicine;
+    const nL = e.iPosL ? n - nVicine : 0;
+    if (nL > 0) {
+      for (const k of ['iPos', 'iDati', 'iCol', 'iColCima']) {
+        this.meshLontana.thinInstancePartialBufferUpdate(k, nL, 0);
+      }
+    }
+    this.meshLontana.thinInstanceCount = nL;
   }
 
   /** Le grandezze di gioco diventano uniform. Una volta per fotogramma. */
@@ -252,5 +300,5 @@ export class Prato {
     if (e.sfuma) this.uSfuma.set(e.sfuma.da, e.sfuma.a);
   }
 
-  mostra(on) { this.mesh.setEnabled(!!on); }
+  mostra(on) { this.mesh.setEnabled(!!on); this.meshLontana.setEnabled(!!on); }
 }

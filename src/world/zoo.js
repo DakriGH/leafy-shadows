@@ -296,6 +296,121 @@ export const PIAZZOLE = [
       for (let y = 1; y <= 14; y++) m.metti(ox + 26, SUOLO + y, oz + 26, 'legno', true);
     },
   },
+  {
+    id: 'acqua',
+    nome: 'Acqua: calma, corrente, cascata',
+    // ⚠ NON A x=3: quella corsia è tutta della piazzola della distanza, che è
+    // profonda 202 celle e attraversa quattro righe della griglia.
+    x: 0, z: 3,
+    nota: 'Tutti e tre gli stati che il mondo distingue, uno accanto all\'altro. '
+        + 'Lo specchio grande serve alla STRADA DEL SOLE (muovi l\'ora con , e .) '
+        + 'e alla fascia chiara di bassofondo lungo la riva. I due canali — largo '
+        + 'UNO e largo DUE — sono il caso che rovina ogni soglia: se il canale '
+        + 'stretto viene bianco pieno, la schiuma sta guardando la distanza dalla '
+        + 'sponda e non l\'apertura. La scalinata mostra la corrente (il disegno '
+        + 'deve scorrere GIÙ per la scala, non di traverso) e gli scivoli. La '
+        + 'cascata mostra le striature verticali e il labbro bianco su ogni '
+        + 'gradino: se le striature sono orizzontali, le coordinate del muro sono '
+        + 'scambiate.',
+    costruisci(m, ox, oz) {
+      // ⚠ UN LASTRONE SPESSO, non il `pavimento` di una cella: qui si SCAVA, e
+      // con un blocco solo il fondo delle vasche sarebbe il VUOTO — l'acqua si
+      // vedrebbe appoggiata sul niente e il difetto sembrerebbe dello shader.
+      for (let x = 0; x < 30; x++) {
+        for (let z = 0; z < 30; z++) {
+          for (let y = SUOLO - 4; y < SUOLO; y++) m.metti(ox + x, y, oz + z, 'terra', true);
+          m.metti(ox + x, SUOLO, oz + z, 'erba', true);
+        }
+      }
+
+      /** Scava una vasca e la riempie di SORGENTI fino a filo del suolo. */
+      const vasca = (x0, z0, larg, prof, fondo) => {
+        for (let x = 0; x < larg; x++) {
+          for (let z = 0; z < prof; z++) {
+            for (let y = fondo; y <= SUOLO; y++) m.metti(ox + x0 + x, y, oz + z0 + z, 'acqua', true);
+          }
+        }
+        // la riva di sabbia: il bianco della schiuma su un verde saturo si
+        // legge male, e qui serve vederla bene
+        for (let x = -1; x <= larg; x++) {
+          for (let z = -1; z <= prof; z++) {
+            if (x >= 0 && x < larg && z >= 0 && z < prof) continue;
+            m.metti(ox + x0 + x, SUOLO, oz + z0 + z, 'sabbia', true);
+          }
+        }
+      };
+
+      // ---- LO SPECCHIO GRANDE: dodici celle, cioè acqua APERTA -------------
+      // ⚠ E DEVE ESSERE LARGO ALMENO CINQUE. La riva la misura il mesher su un
+      // intorno 5×5 (RIVA_RAGGIO 2): in una pozza più stretta ogni cella tocca
+      // una sponda, non esiste il «largo», e non si vedrebbe mai la differenza
+      // fra bassofondo e fondo — cioè proprio la cosa che si viene a guardare.
+      vasca(2, 2, 12, 12, SUOLO - 2);
+
+      // ---- I DUE CANALI: largo UNO e largo DUE -----------------------------
+      // Il primo è il caso che ha già rotto le soglie una volta: tutti e quattro
+      // gli angoli toccano una sponda, la distanza vale zero su tutta la cella e
+      // una soglia generosa lo dipinge di bianco pieno. Il secondo sta accanto
+      // apposta: senza un termine di paragone «bianco» non vuol dire niente.
+      vasca(17, 2, 1, 12, SUOLO - 1);
+      vasca(21, 2, 2, 12, SUOLO - 1);
+
+      // ---- LA SCALINATA: la corrente e gli scivoli -------------------------
+      // Cinque gradini che scendono, e su ognuno i livelli crescono verso valle.
+      // ⚠ LA CORRENTE LA RICAVA IL MESHER DAL GRADIENTE DEI LIVELLI: mettere
+      // tutte sorgenti darebbe un'acqua FERMA su una scala, che non è il caso
+      // che si vuole guardare. Ogni gradino riparte da zero, così la scalinata
+      // ha corrente dappertutto invece che nei primi tre metri.
+      // ⚠ IN RILIEVO, NON SCAVATA, ed è una correzione presa guardando: la prima
+      // stesura era una TRINCEA che scendeva sotto il livello del prato, e a
+      // schermo l'acqua spariva dentro il fosso — da qualunque angolo si
+      // vedevano le sponde e basta. Uno zoo che nasconde la cosa che deve
+      // mostrare non serve a niente. Adesso la scala SALE dal prato e l'acqua
+      // sta in cima, quindi la si vede da tutti i lati.
+      for (let g = 0; g < 5; g++) {
+        const y = SUOLO + 4 - g;
+        for (let p = 0; p < 3; p++) {
+          const x = 2 + g * 3 + p;
+          for (let z = 0; z < 3; z++) {
+            for (let yy = SUOLO + 1; yy <= y; yy++) m.metti(ox + x, yy, oz + 17 + z, 'roccia', true);
+            m.metti(ox + x, y, oz + 17 + z, p === 0 ? 'acqua' : 'acqua~' + p, true);
+          }
+          // le sponde: due cordoli alti uno, o l'acqua scivola via di lato e la
+          // corrente punta fuori invece che lungo la scala
+          m.metti(ox + x, y, oz + 16, 'roccia', true);
+          m.metti(ox + x, y, oz + 20, 'roccia', true);
+        }
+      }
+
+      // ---- LA CASCATA: striature verticali e labbro dei gradini ------------
+      // Un altopiano con una vasca in cima, uno scarico, e una colonna che cade
+      // cinque blocchi dentro una pozza.
+      for (let x = 22; x <= 28; x++) {
+        for (let z = 17; z <= 28; z++) {
+          for (let y = SUOLO + 1; y <= SUOLO + 5; y++) m.metti(ox + x, y, oz + z, 'roccia', true);
+        }
+      }
+      // la vasca in cima
+      for (let x = 24; x <= 27; x++) {
+        for (let z = 19; z <= 26; z++) m.metti(ox + x, SUOLO + 5, oz + z, 'acqua', true);
+      }
+      // lo scarico: due celle che scorrono verso il vuoto
+      for (let z = 21; z <= 22; z++) {
+        m.metti(ox + 23, SUOLO + 5, oz + z, 'acqua~1', true);
+        m.metti(ox + 22, SUOLO + 5, oz + z, 'acqua~2', true);
+      }
+      // ⚠ LA COLONNA CHE CADE È FATTA DI CELLE IMPILATE, e il tipo «cascata» lo
+      // decide il mesher da «ho acqua sopra di me» (`mioSopra`): una parete
+      // isolata non basta, servono celle una sull'altra. La cima invece NON ha
+      // acqua sopra, quindi tiene il suo pelo — ed è quello il labbro da cui
+      // l'acqua scavalca.
+      for (let z = 21; z <= 22; z++) {
+        for (let y = SUOLO + 1; y <= SUOLO + 5; y++) m.metti(ox + 21, y, oz + z, 'acqua~1', true);
+      }
+      // la pozza in cui picchia
+      vasca(16, 19, 5, 7, SUOLO - 2);
+    },
+  },
 ];
 
 /** Un lastrone di terreno, con la faccia di sopra del tipo che si vuole. */

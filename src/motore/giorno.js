@@ -215,6 +215,27 @@ export class Giorno {
     const altVera = Math.sin(this.astroSole.altezza * Math.PI / 180);
     this._ombra = tintaOmbra(cielo, altVera, this.astroSole.altezza <= 0, this._ombra || [0, 0, 0]);
     r.ombraTinta.set(this._ombra[0], this._ombra[1], this._ombra[2]);
+
+    // ---- QUANTA LUCE C'È DAVVERO, e da dove -----------------------------------
+    // Serve al brillio dell'acqua, e nasce da un difetto che sarebbe passato
+    // inosservato per settimane: la DIREZIONE del sole ha un pavimento a 14°
+    // (sopra), quindi a mezzanotte punta ancora in giù come all'alba. Uno
+    // shader che riflettesse `uSoleVerso` e basta farebbe luccicare il lago in
+    // piena notte, con una strada di sole che viene da sottoterra. Il cielo la
+    // verità ce l'ha (`astroSole.altezza`): la si passa al motore come FORZA.
+    // ⚠ E LA RAMPA È CORTA APPOSTA: fra 0° e 9° il sole è già tutto lì per un
+    // riflesso, e sfumarla di più farebbe sparire proprio l'ora — il tramonto —
+    // in cui un riflesso sull'acqua è la cosa più bella che ci sia.
+    r.soleLuce = Math.max(0, Math.min(1, altVera / 0.15));
+
+    // LA LUNA, che il cielo calcolava già e nessuno usava per la luce. Le due
+    // cose che servono a uno shader sono il VERSO e quanta ne è illuminata: a
+    // luna nuova sull'acqua non c'è niente da riflettere, e la fase la sa
+    // `world/astro.js` sul serio (l'elongazione, non un conto sui giorni).
+    // ⚠ SOTTO L'ORIZZONTE SI SPEGNE, per la stessa ragione del sole.
+    const vl = versoRaggio(this.astroLuna.altezza, this.astroLuna.azimut);
+    r.lunaVerso.set(vl.x, vl.y, vl.z);
+    r.lunaLuce = this.astroLuna.altezza > 0 ? this.astroLuna.illuminata : 0;
   }
 
   /** L'ora come la legge un umano. */

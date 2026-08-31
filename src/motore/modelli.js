@@ -15,6 +15,8 @@ import { LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader.js'
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { applicaStilePiatto } from './stile.js';
 import '@babylonjs/loaders/glTF/2.0/glTFLoader.js';
 import '@babylonjs/core/Meshes/thinInstanceMesh.js';
@@ -188,7 +190,7 @@ export class Modelli {
     const m = new Matrix();
     const q = new Quaternion();
     // ⚠ LA SCALA NON È PIÙ FISSA A UNO: serve al «colpetto», la risposta
-    // grafica al tocco (vedi `gioco/colpetto.js`). Chi non la passa resta a 1,
+    // grafica al tocco (vedi `gioco/effetti.js`). Chi non la passa resta a 1,
     // quindi nessun chiamante vecchio se ne accorge.
     const dim = new Vector3(1, 1, 1);
     const pos = new Vector3();
@@ -205,5 +207,97 @@ export class Modelli {
     voce.mesh.setEnabled(n > 0);
     voce.matrici = dati; voce.n = n;
     return n;
+  }
+
+  /**
+   * IL FANTASMA DI UN MODELLO — l'anteprima di dove finirà, fatta CON IL MODELLO.
+   *
+   * ⚠ Committente: «le preview non corrispondono con il modello 3D». Vero, ed
+   * era un ripiego che si è portato dietro troppo: le decorazioni sono blocchi
+   * con `forma: 'modello'`, cioè senza geometria propria, e l'anteprima ne
+   * disegnava la SCATOLA. Serviva a dire «dove va e quanto è grande» quando non
+   * c'era niente di meglio; ma un albero mostrato come un parallelepipedo dice
+   * anche una bugia sulla forma, e chi lo posa scopre solo dopo com'era.
+   *
+   * ⚠ È UNA COPIA DELLA MESH VERA, non una geometria ricostruita: stessa
+   * silhouette, stessa texture, stessa chioma. L'unica differenza è il
+   * materiale, che qui è trasparente e non scrive in profondità.
+   *
+   * ⚠ E NON PROIETTA OMBRA: un albero che non c'è ancora non deve buttare
+   * un'ombra per terra, se no si vede il buco prima dell'albero.
+   */
+  fantasma(nome) {
+    const voce = this._caricati.get(nome);
+    if (!voce) return null;
+    if (voce.fantasma) return voce.fantasma;
+    const f = voce.mesh.clone('fantasma:' + nome, null, true);
+    // ⚠ LA COPIA EREDITA LE ISTANZE SOTTILI, e sarebbe un fantasma per ogni
+    // albero del mondo. Qui ne serve UNO, messo dove sta il mirino.
+    f.thinInstanceCount = 0;
+    if (f._thinInstanceDataStorage) f._thinInstanceDataStorage.matrixData = null;
+    // ⚠ NON SI CLONA IL MATERIALE DEL MODELLO, E SI VEDE PERCHÉ. Clonandolo e
+    // mettendogli mezza trasparenza il fantasma usciva SCURO: un materiale
+    // illuminato al 50% su un terreno chiaro somma metà di un verde cupo, e il
+    // risultato si legge come un'OMBRA per terra, non come «qui ci finirà un
+    // albero». Un'anteprima deve dire «non ancora», e il modo di dirlo è la
+    // luce, non il buio.
+    //
+    // ⚠ E LA TEXTURE VA NEL DIFFUSO, NON NELL'EMISSIVO. Nell'emissivo il conto
+    // di Babylon è `clamp(diffuso + emissivo + ambiente) * baseColor`, e con la
+    // texture nell'emissivo e nessuna texture diffusa `baseColor` vale UNO: il
+    // fantasma usciva BIANCO PIENO, una macchia di neve al posto dell'albero.
+    // Nel diffuso, con l'illuminazione spenta, il conto diventa
+    // `diffuseColor * texture` — cioè la texture com'è, schiarita quanto
+    // decidiamo noi.
+    const m = new StandardMaterial('fantasma:' + nome, this.scena);
+    m.disableLighting = true;
+    // ⚠ SOPRA L'UNO PER SCHIARIRE: il modello vero lo schiarisce lo stile piatto
+    // (`schiarisci: 1.6`), e un'anteprima più scura del suo oggetto si legge
+    // male. Questo è lo stesso mestiere, fatto a mano.
+    m.diffuseColor = new Color3(1.75, 1.75, 1.75);
+    m.specularColor = Color3.Black();
+    // e un filo di emissivo, che è quello che dice «non c'è ancora»
+    m.emissiveColor = new Color3(0.16, 0.19, 0.16);
+    m.ambientColor = Color3.Black();
+    const tex = voce.mesh.material && voce.mesh.material.diffuseTexture;
+    if (tex) {
+      m.diffuseTexture = tex;
+      // ⚠ IL RITAGLIO DELLE FOGLIE VA TENUTO: senza, le chiome (che sono piani
+      // incrociati con l'alfa nella texture) diventano quadrati pieni, e il
+      // fantasma di un albero sembra un cespuglio squadrato.
+      m.useAlphaFromDiffuseTexture = true;
+      m.transparencyMode = 3;      // ALPHATESTANDBLEND: il ritaglio E la trasparenza
+    }
+    m.alpha = 0.62;
+    m.disableDepthWrite = true;
+    m.backFaceCulling = false;     // le chiome sono piani incrociati
+    m.applyFog = false;
+    f.material = m;
+    f.isPickable = false;
+    f.receiveShadows = false;
+    f.alphaIndex = 5;
+    this.rig.ombre.removeShadowCaster(f, true);
+    f.setEnabled(false);
+    voce.fantasma = f;
+    return f;
+  }
+
+  /** Mette il fantasma lì, girato come ci finirà. `cella` null = nascondilo. */
+  muoviFantasma(nome, cella, giro = 0) {
+    const f = this.fantasma(nome);
+    if (!f) return;
+    if (!cella) { if (f.isEnabled()) f.setEnabled(false); return; }
+    // ⚠ MEZZA CELLA IN X E Z, COME `piazza`: i modelli si posano sul centro
+    // della cella e col piede sul fondo. Senza, il fantasma sta mezzo blocco
+    // più in là di dove finirà davvero — che è esattamente il difetto che
+    // l'anteprima esiste per evitare.
+    f.position.set(cella[0] + 0.5, cella[1], cella[2] + 0.5);
+    f.rotation.set(0, giro, 0);
+    if (!f.isEnabled()) f.setEnabled(true);
+  }
+
+  /** Tutti a nanna. */
+  nascondiFantasmi() {
+    for (const v of this._caricati.values()) if (v.fantasma && v.fantasma.isEnabled()) v.fantasma.setEnabled(false);
   }
 }

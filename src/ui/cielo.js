@@ -43,7 +43,8 @@ const CSS = `
 #cielo .data { font-size: 10px; opacity: .7; text-align: center; margin-top: 3px; }
 #cielo .stagioni { display: flex; gap: 3px; margin-top: 6px; }
 #cielo .stagioni button { flex: 1; padding: 3px 0; font-size: 12px; }
-@media (max-width: 700px) { #cielo { width: 118px; right: 6px; top: 46px; } }
+/* stretto quando si gioca a dito: vedi «ui/modo.js» */
+.gui-tocco #cielo { width: 118px; right: 6px; top: 46px; }
 `;
 
 const R = 40, C = 46;   // raggio del quadrante e centro (il riquadro è 92)

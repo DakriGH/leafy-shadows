@@ -83,13 +83,28 @@ test('ogni cambio invalida la cache, se no non si vedrebbe', () => {
   // ⚠ LA CHIAVE DELLA CACHE DEI CIUFFI CONTIENE QUESTO NUMERO. Senza, i chunk
   // già seminati tornerebbero fuori identici e rasare non si vedrebbe — è lo
   // stesso difetto che ha lasciato un prato verde sopra un terreno innevato.
+  // ⚠ E LA REVISIONE È PER CHUNK, NON PER MONDO. Era una sola, condivisa: ogni
+  // gesto la faceva salire e mandava a vuoto l'INTERO ring — 121 chunk
+  // riseminati per un ciuffo, misurati. Vedi la prova sulle semine più sotto.
   const e = nuova();
-  const v0 = e._verPosati;
-  e.rasa(1, 1);   assert.ok(e._verPosati > v0, 'rasare');
-  const v1 = e._verPosati;
-  e.posa(2, 7, 2); assert.ok(e._verPosati > v1, 'piantare');
-  const v2 = e._verPosati;
-  e.togliRasa(1, 1); assert.ok(e._verPosati > v2, 'far ricrescere');
+  const ver = () => e._verChunk.get('0,0') || 0;
+  const v0 = ver();
+  e.rasa(1, 1);   assert.ok(ver() > v0, 'rasare');
+  const v1 = ver();
+  e.posa(2, 7, 2); assert.ok(ver() > v1, 'piantare');
+  const v2 = ver();
+  e.togliRasa(1, 1); assert.ok(ver() > v2, 'far ricrescere');
+});
+
+test('e un chunk non risente di quello che succede in un altro', () => {
+  // ⚠ È LA PROPRIETÀ CHE FA COMPARIRE L'ERBA SUBITO: se toccare una cella
+  // sporcasse anche i vicini, tornerebbero da riseminare tutti.
+  const e = nuova();
+  e.posa(2, 7, 2);                       // chunk 0,0
+  const lontano = e._verChunk.get('3,3') || 0;
+  e.rasa(1, 1);                          // ancora chunk 0,0
+  assert.equal(e._verChunk.get('3,3') || 0, lontano, 'il chunk lontano non si è mosso');
+  assert.ok((e._verChunk.get('0,0') || 0) >= 2, 'e quello toccato sì');
 });
 
 test('le celle sono indipendenti: rasare una non tocca le altre', () => {
@@ -98,4 +113,80 @@ test('le celle sono indipendenti: rasare una non tocca le altre', () => {
   assert.equal(e.haFili(0, 7, 0, m), false);
   assert.equal(e.haFili(1, 7, 0, m), true, 'quella accanto resta com\'era');
   assert.equal(e.haFili(0, 7, 1, m), true);
+});
+
+// ---------------------------------------------------------------------------
+// QUANTO CI METTE A COMPARIRE — che è una domanda sulle PRESTAZIONI, ed è per
+// questo che si misura invece di guardarla.
+//
+// ⚠ Committente: «quando la piazzi compare dopo parecchio». Vero, e la causa
+// non era l'erba lenta: era che posare UN ciuffo faceva riseminare TUTTO il
+// prato attorno al giocatore, perché la revisione dei ciuffi posati stava nella
+// chiave della cache — una sola, valida per l'intero mondo. Cambiarla mandava a
+// vuoto le 121 voci del ring insieme, e il prato non si scambia finché la coda
+// non è finita: con un budget di pochi millisecondi per fotogramma sono secondi.
+
+/** Un prato abbastanza largo da coprire tutto il ring: se i chunk sono VUOTI la
+ *  misura non dice niente, perché un chunk vuoto costa quasi zero. */
+function pratoLargo(r = 96) {
+  const m = new Mondo();
+  for (let x = -r; x <= r; x++) for (let z = -r; z <= r; z++) {
+    m.metti(x, 6, z, 'erba', true); m.metti(x, 5, z, 'terra', true);
+  }
+  return m;
+}
+
+/** Semina finché la coda non è vuota, contando i fotogrammi e le semine VERE. */
+function macina(e, m, dove = { x: 0, y: 7, z: 0 }) {
+  const vero = e._seminaVero.bind(e);
+  let semine = 0;
+  e._seminaVero = (...a) => { semine++; return vero(...a); };
+  let giri = 0;
+  do { e.aggiorna(0.016, m, dove, null, dove); giri++; } while (e._coda.length && giri < 500);
+  e._seminaVero = vero;
+  return { giri, semine };
+}
+
+test('posare un ciuffo risemina UN chunk, non tutto il prato', () => {
+  const m = pratoLargo();
+  const e = new Erba({}, { max: 900000, densita: 4, raggioChunk: 5 });
+  macina(e, m);                                  // il ring è caldo
+  const dopo = macina(e, m);
+  assert.equal(dopo.semine, 0, 'senza cambiamenti non si risemina niente');
+
+  e.posa(1, 7, 1);
+  const conCiuffo = macina(e, m);
+  // ⚠ IL NUMERO CHE CONTA: 121 = tutto il ring, 1 = solo il chunk toccato.
+  assert.ok(conCiuffo.semine <= 2,
+    `posare un ciuffo ha riseminato ${conCiuffo.semine} chunk: deve toccarne uno`);
+});
+
+test('e il ciuffo compare SUBITO, non dopo parecchi fotogrammi', () => {
+  const m = pratoLargo();
+  // ⚠ SU UNA LASTRA DI PIETRA, se no il ciuffo si pianta dove l'erba c'era già
+  // e il conto non cambia: la prova passerebbe senza aver misurato niente.
+  m.metti(1, 6, 1, 'pietra', true);
+  const e = new Erba({}, { max: 900000, densita: 4, raggioChunk: 5 });
+  macina(e, m);
+  const prima = e.fili;
+  e.posa(1, 7, 1);
+  // un solo fotogramma: la coda deve svuotarsi e lo scambio deve essere avvenuto
+  // ⚠ AL PIÙ DUE FOTOGRAMMI: misurati 11 prima della correzione, cioè quasi due
+  // decimi di secondo dopo il clic. Vedi BUDGET_GESTO in `erba.js`.
+  let giri = 0;
+  do { e.aggiorna(0.016, m, { x: 0, y: 7, z: 0 }, null, { x: 0, y: 7, z: 0 }); giri++; }
+  while (e._coda.length && giri < 60);
+  assert.ok(giri <= 2, `il prato si è riscambiato dopo ${giri} fotogrammi`);
+  assert.ok(e.fili > prima, `i fili devono essere aumentati subito (${prima} → ${e.fili})`);
+});
+
+test('rasare toglie i fili subito e senza riseminare il mondo', () => {
+  const m = pratoLargo();
+  const e = new Erba({}, { max: 900000, densita: 4, raggioChunk: 5 });
+  macina(e, m);
+  const prima = e.fili;
+  e.rasa(0, 0);
+  const r = macina(e, m);
+  assert.ok(r.semine <= 2, `rasare ha riseminato ${r.semine} chunk`);
+  assert.ok(e.fili < prima, `i fili devono calare subito (${prima} → ${e.fili})`);
 });

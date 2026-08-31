@@ -46,16 +46,21 @@ const CSS = `
    ⚠ E LA BARRA DI SCORRIMENTO SI NASCONDE ma lo scorrimento resta: su un
    telefono quella barra è tre pixel di grigio che rubano spazio e non si
    toccano comunque. */
-@media (max-width: 700px) {
-  #barra { bottom: 10px; gap: 4px; width: 100vw; }
-  #barra .c { width: 52px; height: 52px; scroll-snap-align: center; flex: 0 0 auto; }
-  #barra .c i { width: 30px; height: 30px; }
-  #barra .c span { font-size: 11px; right: 3px; }
-  #barra .caselle { max-width: 100vw; overflow-x: auto; scroll-snap-type: x proximity;
-    -webkit-overflow-scrolling: touch; padding: 6px 10px; border-radius: 0;
-    scrollbar-width: none; }
-  #barra .caselle::-webkit-scrollbar { display: none; }
-}
+/* ⚠ NON PIÙ UNA MEDIA QUERY MA UNA CLASSE, e il motivo è un dispositivo vero: un
+   Chromebook ha lo schermo largo E il touchscreen, quindi con la larghezza si
+   prendeva sempre il vestito da mouse anche tenendolo piegato a tablet.
+   Committente: «manca il tastino per passare da modalità desktop e GUI
+   smartphone». La classe la mette «ui/modo.js», che di suo segue il browser ma
+   si può fissare a mano — perché quale sia la modalità giusta lo sa solo chi ha
+   il coso in mano. */
+.gui-tocco #barra { bottom: 10px; gap: 4px; width: 100vw; }
+.gui-tocco #barra .c { width: 52px; height: 52px; scroll-snap-align: center; flex: 0 0 auto; }
+.gui-tocco #barra .c i { width: 30px; height: 30px; }
+.gui-tocco #barra .c span { font-size: 11px; right: 3px; }
+.gui-tocco #barra .caselle { max-width: 100vw; overflow-x: auto; scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch; padding: 6px 10px; border-radius: 0;
+  scrollbar-width: none; }
+.gui-tocco #barra .caselle::-webkit-scrollbar { display: none; }
 `;
 
 export class Barra {

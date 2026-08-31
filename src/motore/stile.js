@@ -111,12 +111,29 @@ export function aggiungiDefinizioniFragment(m, glsl) {
  *                     di un albero uscirebbe grigio invece che bianco.
  *                     ⚠ È in ambito con `sole` e con `lampade`: chi lo scrive
  *                     decide da sé cosa l'ombra deve spegnere.
+ * @param primaDellaLegge GLSL (istruzioni) eseguite dopo che `sole` e `lampade`
+ *                     esistono e prima che si applichi la legge della luce.
+ *                     Serve a chi la legge se la calcola da sé.
+ * @param leggeLuce    GLSL (vec3) che PRENDE IL POSTO di
+ *                     «uAmbiente · mix(uOmbraTinta, 1, sole)», cioè della legge
+ *                     della luce di Leafy: ambiente che moltiplica, ombra a un
+ *                     gradino, tinta di cielo invece che nero.
+ *
+ *                     ⚠ E QUESTO AGGANCIO APRE LA REGOLA PIÙ CHIUSA DEL
+ *                     PROGETTO, quindi va detto forte: la legge di fabbrica
+ *                     resta quella e nessuno la cambia per sbaglio. Esiste
+ *                     perché il committente ha chiesto di poter PROVARE altri
+ *                     modi di trattare la luce sull'acqua — sfumature comprese —
+ *                     e provarli richiede di poterli scrivere. Chi passa di qui
+ *                     sta deliberatamente uscendo dallo stile di casa: se il
+ *                     risultato piace, è una decisione; se ci si finisce senza
+ *                     accorgersene, è il difetto che questa nota previene.
  * @param alfa         GLSL (float) che PRENDE IL POSTO di `color.a`. Di fabbrica
  *                     non si tocca. ⚠ Chi lo usa scavalca anche `visibility` e
  *                     l'alfa del materiale: quella resta buona solo a dire a
  *                     Babylon che la mesh va nella coda dei trasparenti.
  */
-export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiffuseColor.rgb', { facce = true, schiarisci = 1, luceExtra = null, alfa = null } = {}) {
+export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiffuseColor.rgb', { facce = true, schiarisci = 1, luceExtra = null, alfa = null, primaDellaLegge = null, leggeLuce = null } = {}) {
   // niente riflesso speculare: su una faccia piatta si legge come vernice
   m.specularColor = Color3.Black();
   m.diffuseColor = Color3.White();
@@ -300,6 +317,26 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   // decodifica e si ricodifica con lo stesso esponente, la nebbia all'orizzonte
   // torna esattamente il colore del cielo e la banda non si vede. Se un giorno
   // i due esponenti divergono, si vedrà lì.
+  // ⚠ LE DUE RIGHE FACOLTATIVE SI COMPONGONO QUI, IN JAVASCRIPT, E NON DENTRO
+  // IL TEMPLATE — e non è stile: un ternario con dentro un backtick CHIUDE il
+  // template che lo contiene. È la trappola numero uno di CLAUDE.md (nove volte
+  // fra i due progetti), e stavolta l'ha presa la prova prima dello schermo:
+  // l'estrattore di `glsl-una-riga.test.mjs` si ferma al primo backtick e vede
+  // un blocco troncato a metà espressione. Componendole fuori, dentro il GLSL
+  // resta una sola interpolazione senza apici, come per `lift` e per l'accumulo
+  // delle luci.
+  // ⚠ LA LEGGE DELLA LUCE DI LEAFY, in una riga, ed è il cuore dello stile:
+  // l'ambiente MOLTIPLICA (non è una luce), e l'ombra è un gradino verso una
+  // tinta di CIELO, non verso il nero. Chi la sostituisce sa cosa sta facendo.
+  const legge = leggeLuce || 'uAmbiente * mix(uOmbraTinta, vec3(1.0), sole)';
+  const primaLegge = primaDellaLegge || '// (la legge di casa non ha bisogno di preparativi)';
+  const sommaLuce = luceExtra
+    ? `nostro += ${luceExtra};`
+    : '// (nessuna luce aggiunta: la somma serve solo al brillio dell acqua)';
+  const scriviAlfa = alfa
+    ? `color.a = ${alfa};`
+    : '// (alfa del materiale: per pixel la scrive solo l acqua)';
+
   m.Fragment_Before_FragColor(`
     float sole = clamp(diffuseBase.r, 0.0, 1.0) * facciaAlSole;
     sole = floor(sole * ${BANDE.toFixed(1)} + 0.5) / ${BANDE.toFixed(1)};
@@ -307,9 +344,10 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     // ⚠ LE LAMPADE SI SOMMANO DOPO L'OMBRA, non dentro: una lampada accesa deve
     // illuminare anche quello che sta all'ombra del sole. È il motivo per cui
     // di notte, sotto un lampione, in Leafy si vede.
+    ${primaLegge}
     vec3 lineare = pow(max(${lift}, vec3(0.0)), vec3(${GAMMA.toFixed(1)}));
-    vec3 nostro = lineare * (uAmbiente * mix(uOmbraTinta, vec3(1.0), sole) + lampade);
-    ${luceExtra ? `nostro += ${luceExtra};` : '// (niente luce aggiunta: la somma serve solo al brillio dell acqua)'}
+    vec3 nostro = lineare * (${legge} + lampade);
+    ${sommaLuce}
     // ⚠ E LA NEBBIA VA RIMESSA, perché questo innesto sta DOPO il suo. Babylon
     // stampa il blocco della nebbia sopra di noi e poi noi riscriviamo
     // «color.rgb» di sana pianta: la nebbia veniva calcolata e buttata via, e a
@@ -320,7 +358,7 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
       nostro = mix(pow(max(vFogColor, vec3(0.0)), vec3(${GAMMA.toFixed(1)})), nostro, fog);
     #endif
     color.rgb = pow(max(nostro, vec3(0.0)), vec3(${(1 / GAMMA).toFixed(6)}));
-    ${alfa ? `color.a = ${alfa};` : '// (alfa del materiale: la scrive per pixel solo l acqua)'}
+    ${scriviAlfa}
   `);
   return m;
 }

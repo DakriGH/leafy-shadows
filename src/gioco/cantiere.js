@@ -80,19 +80,38 @@ export const ATTREZZI = {
  * più rompere, perché si accenderebbe e basta. È l'unico modo di togliere una
  * cosa interattiva.
  */
-export function azione(tipoInMano, bersaglioInterattivo, demolisci = false, ciSonoFili = false) {
-  if (demolisci) return 'rompi';
-  // ⚠ UN ATTREZZO VIENE PRIMA DELL'INTERAZIONE: chi ha in mano l'erbetta e
-  // clicca un lampione vuole piantare l'erba ai suoi piedi, non accenderlo.
+export function azione(tipoInMano, bersaglioInterattivo, distruggi = false, ciSonoFili = false) {
   const a = ATTREZZI[tipoInMano];
-  if (a && a.agisce === 'erba') return ciSonoFili ? 'rasa' : 'pianta';
+  // ---- IL TASTO CHE DISTRUGGE ------------------------------------------------
+  // ⚠ SEMPRE E SOLO DISTRUGGERE, qualunque cosa ci sia sotto. Prima dipendeva da
+  // cosa avevi in mano e da cosa stavi guardando, e il committente ci si è perso
+  // esattamente come ci si perderebbe chiunque: «la mano vuota se clicco il
+  // sinistro rompe, se clicco il destro rompe». Un tasto, un verbo.
+  if (distruggi) {
+    // ⚠ UN ATTREZZO DISTRUGGE A MODO SUO: l'erbetta non spacca il terreno, rasa.
+    // Se non c'è niente da rasare non si rompe il blocco sotto per ripiego —
+    // sarebbe l'unico modo di rovinare il prato provando a curarlo.
+    if (a && a.agisce === 'erba') return ciSonoFili ? 'rasa' : 'tocca';
+    return 'rompi';
+  }
+  // ---- IL TASTO CHE COSTRUISCE ------------------------------------------------
+  // ⚠ CON QUALCOSA IN MANO SI POSA, A MANO VUOTA SI INTERAGISCE. È la regola
+  // detta dal committente parola per parola: «tasto destro interagisci o piazzi
+  // se hai selezionato in mano qualcosa». La mano vuota NON è l'assenza di un
+  // attrezzo: è l'attrezzo con cui si tocca il mondo — e nella barra ha la sua
+  // casella, quindi arrivarci è un tasto solo.
+  if (a && a.agisce === 'erba') return ciSonoFili ? 'tocca' : 'pianta';
+  if (tipoInMano) return 'posa';
   if (bersaglioInterattivo) return 'interagisci';
-  return tipoInMano ? 'posa' : 'rompi';
+  // ⚠ E SE NON C'È NIENTE DA FARE, SI TOCCA LO STESSO. Committente: «anche se
+  // l'oggetto o cuboid non cambia stato deve sentirsi questa interazione».
+  // Un cubo di pietra non si accende, ma deve accorgersi di essere stato toccato.
+  return 'tocca';
 }
 
 /** Come si chiama, per scriverlo accanto al mirino. */
 export const NOME_AZIONE = { interagisci: 'accendi', posa: 'posa', rompi: 'rompi',
-                             pianta: 'pianta', rasa: 'rasa' };
+                             pianta: 'pianta', rasa: 'rasa', tocca: 'tocca' };
 
 /** 0xRRGGBB → [r, g, b] in 0..1. */
 export function daEsadecimale(n) {
@@ -126,8 +145,8 @@ export class Cantiere {
   get attrezzo() { return ATTREZZI[this.tipoScelto] || null; }
 
   /** Cosa farà il prossimo clic, dato cosa si sta guardando. */
-  azione(bersaglioInterattivo, demolisci, ciSonoFili) {
-    return azione(this.tipoScelto, bersaglioInterattivo, demolisci, ciSonoFili);
+  azione(bersaglioInterattivo, distruggi, ciSonoFili) {
+    return azione(this.tipoScelto, bersaglioInterattivo, distruggi, ciSonoFili);
   }
 
   scegli(i) { this.scelto = ((i % CASSETTA.length) + CASSETTA.length) % CASSETTA.length; }

@@ -10,17 +10,18 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { Vector4 } from '@babylonjs/core/Maths/math.vector.js';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture.js';
 import { RawTexture3D } from '@babylonjs/core/Materials/Textures/rawTexture3D.js';
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Prato } from './prato.js';
-import { Acqua } from './acqua.js';
+import { Acqua, governaPassate } from './acqua.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { Mesh as MeshCostanti } from '@babylonjs/core/Meshes/mesh.js';
 import '@babylonjs/core/Meshes/Builders/capsuleBuilder.js';
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial.js';
-import { applicaStilePiatto } from './stile.js';
+import { applicaStilePiatto, aggiungiDefinizioniFragment } from './stile.js';
 
 // ⚠ ANCHE QUI GLI SHADER A MANO: con gli import profondi il sorgente del
 // materiale standard non arriva da solo, e il primo disegno fallisce con
@@ -60,6 +61,18 @@ const GUSCI = [
   { r: 0.55, colore: [1.00, 0.86, 0.38], alfa: 0.30 },   // il cuore, giallo caldo
 ];
 
+
+/** I 36 vertici di un cubetto canonico: servono solo a calcolare le normali una
+ *  volta sola (vedi `schegge`), perché una scheggia non ruota mai. */
+const CUBETTO = (() => {
+  const V = [[-1,-1,-1],[1,-1,-1],[1,-1,1],[-1,-1,1],[-1,1,-1],[1,1,-1],[1,1,1],[-1,1,1]];
+  const T = [[0,1,2],[0,2,3],[4,6,5],[4,7,6],[0,4,5],[0,5,1],
+             [1,5,6],[1,6,2],[2,6,7],[2,7,3],[3,7,4],[3,4,0]];
+  const out = [];
+  for (const t of T) for (const i of t) out.push(V[i]);
+  return out;
+})();
+
 export class Fabbrica {
   constructor(rig) {
     this.rig = rig;
@@ -84,6 +97,67 @@ export class Fabbrica {
     // nel fragment è esattamente quel colore.
     this.matMondo = applicaStilePiatto(new CustomMaterial('mondo', this.scena), rig, 'baseColor.rgb');
     this.matMondo.backFaceCulling = true;
+
+    // ---- LA RISACCA SUL TERRENO ---------------------------------------------
+    // ⚠ QUI E NON NELL'ACQUA, ed è l'osservazione più affilata dello studio: la
+    // mesh dell'acqua FINISCE alla sponda, quindi la lingua che avanza e si
+    // ritira sulla sabbia — lo «swash» di Animal Crossing — non può viverci.
+    // Vive nel materiale del mondo: una fascia sopra il pelo che respira col
+    // coseno (stesso scarto di fase −2,5 delle righe di riva, così i due
+    // orologi non divergono), un fronte bianco sul bordo, e dietro la SABBIA
+    // BAGNATA — che per la regola di casa non è sabbia scurita: scurisce E
+    // vira, come l'ombra.
+    // ⚠ COMPILATA SOLO SU DESKTOP (`acquaRicca`): è ALU nel fragment di TUTTO
+    // il terreno, e su mobile un `if` non spegnerebbe niente.
+    // ⚠ `position` è l'attributo GREZZO, cioè il mondo vero anche con l'origine
+    // mobile: le geometrie dei chunk sono in coordinate assolute e congelate.
+    if (rig.fissi.acquaRicca) {
+      this._risacca = new Vector4(-9999, 0, 0.55, 0);   // (livello, ampiezza, velocità, libero)
+      // ⚠ IL RETTANGOLO DELLO SPECCHIO, ed è la maschera che mancava: senza,
+      // la fascia bagnata dipingeva TUTTO il terreno a quella quota — macchie
+      // leopardate sull'erba a tre piazzole di distanza, visto al primo
+      // scatto. Il mondo non sa dove sta l'acqua: glielo dice chi la governa.
+      this._risaccaRett = new Vector4(0, 0, -1, -1);     // (x0, z0, x1, z1)
+      this.matMondo.AddUniform('uRisacca', 'vec4', this._risacca);
+      this.matMondo.AddUniform('uRisaccaRett', 'vec4', this._risaccaRett);
+      this.matMondo.AddUniform('uTempoMondo', 'float', 0);
+      this.matMondo.AddUniform('uFondaleOnda', 'float', 0);
+      this.matMondo.Vertex_Definitions('\n  varying vec3 vMondoPos;\n');
+      // ⚠ LA «RIFRAZIONE» ALLA MARIO GALAXY (docs/STUDIO-RETRO.md): su Wii non
+      // si rifrangeva l'acqua — si faceva ONDEGGIARE IL FONDALE sotto di lei, e
+      // la superficie restava ferma. Qui: i vertici del mondo che stanno sotto
+      // il pelo (uRisacca.x) e dentro il rettangolo dell'acqua si spostano in
+      // xz con due seni composti, pesati da quanto sono sommersi. Chi guarda
+      // ATTRAVERSO l'acqua vede il fondo che ondeggia — cioè la rifrazione —
+      // senza nessuna passata: niente RTT, niente copia dello schermo, gratis
+      // sulla GPU a tile. Quei vertici da fuori non si vedono mai (sono
+      // sott'acqua per definizione), quindi il mondo asciutto non si muove.
+      // ⚠ SPENTA DI FABBRICA (uFondaleOnda 0): si accende con `fondaleOnda()`
+      // dove il pelo e il rettangolo sono noti — e il committente la giudica
+      // nel banco prima che entri nel gioco.
+      this.matMondo.Vertex_Before_PositionUpdated(`
+  vMondoPos = position;
+  vec2 mondoRettFuori = max(max(uRisaccaRett.xy - position.xz, position.xz - uRisaccaRett.zw), vec2(0.0));
+  float mondoSotto = clamp((uRisacca.x - 0.15 - position.y) * 1.6, 0.0, 1.0) * step(length(mondoRettFuori), 0.01);
+  float mondoOndaX = sin(position.z * 1.7 + uTempoMondo * 1.3) + 0.6 * sin(position.z * 3.9 - uTempoMondo * 0.8);
+  float mondoOndaZ = sin(position.x * 1.5 - uTempoMondo * 1.1) + 0.6 * sin(position.x * 4.3 + uTempoMondo * 0.9);
+  positionUpdated.xz += vec2(mondoOndaX, mondoOndaZ) * (uFondaleOnda * mondoSotto);
+`);
+      aggiungiDefinizioniFragment(this.matMondo, '\n  varying vec3 vMondoPos;\n');
+      this.matMondo.Fragment_Custom_Diffuse(`
+  float mondoRespiro = 0.5 + 0.5 * cos(uTempoMondo * uRisacca.z * 6.2831 - 2.5);
+  float mondoFestone = sin(vMondoPos.x * 5.1 + vMondoPos.z * 3.7) * 0.06 + sin(vMondoPos.x * 1.9 - vMondoPos.z * 2.3) * 0.05;
+  float mondoQuota = vMondoPos.y - uRisacca.x + mondoFestone;
+  float mondoFronte = uRisacca.y * (0.30 + 0.70 * mondoRespiro);
+  vec2 mondoFuori = max(max(uRisaccaRett.xy - vMondoPos.xz, vMondoPos.xz - uRisaccaRett.zw), vec2(0.0));
+  float mondoVicino = step(length(mondoFuori), 1.6);
+  float mondoAcceso = step(0.01, uRisacca.y) * mondoVicino;
+  float mondoBagnato = step(0.0, mondoQuota) * step(mondoQuota, uRisacca.y) * mondoAcceso;
+  float mondoSchiumaRiva = step(abs(mondoQuota - mondoFronte), 0.05) * mondoAcceso * step(0.15, mondoRespiro);
+  baseColor.rgb = mix(baseColor.rgb, baseColor.rgb * vec3(0.74, 0.80, 0.92), mondoBagnato * 0.85);
+  baseColor.rgb = mix(baseColor.rgb, vec3(0.97, 0.99, 1.0), mondoSchiumaRiva);
+`);
+    }
 
     // ---- L'ACQUA ------------------------------------------------------------
     // ⚠ FINO A IERI ERA IL MATERIALE DEL MONDO CON L'ALFA A 0,72, cioè l'acqua
@@ -152,8 +226,12 @@ export class Fabbrica {
     // sola ombra. Un difetto muto, che è la famiglia peggiore: nessun errore,
     // nessun avviso, solo un'immagine sbagliata che sembra giusta.
     solidi.receiveShadows = true;
-    acqua.receiveShadows = true;
+    // ⚠ L'ACQUA RICEVE SOLO SE IL GRADINO SE LO PUÒ PERMETTERE: misurato 1,1 ms
+    // su 26 (il 4,2% del fotogramma) per l'ombra di un albero sull'acqua. Vedi
+    // `ombraAcqua` in `motore/qualita.js`.
+    acqua.receiveShadows = this.rig.profilo.ombraAcqua !== false;
     this.rig.proietta(solidi);          // ⚠ elenco, non «tutto meno qualcosa»
+    solidi._proietta = true;            // lo stato che legge «aggiornaOmbre»
     this._lod(solidi); this._lod(acqua);
     this._chunkMesh.add(solidi); this._chunkMesh.add(acqua);
     return { solidi, acqua };
@@ -174,6 +252,12 @@ export class Fabbrica {
    * avere — l'unica ragione per cui questa funzione sta in dieci righe.
    */
   scrivi(mesh, dati) {
+    // ⚠ OGNI SCRITTURA È UN EVENTO PER LE OMBRE: la mappa del sole ora si
+    // congela quando la scena è ferma (rig.quieteOmbre), e questo contatore è
+    // come la firma di quiete viene a sapere che il mondo è cambiato — un
+    // blocco posato, un chunk rifatto. Senza, l'ombra del blocco nuovo
+    // apparirebbe solo alla prossima mossa della camera.
+    this.revOmbre = (this.revOmbre || 0) + 1;
     const n = dati.pos.length / 3;
     if (n === 0) { mesh.setEnabled(false); return; }
     const vd = new VertexData();
@@ -222,7 +306,61 @@ export class Fabbrica {
   }
 
   /** La distanza di resa è cambiata: si rifanno i livelli di LOD. */
-  applicaDistanza() { for (const m of this._chunkMesh) this._lod(m); }
+  applicaDistanza() { for (const m of this._chunkMesh) this._lod(m); this._dovOmbre = null; }
+
+  /**
+   * L'ACQUA RICEVE LE OMBRE? — da chiamare quando cambia il gradino.
+   * ⚠ SI APPLICA ALLE MESH GIÀ FATTE, non solo alle prossime: scendere di
+   * gradino deve valere SUBITO, se no il risparmio arriva solo per i chunk che
+   * si costruiranno — cioè quasi mai, visto che il mondo è già lì.
+   */
+  ombreSullAcqua(si) {
+    for (const m of this._chunkMesh) {
+      if (m.name.startsWith('acqua:')) m.receiveShadows = !!si;
+    }
+  }
+
+  /**
+   * CHI PROIETTA OMBRA ADESSO — solo i chunk abbastanza vicini da poterne fare
+   * una che si veda.
+   *
+   * ⚠ È IL TAGLIO PIÙ REDDITIZIO CHE C'È, e si misura: la mappa a cascate
+   * disegna ogni mesh dell'elenco UNA VOLTA PER CASCATA, quindi ogni chunk tolto
+   * vale QUATTRO chiamate di disegno in meno (due su mobile). Provato a mano:
+   * togliendone dieci si passa da 273 disegni a 233, esatti esatti.
+   *
+   * ⚠ E IL CONFINE NON È LA NEBBIA MA `shadowMaxZ`: le cascate coprono fin lì e
+   * non un metro di più. Un chunk a centoventi blocchi si VEDE (la nebbia
+   * comincia a ottantacinque) ma la sua ombra no — cioè finiva in GPU quattro
+   * volte per fotogramma per non produrre un solo pixel.
+   *
+   * ⚠ NON SI PUÒ USARE `isVisible`, che pure funzionerebbe: quello lo toglie
+   * anche dalla vista normale, e il chunk sparirebbe a occhio. La lista delle
+   * ombre e quella del disegno sono due liste diverse, ed è giusto così.
+   */
+  aggiornaOmbre(occhio) {
+    const raggio = this.rig.ombre ? this.rig.ombre.shadowMaxZ : 0;
+    if (!raggio) return;
+    // ⚠ SI RIFÀ SOLO QUANDO CI SI È MOSSI DAVVERO: la lista cambia ogni tanti
+    // blocchi, non ogni fotogramma, e scorrere i chunk sessanta volte al secondo
+    // per scoprire che non è cambiato niente è lavoro sprecato.
+    if (this._dovOmbre) {
+      const dx = occhio.x - this._dovOmbre.x, dy = occhio.y - this._dovOmbre.y, dz = occhio.z - this._dovOmbre.z;
+      if (dx * dx + dy * dy + dz * dz < 36) return;
+    }
+    this._dovOmbre = { x: occhio.x, y: occhio.y, z: occhio.z };
+    for (const m of this._chunkMesh) {
+      if (!m.name.startsWith('solidi:') || m.getTotalVertices() === 0) continue;
+      const sf = m.getBoundingInfo().boundingSphere;
+      const c = sf.centerWorld;
+      const dx = c.x - occhio.x, dy = c.y - occhio.y, dz = c.z - occhio.z;
+      const dentro = Math.sqrt(dx * dx + dy * dy + dz * dz) - sf.radiusWorld <= raggio;
+      if (dentro === m._proietta) continue;
+      m._proietta = dentro;
+      if (dentro) this.rig.ombre.addShadowCaster(m, true);
+      else this.rig.ombre.removeShadowCaster(m, true);
+    }
+  }
 
   rimuoviChunk(e) {
     this.rig.ombre.removeShadowCaster(e.solidi, true);
@@ -360,8 +498,14 @@ export class Fabbrica {
       // ragione per cui non satura più: con le facce di dietro accese ogni
       // pixel riceveva la sfera DUE VOLTE, e un additivo raddoppiato sbianca —
       // misurato, (255, 255, 254).
+      // ⚠ POCHI SPICCHI, E SI MISURA PERCHÉ: a 14 spicchi una sfera fa 1.024
+      // triangoli, e con novantasei lampioni per tre gusci facevano 294.912
+      // triangoli per fotogramma — il 53% di TUTTA la scena, per un effetto che
+      // è una macchia sfumata. A 6 ne fa 256. La differenza a schermo non si
+      // vede: un guscio additivo di colore piatto non ha una silhouette da
+      // rovinare, ha un bordo morbido che i pixel arrotondano comunque.
       const m = MeshBuilder.CreateSphere('alone' + i,
-        { diameter: g.r * 2, segments: 14, sideOrientation: MeshCostanti.BACKSIDE }, this.scena);
+        { diameter: g.r * 2, segments: 6, sideOrientation: MeshCostanti.BACKSIDE }, this.scena);
       const mat = new StandardMaterial('alone' + i, this.scena);
       mat.disableLighting = true;
       mat.emissiveColor = new Color3(...g.colore);
@@ -404,25 +548,50 @@ export class Fabbrica {
    * quindi un alone spento è un alone grande zero. Costa lo stesso disegnarlo
    * (è un vertice degenere) e costa molto meno che riscrivere il buffer.
    */
-  muoviAloni(a, punti) {
-    const n = Math.min(punti.length, a.quanti);
-    for (const m of a.mesh) {
-      const buf = m._thinInstanceDataStorage.matrixData;
-      for (let i = 0; i < a.quanti; i++) {
-        const o = i * 16;
-        const p = i < n ? punti[i] : null;
-        const s = p && p.acceso ? 1 : 0;
-        buf[o] = s; buf[o + 1] = 0; buf[o + 2] = 0; buf[o + 3] = 0;
-        buf[o + 4] = 0; buf[o + 5] = s; buf[o + 6] = 0; buf[o + 7] = 0;
-        buf[o + 8] = 0; buf[o + 9] = 0; buf[o + 10] = s; buf[o + 11] = 0;
-        buf[o + 12] = p ? p.x : 0; buf[o + 13] = p ? p.y : 0; buf[o + 14] = p ? p.z : 0; buf[o + 15] = 1;
+  muoviAloni(a, punti, occhio = null, portata = 0) {
+    // ⚠ SI SCRIVONO SOLO QUELLI CHE SI VEDONO DAVVERO, e il conto della mesh si
+    // taglia lì. Prima si scrivevano TUTTI e i lampioni spenti prendevano scala
+    // zero: un triangolo degenere non copre pixel, ma il suo vertice viene
+    // trasformato lo stesso — 294.912 vertici per fotogramma a mezzogiorno, per
+    // disegnare il nulla. Con il conto tagliato, di giorno la mesh non entra
+    // nemmeno nella lista da disegnare.
+    //
+    // ⚠ E C'È IL TAGLIO PER DISTANZA, che è il vero LOD per istanza che
+    // mancava: un alone oltre la nebbia non si vede, ma finiva in GPU comunque
+    // perché la mesh è «sempre attiva» (vedi `aloni`) e quindi il culling di
+    // Babylon non la guarda nemmeno. Qui la distanza la sappiamo noi, e costa
+    // un confronto per lampione.
+    const r2 = portata > 0 ? portata * portata : 0;
+    let n = 0;
+    const primo = a.mesh[0];
+    const buf0 = primo._thinInstanceDataStorage.matrixData;
+    for (let i = 0; i < punti.length && n < a.quanti; i++) {
+      const p = punti[i];
+      if (!p || !p.acceso) continue;
+      if (r2 && occhio) {
+        const dx = p.x - occhio.x, dy = p.y - occhio.y, dz = p.z - occhio.z;
+        if (dx * dx + dy * dy + dz * dz > r2) continue;
       }
-      m.thinInstanceCount = a.quanti;
+      const o = n * 16;
+      buf0[o] = 1; buf0[o + 1] = 0; buf0[o + 2] = 0; buf0[o + 3] = 0;
+      buf0[o + 4] = 0; buf0[o + 5] = 1; buf0[o + 6] = 0; buf0[o + 7] = 0;
+      buf0[o + 8] = 0; buf0[o + 9] = 0; buf0[o + 10] = 1; buf0[o + 11] = 0;
+      buf0[o + 12] = p.x; buf0[o + 13] = p.y; buf0[o + 14] = p.z; buf0[o + 15] = 1;
+      n++;
+    }
+    // ⚠ I TRE GUSCI STANNO NEGLI STESSI POSTI: si calcola una volta e si copia.
+    // Il raggio ce l'ha la GEOMETRIA di ciascun guscio, non la sua matrice.
+    for (const m of a.mesh) {
+      if (m !== primo) m._thinInstanceDataStorage.matrixData.set(buf0.subarray(0, n * 16));
+      m.thinInstanceCount = n;
       // ⚠ QUI L'AGGIORNAMENTO INTERO VA BENE, ed è l'eccezione: il tetto è il
       // numero di lampioni, una dozzina, non mezzo milione come per l'erba.
       // La variante parziale costerebbe più codice che byte risparmiati.
       m.thinInstanceBufferUpdated('matrix');
+      // e se non ce n'è nessuno acceso, la mesh esce di scena del tutto
+      if (m.isEnabled() !== n > 0) m.setEnabled(n > 0);
     }
+    return n;
   }
 
   // ── il mirino ─────────────────────────────────────────────────────────────
@@ -556,7 +725,88 @@ export class Fabbrica {
   }
 
   /** Mette il colpetto su una cella con una certa scala. `scala <= 1` lo spegne. */
-  muoviColpetto(m, dati, cella, scala) {
+  /**
+   * LA MESH DELLE SCHEGGE — una sola per tutti i pezzetti in volo.
+   *
+   * ⚠ UNA MESH E NON UNA PER SCHEGGIA: settantadue mesh vorrebbero dire
+   * settantadue chiamate di disegno per un effetto che dura mezzo secondo. Qui
+   * i cubetti stanno tutti nello stesso buffer e si riscrivono a ogni
+   * fotogramma — 2.592 vertici, che è meno di un chunk qualsiasi.
+   *
+   * ⚠ E IL BUFFER SI ALLOCA UNA VOLTA SOLA, alla misura massima, con
+   * `updatable`: rifare la VertexData a ogni fotogramma vorrebbe dire creare e
+   * buttare via array a sessanta hertz, cioè dare da lavorare al raccoglitore
+   * di rifiuti proprio mentre si sta cercando di essere fluidi.
+   */
+  schegge(vertici) {
+    const m = new Mesh('schegge', this.scena);
+    m.material = this.matMondo;
+    m.isPickable = false;
+    m.receiveShadows = false;
+    const vd = new VertexData();
+    const pos0 = new Float32Array(vertici * 3);
+    // ⚠ LE NORMALI SI CALCOLANO UNA VOLTA SOLA, e si può perché un cubetto è
+    // sempre lo stesso cubetto: le schegge cambiano posizione e misura, mai
+    // orientamento. Quindi si riempie il buffer con dei cubi canonici, si
+    // calcolano le normali su quelli, e poi si sposteranno pure — le normali
+    // restano giuste. Ricalcolarle a ogni fotogramma sarebbe lavoro sprecato.
+    // ⚠ E SE SI LASCIASSERO A ZERO le schegge uscirebbero NERE: il materiale del
+    // mondo illumina col prodotto scalare fra normale e sole, e con la normale
+    // nulla quel prodotto è zero — cioè sole spento su ogni faccia.
+    for (let i = 0; i < vertici; i++) {
+      const a = CUBETTO[i % 36];
+      pos0[i * 3] = a[0]; pos0[i * 3 + 1] = a[1]; pos0[i * 3 + 2] = a[2];
+    }
+    vd.positions = pos0;
+    vd.colors = new Float32Array(vertici * 4);
+    const idx = new Uint32Array(vertici);
+    // ⚠ STESSO GIRO DEI TRIANGOLI DEL MONDO: il mesher scrive antiorario.
+    for (let i = 0; i < vertici; i += 3) { idx[i] = i; idx[i + 1] = i + 2; idx[i + 2] = i + 1; }
+    vd.indices = idx;
+    const nor = new Float32Array(vertici * 3);
+    VertexData.ComputeNormals(vd.positions, vd.indices, nor);
+    vd.normals = nor;
+    vd.applyToMesh(m, true);
+    m._pos = new Float32Array(vertici * 3);
+    m._col = new Float32Array(vertici * 3);
+    m._col4 = new Float32Array(vertici * 4);
+    // ⚠ SEMPRE ATTIVA anche quando è lontana dal centro: i suoi vertici stanno
+    // dove volano i pezzi, ma la scatola di delimitazione resta quella con cui
+    // è nata (tutti zeri). Senza questa riga Babylon la considera fuori campo e
+    // non la disegna — è lo stesso inciampo degli aloni dei lampioni.
+    m.alwaysSelectAsActiveMesh = true;
+    m.setEnabled(false);
+    return m;
+  }
+
+  /**
+   * CARICA I PEZZETTI IN VOLO.
+   * ⚠ È LA SCHEGGIAIA A SCRIVERSI, come fa il prato con `scriviPrato`: il
+   * calcolo di dove stanno i cubetti è gioco, caricarli in GPU è motore.
+   */
+  scriviSchegge(m, schegge) {
+    const { _pos: pos, _col: col, _col4: col4 } = m;
+    const n = schegge.scriviIn(pos, col);
+    if (!n) { if (m.isEnabled()) m.setEnabled(false); return; }
+    // ⚠ IL COLORE DEL MONDO HA QUATTRO CANALI e le schegge ne calcolano tre:
+    // l'alfa la mette il motore, che è l'unico a sapere che esiste. Se il
+    // buffer arrivasse a tre componenti Babylon leggerebbe di traverso e i
+    // cubetti uscirebbero di colori a caso.
+    for (let i = 0; i < n; i++) {
+      col4[i * 4] = col[i * 3]; col4[i * 4 + 1] = col[i * 3 + 1];
+      col4[i * 4 + 2] = col[i * 3 + 2]; col4[i * 4 + 3] = 1;
+    }
+    // ⚠ E I VERTICI AVANZATI SI COLLASSANO IN UN PUNTO invece di essere
+    // lasciati dov'erano: il buffer è lungo quanto il massimo, e i triangoli
+    // oltre `n` disegnerebbero i pezzetti del colpo precedente, fermi a
+    // mezz'aria. Collassati a zero area non coprono nessun pixel.
+    pos.fill(0, n * 3);
+    m.updateVerticesData('position', pos, false, false);
+    m.updateVerticesData('color', col4, false, false);
+    if (!m.isEnabled()) m.setEnabled(true);
+  }
+
+  muoviColpetto(m, dati, cella, scala, salto = null) {
     if (!cella || !dati || scala <= 1) { if (m.isEnabled()) m.setEnabled(false); return; }
     if (m._tipo !== dati.tipo) {
       m._tipo = dati.tipo;
@@ -574,7 +824,11 @@ export class Fabbrica {
       vd.applyToMesh(m, true);
     }
     if (!m.isEnabled()) m.setEnabled(true);
-    m.position.set(cella[0] + 0.5, cella[1] + 0.5, cella[2] + 0.5);
+    // ⚠ IL SALTO È IL TREMOLIO DEL BLOCCO CHE STA PER CEDERE, e sta qui e non
+    // nella scala perché sono due cose diverse: la scala dice quanto è gonfio,
+    // il salto dice quanto trema. Vedi `gioco/effetti.js`.
+    const sx = salto ? salto.x : 0, sy = salto ? salto.y : 0, sz = salto ? salto.z : 0;
+    m.position.set(cella[0] + 0.5 + sx, cella[1] + 0.5 + sy, cella[2] + 0.5 + sz);
     m.scaling.setAll(scala);
   }
 
@@ -591,12 +845,119 @@ export class Fabbrica {
   // lampada è scrivere in quell'oggetto, e basta.
 
   // ── l'acqua ───────────────────────────────────────────────────────────────
-  /** Una volta per fotogramma: il disegno che scorre, il cielo riflesso, la luna. */
-  animaAcqua(t) { this.acqua.anima(t); }
+  /** Una volta per fotogramma: il disegno che scorre e la luna. */
+  animaAcqua(t) {
+    this.acqua.anima(t);
+    if (this._risacca) this.matMondo._newUniformInstances['float-uTempoMondo'] = t;
+    // ⚠ IL GOVERNO DELLE PASSATE, ogni fotogramma ma quasi gratis: l'elenco
+    // delle mesh d'acqua si rinfresca ogni 30 giri (le mesh dei chunk nascono e
+    // muoiono di rado), e il controllo di visibilità è un `some` che si ferma
+    // alla prima mesh d'acqua dentro il frustum. Il frustum può non esserci
+    // ancora al primo fotogramma: in dubbio si tiene ACCESO — un fotogramma di
+    // passata inutile è niente, un fotogramma di acqua senza fondale si vede.
+    if ((this._giroPassate = (this._giroPassate || 0) + 1) % 30 === 1 || !this._mesheAcqua) {
+      this._mesheAcqua = this.scena.meshes.filter((m) => m.name.startsWith('acqua:'));
+    }
+    const piani = this.scena.frustumPlanes;
+    const visibile = !piani || this._mesheAcqua.some((m) => m.isEnabled() && m.isInFrustum(piani));
+    governaPassate(this.rig, {
+      specchio: !!this.acqua.riflesso,
+      rifrazione: !!this.acqua.rifrazione,
+      profondita: !!this.acqua.profondita,
+    }, visibile);
+  }
+
+  /**
+   * Dove sta il pelo per la risacca sul terreno. Ampiezza 0 = spenta.
+   * ⚠ UN LIVELLO SOLO, come lo specchio: è una fascia globale sulla quota, e
+   * due vasche a quote diverse non possono avere lo swash insieme. È il
+   * limite onesto della tecnica, non una svista.
+   */
+  rivaTerreno(livello, ampiezza = 0.45, rettangolo = null) {
+    if (!this._risacca) return;
+    this._risacca.x = livello;
+    this._risacca.y = ampiezza;
+    // senza rettangolo la risacca resta spenta: una fascia globale sulla quota
+    // dipinge il mondo intero, ed è il difetto che questa firma previene
+    if (rettangolo) this._risaccaRett.set(rettangolo.x0, rettangolo.z0, rettangolo.x1, rettangolo.z1);
+    else this._risacca.y = 0;
+  }
+
+  /**
+   * LA «RIFRAZIONE» ALLA GALAXY: quanto ondeggia il fondale sotto il pelo
+   * (in blocchi; 0 = ferma). Usa il livello e il rettangolo di `rivaTerreno`,
+   * quindi va chiamata DOPO — stesso piano, stessa vasca.
+   */
+  fondaleOnda(ampiezza = 0) {
+    this.matMondo._newUniformInstances['float-uFondaleOnda'] = ampiezza;
+  }
+
+  /**
+   * CAMBIA LA RICETTA: un pacchetto intero (disegno, luce, geometria, riflesso
+   * e i numeri) invece di quattro manopole.
+   * ⚠ SI TIENE IN CACHE come gli altri: ricompilare avanti e indietro fra due
+   * ricette mentre le si confronta farebbe singhiozzare la scena proprio nel
+   * momento in cui si sta guardando la differenza.
+   */
+  cambiaRicettaAcqua(nome) {
+    this._acque = this._acque || {};
+    const chiave = 'ricetta:' + nome;
+    if (!this._acque[chiave]) {
+      this._acque[chiave] = new Acqua(this.rig, { ricca: this.rig.fissi.acquaRicca, ricetta: nome });
+    }
+    this.acqua = this._acque[chiave];
+    this.matAcqua = this.acqua.materiale;
+    for (const mesh of this._chunkMesh) {
+      if (mesh.name.startsWith('acqua')) mesh.material = this.matAcqua;
+    }
+    return this.acqua.ricetta;
+  }
+
+  /** Dove sta il pelo da riflettere: un riflesso planare ha UN piano solo. */
+  quotaSpecchioAcqua(y) { this.acqua.quotaSpecchio(y); }
+
+  /** Un impatto sull'acqua VIVA: anelli che si allargano da (x, z). */
+  toccaAcqua(x, z, forza = 1) { this.acqua.tocca(x, z, forza); }
+
+  /** Un segno di scia sull'acqua: `raggio` in blocchi (vedi il registro uScia in acqua.js). */
+  sciaAcqua(x, z, raggio = 0.5) { this.acqua.scia(x, z, raggio); }
+
+  /**
+   * CAMBIA LO STILE DEL PELO, ricostruendo il materiale.
+   *
+   * ⚠ SI RICOSTRUISCE, NON SI RITOCCA, e non è pigrizia: il sorgente di un
+   * `CustomMaterial` si compila una volta e resta in cache (vedi CLAUDE.md —
+   * misurato: cambiando l'innesto e sporcando il materiale, il sorgente a
+   * schermo NON cambia). Uno stile è GLSL diverso, quindi è un materiale nuovo.
+   *
+   * ⚠ E QUELLO VECCHIO NON SI BUTTA. Serve a scegliere, cioè a tornare indietro
+   * un attimo dopo: ricompilare avanti e indietro fa singhiozzare la scena
+   * proprio mentre si sta guardando la differenza. Sono cinque materiali e
+   * cinque tessiture da 64 KB — si tengono.
+   */
+  cambiaStileAcqua(nome, onde = this.acqua.onde, modello = this.acqua.modello, riflesso = this.acqua.riflesso, vera = this.acqua.vera) {
+    // ⚠ LA CHIAVE È LA COPPIA, non il solo nome: le onde cambiano il VERTEX
+    // shader, quindi «rete ferma» e «rete che ondeggia» sono due sorgenti
+    // diversi e due materiali diversi. Con la chiave sul solo nome il secondo
+    // non sarebbe mai nato e il bottone del moto non avrebbe fatto niente —
+    // in silenzio, che è il modo peggiore.
+    const impronta = (a) => `${a.stile}|${a.modello}|${a.onde ? 1 : 0}|${a.riflesso ? 1 : 0}|${a.vera}`;
+    const chiave = `${nome}|${modello}|${onde ? 1 : 0}|${riflesso ? 1 : 0}|${vera}`;
+    this._acque = this._acque || { [impronta(this.acqua)]: this.acqua };
+    if (!this._acque[chiave]) {
+      this._acque[chiave] = new Acqua(this.rig, { ricca: this.rig.fissi.acquaRicca, stile: nome, onde, modello, riflesso, vera });
+    }
+    this.acqua = this._acque[chiave];
+    this.matAcqua = this.acqua.materiale;
+    for (const mesh of this._chunkMesh) {
+      if (mesh.name.startsWith('acqua')) mesh.material = this.matAcqua;
+    }
+    return this.acqua.stile;
+  }
 
   // ── il prato ──────────────────────────────────────────────────────────────
   creaPrato(max) { const p = new Prato(this.scena, this.rig, max); this._materiali.push(p.materiale); return p; }
-  scriviPrato(prato, n, erba) { prato.scrivi(n, erba); }
+  scriviPrato(prato, n, erba, nVicine = n) { prato.scrivi(n, erba, nVicine); }
   animaPrato(prato, erba) { prato.anima(erba); }
   mostraPrato(prato, on) { prato.mostra(on); }
 

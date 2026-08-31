@@ -76,13 +76,34 @@ test('senza scatole si comporta come la mira di sempre', () => {
   assert.deepEqual(a.faccia, [0, 1, 0]);
 });
 
-test("l'azione dipende da cosa si ha in mano, non da quale tasto", () => {
-  assert.equal(azione(null, null), 'rompi', 'mano vuota: si rompe');
-  assert.equal(azione('pietra', null), 'posa', 'con un blocco: si posa');
-  // ⚠ UN LAMPIONE VINCE SEMPRE, anche con un blocco in mano: se no per
-  // accendere una luce bisognerebbe prima svuotarsi le mani.
-  assert.equal(azione(null, {}), 'interagisci');
-  assert.equal(azione('pietra', {}), 'interagisci');
+test('UN TASTO, UN VERBO: il sinistro distrugge e basta', () => {
+  // ⚠ LA REGOLA CHIESTA DAL COMMITTENTE, parola per parola: «voglio tasto
+  // sinistro mano libera per distruggere [...] tasto destro interagisci o piazzi
+  // se hai selezionato in mano qualcosa». Prima l'azione dipendeva da cosa si
+  // aveva in mano E da cosa si guardava, e infatti il committente ci si era
+  // perso: «la mano vuota se clicco il sinistro rompe, se clicco il destro rompe».
+  for (const inMano of [null, 'pietra', 'lampione']) {
+    for (const bersaglio of [null, {}]) {
+      assert.equal(azione(inMano, bersaglio, true), 'rompi',
+        `sinistro con ${inMano} su ${bersaglio ? 'interattivo' : 'niente'}`);
+    }
+  }
+});
+
+test('e il destro costruisce o interagisce, secondo la mano', () => {
+  assert.equal(azione('pietra', null, false), 'posa', 'con un blocco: si posa');
+  assert.equal(azione(null, {}, false), 'interagisci', 'a mano vuota su un lampione: si accende');
+  // ⚠ LA MANO VUOTA È L'ATTREZZO PER INTERAGIRE, non l'assenza di attrezzo: con
+  // un blocco in mano il destro POSA, perché è quello che dice la regola. E
+  // arrivare alla mano vuota è un tasto solo — ha la sua casella nella barra.
+  assert.equal(azione('pietra', {}, false), 'posa', 'con un blocco in mano si posa comunque');
+});
+
+test('e su una cosa che non fa niente, si sente lo stesso', () => {
+  // ⚠ Committente: «anche se l'oggetto o cuboid non cambia stato deve sentirsi
+  // questa interazione». Un cubo di pietra non si accende, ma non deve nemmeno
+  // ignorare il clic — un gesto senza risposta si legge come «rotto».
+  assert.equal(azione(null, null, false), 'tocca');
 });
 
 test('la mano vuota è il primo posto della cassetta, e non posa niente', () => {
@@ -160,16 +181,18 @@ test('l\'erbetta è un ATTREZZO, non un blocco: non si posa', () => {
   assert.equal(c.posa(0, 8, 0), false, 'un attrezzo non posa blocchi');
 });
 
-test('un solo gesto: pianta dove non c\'è, rasa dove c\'è', () => {
-  // ⚠ UN ATTREZZO SOLO E NON DUE: due caselle vorrebbero dire una scelta in più
-  // da fare ogni volta. L'etichetta dice sempre cosa succederà.
-  assert.equal(azione('erbetta', null, false, false), 'pianta');
-  assert.equal(azione('erbetta', null, false, true), 'rasa');
-  // ⚠ E VIENE PRIMA DELL'INTERAZIONE: chi ha l'erbetta in mano e clicca un
-  // lampione vuole piantare ai suoi piedi, non accenderlo.
+test('l\'erbetta segue la stessa regola: destro pianta, sinistro rasa', () => {
+  // ⚠ UN ATTREZZO SOLO E NON DUE: l'attrezzo è uno, sono i due tasti a dire il
+  // verso. Ed è coerente col resto — il sinistro toglie, il destro mette.
+  assert.equal(azione('erbetta', null, false, false), 'pianta', 'destro dove non c\'è');
+  assert.equal(azione('erbetta', null, true, true), 'rasa', 'sinistro dove c\'è');
+  // ⚠ E NON SI ROMPE IL TERRENO PER RIPIEGO quando non c'è niente da rasare:
+  // sarebbe l'unico modo di rovinare il prato provando a curarlo.
+  assert.equal(azione('erbetta', null, true, false), 'tocca');
+  assert.equal(azione('erbetta', null, false, true), 'tocca', 'e non si pianta due volte');
+  // l'attrezzo viene comunque prima dell'interazione: con l'erbetta in mano un
+  // lampione non si accende, ci si pianta l'erba ai piedi
   assert.equal(azione('erbetta', {}, false, false), 'pianta');
-  // ma demolire vince su tutto, se no non si toglierebbe più niente
-  assert.equal(azione('erbetta', {}, true, false), 'rompi');
 });
 
 test('mirando a una decorazione si posa DAVANTI a lei, non dietro', () => {
@@ -205,7 +228,7 @@ test('una decorazione si rompe con la mano vuota', () => {
   assert.equal(d.quanti, 1);
   const c = new Cantiere(m, new Luci());
   c.scegli(0);                                   // mano vuota
-  assert.equal(azione(c.tipoScelto, d.interattivo(d.per.get('3,7,0'))), 'rompi');
+  assert.equal(azione(c.tipoScelto, d.interattivo(d.per.get('3,7,0')), true), 'rompi');
   c.rompi(3, 7, 0);
   assert.equal(d.quanti, 0, 'il ciuffo deve sparire dal registro');
   assert.equal(m.tipo(3, 7, 0), null, 'e dal mondo');

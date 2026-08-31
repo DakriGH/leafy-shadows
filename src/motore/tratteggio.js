@@ -47,8 +47,15 @@ export const LATO = 128;
  * periodo BASSO vuol dire macchie GRANDI in quella direzione. Il rapporto fra i
  * due è quanto il tratto è allungato.
  *
- *  · R «tratti»    6 × 22 → losanghe larghe il triplo di quanto sono alte,
- *                  orientate lungo u. È il disegno principale del pelo.
+ *  · R «tratti»    4 × 24 → tratti lunghi SEI VOLTE quanto sono alti, orientati
+ *                  lungo u. È il disegno principale del pelo.
+ *                  ⚠ E UNA OTTAVA SOLA, che è una correzione presa guardando
+ *                  insieme al committente: «non è pulita come quelle delle
+ *                  reference». Con due ottave la seconda spezzetta i tratti e
+ *                  quello che esce non sono segni, sono MACCHIE con i bordi
+ *                  frastagliati. Le referenze sono grandi campi di tinta piena
+ *                  con sopra pochi segni netti: la pulizia viene da lì, non da
+ *                  quanto è ricco il rumore.
  *  · G «deriva»    5 × 5  → campo largo e lento: non si vede mai da solo, serve
  *                  a SPOSTARE il punto in cui si legge R. È il trucco che
  *                  rompe il ripetersi della tessitura: senza, a schermo si
@@ -75,7 +82,7 @@ export const LATO = 128;
  * il reticolo si chiuda su se stesso, e col modulo si chiude sempre.
  */
 const CANALI = [
-  { pu: 6, pv: 22, ottave: 2, seme: 1 },     // R — i tratti
+  { pu: 4, pv: 24, ottave: 1, seme: 1 },     // R — i tratti
   { pu: 5, pv: 5, ottave: 1, seme: 2 },      // G — la deriva
   { pu: 18, pv: 18, ottave: 1, seme: 3 },    // B — le scintille
   { pu: 9, pv: 9, ottave: 2, seme: 4 },      // A — le chiazze

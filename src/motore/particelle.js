@@ -95,6 +95,44 @@ export const RICETTE = {
     // non sembra una scintilla — sembra una bolla.
     gravita: 9, verso: [[-0.6, 1, -0.6], [0.6, 1, 0.6]],
   },
+  // ── l'acqua che cade: tre effetti, tre mestieri ──────────────────────────
+  //
+  // ⚠ E TRE E NON UNO, perché al piede di una cascata succedono tre cose che
+  // l'occhio distingue benissimo e che un sistema solo non può fare insieme:
+  // le GOCCE schizzano (veloci, piccole, ricadono in arco), il VELO ristagna
+  // (lento, grande, sale e si dissolve), le BOLLE risalgono dentro l'acqua
+  // (dal basso, e muoiono al pelo). Un sistema solo darebbe la media di tre
+  // moti, che non è nessuno dei tre.
+  spruzzo: {
+    // ⚠ PICCOLE E TANTE, non grosse e poche: la figura è un quadrato pieno
+    // (scelta di stile della casa), e un quadrato grosso a mezz'aria si legge
+    // per quello che è — un quadrato. Sotto i dieci pixel diventa una goccia.
+    quante: 340, vita: [0.45, 1.05], taglia: [0.045, 0.10], ritmo: 210,
+    colore: [1, 1, 1, 0.95], colore2: [0.88, 0.96, 1, 0.85], fine: [0.82, 0.92, 1, 0],
+    forma: { raggio: 0.5, altezza: 0.12 }, velocita: [1.5, 3.2],
+    // ⚠ L'ARCO, come le scintille: sparate in su e tirate giù forte. Una goccia
+    // che sale e basta è una bolla; quello che dice «impatto» è la RICADUTA.
+    gravita: 12, verso: [[-0.75, 1, -0.75], [0.75, 1, 0.75]],
+  },
+  velo: {
+    quante: 110, vita: [1.6, 2.8], taglia: [0.45, 1.05], ritmo: 12,
+    // ⚠ QUASI TRASPARENTE E LENTO: il velo non è fumo bianco, è quello che resta
+    // in aria dopo. E la trasparenza da sola non basta — quello che conta è
+    // QUANTE se ne sovrappongono: al primo tentativo (alfa 0,26, ritmo 20) le
+    // due cascate più alte sparivano dentro una nuvola, perché venti veli al
+    // 26% impilati fanno un bianco pieno lo stesso. Si taglia il ritmo, non
+    // solo l'alfa.
+    colore: [1, 1, 1, 0.16], colore2: [0.9, 0.96, 1, 0.11], fine: [0.88, 0.94, 1, 0],
+    forma: { raggio: 0.8, altezza: 0.25 }, velocita: [0.25, 0.75],
+    gravita: -0.5, verso: [[-0.4, 1, -0.4], [0.4, 1, 0.4]],
+  },
+  bolle: {
+    quante: 120, vita: [0.9, 1.8], taglia: [0.05, 0.12], ritmo: 45,
+    colore: [1, 1, 1, 0.75], colore2: [0.8, 0.94, 1, 0.6], fine: [0.8, 0.94, 1, 0],
+    // nascono SOTTO il pelo e risalgono: il raggio è largo, l'altezza no
+    forma: { raggio: 0.7, altezza: 0.35 }, velocita: [0.3, 0.8],
+    gravita: -2.2, verso: [[-0.2, 1, -0.2], [0.2, 1, 0.2]],
+  },
   neve: {
     quante: 700, vita: [5.0, 9.0], taglia: [0.07, 0.15], ritmo: 120,
     colore: [1, 1, 1, 1], colore2: [0.9, 0.95, 1, 1], fine: [0.85, 0.9, 1, 0],
@@ -120,10 +158,22 @@ export class Particelle {
     this.suGPU = GPUParticleSystem.IsSupported;
   }
 
-  /** Accende un effetto in un punto. Torna il sistema, per poterlo spegnere. */
-  accendi(nome, { x, y, z }) {
-    const r = RICETTE[nome];
-    if (!r) throw new Error('ricetta sconosciuta: ' + nome);
+  /**
+   * Accende un effetto in un punto. Torna il sistema, per poterlo spegnere.
+   *
+   * ⚠ I `ritocchi` NON SONO UNA SECONDA TABELLA, e la differenza conta: la
+   * ricetta dice CHE COS'È l'effetto (che moto, che colore, che vita), i
+   * ritocchi solo quanto è grande QUESTA volta. Una cascata larga sei celle e
+   * una larga una vogliono lo stesso spruzzo su fronti diversi — e senza questo
+   * l'unica alternativa sarebbe una riga di tabella per ogni larghezza, cioè la
+   * tabella che smette di essere leggibile.
+   */
+  accendi(nome, { x, y, z }, ritocchi = null) {
+    const base = RICETTE[nome];
+    if (!base) throw new Error('ricetta sconosciuta: ' + nome);
+    const r = ritocchi
+      ? { ...base, ...ritocchi, forma: { ...base.forma, ...(ritocchi.forma || {}) } }
+      : base;
     // ⚠ E SE LA VARIANTE GPU NON SI COSTRUISCE, SI RIPIEGA — non si esplode. Un
     // effetto è un ornamento: farlo mancare deve costare una riga in console,
     // non una pagina bianca. (È successo: la prima volta ha buttato giù tutto lo

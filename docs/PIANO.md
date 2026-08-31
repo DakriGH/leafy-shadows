@@ -116,11 +116,35 @@ mantenuto la sua promessa e va rimesso tutto in discussione.
 
 ## Fase 4 — Acqua, meteo, particelle
 
-Riflessi, schiuma, pioggia, neve, nuvole, lucciole, fuochi fatui. La parte lunga
-ma senza incognite: sono effetti, non architettura.
+### L'acqua ✅ *(28/08/2026 — l'aspetto)*
+Stile nuovo, deciso col committente sulle sue referenze (il toon water di
+Roystan e due immagini): **quattro tinte piatte**, schiuma sulla riva a costo
+zero (la sponda la sa già il mesher), tre andature distinte — calma, corrente,
+cascata — e la **strada del sole** a gradini, con la luna e la sua fase. Vedi
+`motore/acqua.js`, `motore/tratteggio.js` e la piazzola 11 dello zoo.
 
-⚠ Il riflesso in Lantern era il **secondo** picco (11,1 ms): la scena ridisegnata
-specchiata senza culling proprio. Da rifare col Frame Graph, non ricopiando.
+### Quello che manca all'acqua
+- ⚠ **La simulazione non è collegata.** `world/acqua.js` importa `../config.js`,
+  **che in questo progetto non esiste**: il modulo non si carica nemmeno, e
+  nessuno lo istanzia. Posare una sorgente dà un cubo che non si sparge, e
+  `worldgen` conta su una sim «pianificata da main» che non c'è mai stata. È
+  lavoro di mondo, non di resa, e si prova in Node.
+- **La schiuma attorno alle cose che galleggiano**: quando ci sarà la fisica
+  (fase 5) e qualcosa galleggerà. La strada è la silhouette dall'alto di Lantern
+  — un render delle sole sagome, che regala anche la **scia** — non una passata
+  di profondità.
+- **Gli impatti delle cascate**: il mesher li calcola già (`bAcqua.impatti`,
+  posizione e altezza della colonna) e nessuno li legge.
+- **Sott'acqua**: non esiste niente. Tinta e nebbia dell'acqua, il pelo visto da
+  sotto, le caustiche sul fondo. Merita una piazzola sua.
+- **Riflettere le COSE** (alberi, terreno): l'unica parte che costa un pass.
+  ⚠ In Lantern era il **secondo** picco (11,1 ms): la scena ridisegnata
+  specchiata senza culling proprio. Da rifare con `MirrorTexture` a un quarto di
+  risoluzione e un `renderList` delle sole sagome vicine — e **misurato** prima
+  di prometterlo, non ricopiato.
+
+### Il resto della fase
+Pioggia, neve, nuvole, lucciole, fuochi fatui. Sono effetti, non architettura.
 
 ---
 
