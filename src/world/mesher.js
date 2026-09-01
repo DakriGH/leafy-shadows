@@ -653,6 +653,121 @@ function costruisciBlocco(bSolidi, bAcqua, mondo, x, y, z, tipo) {
   }
 }
 
+
+// ---- LA PELLE: il chunk lontano ----------------------------------------------
+//
+// ⚠ OLTRE UNA CERTA DISTANZA IL SUPERCUBO È SPRECO PURO: a ottanta blocchi uno
+// smusso da un sedicesimo è meno di un pixel, e un cappello d'erba sono cento
+// triangoli che l'occhio non distingue da un quadrato. Ma senza quei chunk
+// l'orizzonte è vuoto, e la distanza di resa resta inchiodata a quanto il
+// dettaglio pieno si può permettere. La pelle è la terza via: per ogni COLONNA
+// un quadrato di cima (il blocco più alto) e le pareti verso le colonne più
+// basse, nei colori della palette — la stessa silhouette a terrazze, senza i
+// pezzi che da lontano non si vedono. Da due a dieci triangoli per colonna,
+// contro le centinaia del dettaglio pieno.
+//
+// ⚠ QUELLO CHE LA PELLE NON SA: grotte, sporgenze, blocchi sospesi. Vede solo il
+// blocco più alto di ogni colonna. È il limite dichiarato di un LOD da
+// orizzonte, e sta oltre `raggioPieno`, cioè dove il dettaglio pieno non arriva
+// comunque — la nebbia comincia prima.
+//
+// ⚠ L'ACQUA RESTA PIENA anche nella pelle: il suo pelo è già una superficie
+// sola, e lo shader dell'acqua vuole i suoi canali (corrente, riva) che solo
+// `acquaBox` sa scrivere. Il costo dell'acqua non è la geometria.
+//
+// ⚠ E LA PELLE È GEOMETRIA DEL MESHER COME LE ALTRE: stessi colori di palette,
+// stessa marcatura dell'erba (`b.erba`), quindi la ritinta stagionale la trova
+// come trova i cappelli e il confine fra pieno e pelle non cambia tinta —
+// cambia solo il numero di triangoli.
+const PELLE_PARETE_MAX = 32;   // quanto in giù si cerca la colonna vicina prima di dichiararla un dirupo
+
+function costruisciPelle(bSolidi, bAcqua, mondo, kc) {
+  const v = kc.indexOf(',');
+  const cx0 = +kc.slice(0, v) * CHUNK, cz0 = +kc.slice(v + 1) * CHUNK;
+  // la cima di ogni colonna del chunk in UNA passata sui blocchi (16×16 voci)
+  const cime = new Int16Array(CHUNK * CHUNK).fill(-32768);
+  const tipi = new Array(CHUNK * CHUNK).fill(null);
+  for (const { x, y, z, tipo } of mondo.blocchiDelChunk(kc)) {
+    const d = defDi(tipo);
+    if (d.acqua) { costruisciBlocco(bSolidi, bAcqua, mondo, x, y, z, tipo); continue; }
+    if (FORME_VUOTE.has(d.forma)) continue;
+    const i = (x - cx0) * CHUNK + (z - cz0);
+    if (y > cime[i]) { cime[i] = y; tipi[i] = tipo; }
+  }
+  // «fin dove arriva la colonna qui accanto?»: dentro il chunk si legge la
+  // tabella, fuori si scende con mondo.tipo() dal mio livello — al massimo
+  // PELLE_PARETE_MAX letture, di solito una o due.
+  const solidoIn = (x, y, z) => {
+    const t = mondo.tipo(x, y, z);
+    if (!t) return false;
+    const d = defDi(t);
+    return !d.acqua && !FORME_VUOTE.has(d.forma);
+  };
+  const cimaVicina = (x, z, yDa) => {
+    const lx = x - cx0, lz = z - cz0;
+    if (lx >= 0 && lx < CHUNK && lz >= 0 && lz < CHUNK) return cime[lx * CHUNK + lz];
+    for (let y = yDa; y > yDa - PELLE_PARETE_MAX; y--) if (solidoIn(x, y, z)) return y;
+    return yDa - PELLE_PARETE_MAX;
+  };
+  for (let lx = 0; lx < CHUNK; lx++) {
+    for (let lz = 0; lz < CHUNK; lz++) {
+      const i = lx * CHUNK + lz, y = cime[i];
+      if (y === -32768) continue;
+      const x = cx0 + lx, z = cz0 + lz, tipo = tipi[i];
+      const def = defDi(tipo);
+      let pal = paletteBlocco(tipoBase(tipo), y);
+      if (def.motivo) pal = tintaPalette(pal, def.motivo, def.motivoForza ?? 1, x, y, z);
+      const materia = materiaDi(def);
+      if (materia) {
+        pal = { ...pal, cima: tingiMateria(pal.cima, materia), lato: tingiMateria(pal.lato, materia), fondo: tingiMateria(pal.fondo, materia) };
+      }
+      // la cima: un quadrato a filo cella. Per l'erba è la cima del cappello,
+      // marcata come tale così la stagione la ridipinge in-place
+      if (def.cappello) bSolidi.erba(pal.cima, y);
+      bSolidi.quad([x, y + 1, z], [x + 1, y + 1, z], [x + 1, y + 1, z + 1], [x, y + 1, z + 1], coloreFaccia(pal, 1, 1), [0, 1, 0]);
+      if (def.cappello) bSolidi.fineErba();
+      // le pareti: solo verso le colonne più basse, alte quanto il dislivello.
+      // ⚠ COL COLORE DEL LATO DEL BLOCCO DI CIMA per tutta la parete: la colonna
+      // sotto è quasi sempre terra dello stesso marrone, e da lontano una
+      // striscia di due toni non si distingue da una di uno.
+      for (const [dx, dz] of LATI) {
+        const yV = cimaVicina(x + dx, z + dz, y);
+        if (yV >= y) continue;
+        const base = Math.max(yV + 1, y + 1 - PELLE_PARETE_MAX);
+        const colore = coloreFaccia(pal, dx !== 0 ? 0 : 2, dx !== 0 ? dx : dz);
+        const px = x + (dx > 0 ? 1 : 0), pz = z + (dz > 0 ? 1 : 0);
+        if (dx !== 0) {
+          bSolidi.quad([px, base, z], [px, y + 1, z], [px, y + 1, z + 1], [px, base, z + 1], colore, [dx, 0, 0]);
+        } else {
+          bSolidi.quad([x, base, pz], [x, y + 1, pz], [x + 1, y + 1, pz], [x + 1, base, pz], colore, [0, 0, dz]);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * IL LIVELLO DI DETTAGLIO CHE UN CHUNK MERITA da dove si guarda: 0 pieno,
+ * 1 pelle, null «non costruirlo». Le distanze sono dal punto del chunk più
+ * vicino all'osservatore (in pianta), così un chunk che si sta per attraversare
+ * è già pieno prima che ci si metta piede.
+ *
+ * ⚠ CON ISTERESI: chi è già costruito a un livello lo tiene finché non supera
+ * il confine di un chunk intero. Senza, camminando lungo il bordo di un cerchio
+ * i chunk sul confine si rifarebbero a ogni passo, avanti e indietro.
+ */
+function livelloPer(kc, bx, bz, raggi, costruito) {
+  const v = kc.indexOf(',');
+  const x0 = +kc.slice(0, v) * CHUNK, z0 = +kc.slice(v + 1) * CHUNK;
+  const dx = Math.max(x0 - bx, 0, bx - (x0 + CHUNK));
+  const dz = Math.max(z0 - bz, 0, bz - (z0 + CHUNK));
+  const d = Math.sqrt(dx * dx + dz * dz);
+  const isteresi = costruito === undefined ? 0 : CHUNK;
+  if (d <= raggi.pieno + (costruito === 0 ? isteresi : 0)) return 0;
+  if (d <= raggi.resa + (costruito !== undefined ? isteresi : 0)) return 1;
+  return null;
+}
+
 // ---- mesher a chunk ------------------------------------------------------------
 
 // PARACADUTE: oltre questa taglia la griglia di luce non si calcola proprio.
@@ -698,6 +813,22 @@ export class Mesher {
     this.statistiche = { ultimaMs: 0, chunkAttivi: 0, occMs: 0, occCelle: 0, occLocali: 0, occTroppoGrande: 0, voxTroppoLarga: 0, inCoda: 0 };
     this._codaPiena = new Set();   // chunk in attesa di rebuild INTERO (vedi aggiorna)
     this._codaAcqua = new Set();   // chunk in attesa del solo rebuild dell'acqua
+    /**
+     * I RAGGI DI RESA, in blocchi: { resa, pieno }. Dentro `pieno` il chunk è a
+     * dettaglio pieno; fra `pieno` e `resa` è una PELLE (vedi costruisciPelle);
+     * oltre `resa` non ha mesh e, se ce l'aveva, la perde. `null` = tutto pieno
+     * sempre, com'era prima: è quello che vedono le prove e lo zoo.
+     *
+     * ⚠ È QUESTO CHE SLEGA LA DISTANZA DI RESA DAL COSTO: alzare `resa` aggiunge
+     * pelli, che costano una frazione; e un mondo più grande della distanza di
+     * resa non tiene in vita mesh che nessuno vede (misurato sul mondo r160:
+     * 928 mesh in scena per 120 attive, e 21,6 ms di fotogramma). Li imposta la
+     * fabbrica dal profilo (`_f.raggi`), o chi vuole con `impostaRaggi`.
+     */
+    this.raggi = null;
+    this._livelli = new Map();     // kc → 0 | 1: com'è costruito ADESSO
+    this._chunkOsservatore = null; // "cx,cz" di chi guarda all'ultimo riesame
+    this._bersaglio = null;        // {x, z} dell'ultimo riesame
     this.luce = null;              // GrigliaLuce (i muri), rifatta prima dei chunk
     this.occlusioneAttiva = true;  // interruttore delle Impostazioni
     this._velato = false;          // il mondo sta usando il materiale dell'occhio di bue?
@@ -898,6 +1029,7 @@ export class Mesher {
       _f.rimuoviChunk(e);
       this.chunks.delete(kc);
     }
+    this._livelli.delete(kc);
     this._cieloChunk(kc, null);
   }
 
@@ -970,10 +1102,17 @@ export class Mesher {
       return;
     }
 
+    // il livello che merita da dove si guarda: null = non lo si costruisce
+    const livello = this._livelloDi(kc);
+    if (livello === null) { this._rimuovi(kc); return; }
     const solidi = new Costruttore();
     const acqua = costruttoreAcqua();
-    for (const { x, y, z, tipo } of mondo.blocchiDelChunk(kc)) {
-      costruisciBlocco(solidi, acqua, mondo, x, y, z, tipo);
+    if (livello === 1) {
+      costruisciPelle(solidi, acqua, mondo, kc);
+    } else {
+      for (const { x, y, z, tipo } of mondo.blocchiDelChunk(kc)) {
+        costruisciBlocco(solidi, acqua, mondo, x, y, z, tipo);
+      }
     }
     this._cieloChunk(kc, mondo);
     if (solidi.vuoto && acqua.vuoto) { this._rimuovi(kc); return; }
@@ -983,6 +1122,47 @@ export class Mesher {
     _f.scrivi(e.acqua, acqua.dati());
     e.flussi = acqua.flussi;
     e.impatti = acqua.impatti;
+    this._livelli.set(kc, livello);
+  }
+
+  /** Il livello voluto per questo chunk adesso (0 pieno · 1 pelle · null niente). */
+  _livelloDi(kc) {
+    if (!this.raggi || !this._bersaglio) return 0;
+    return livelloPer(kc, this._bersaglio.x, this._bersaglio.z, this.raggi, this._livelli.get(kc));
+  }
+
+  /**
+   * Cambia i raggi di resa. Il riesame dei chunk avviene al prossimo `aggiorna`
+   * (si azzera la memoria di «dove stavo»), e da lì i chunk che cambiano
+   * livello entrano in coda come sporchi: niente si rifà in un colpo solo.
+   */
+  impostaRaggi(raggi) {
+    this.raggi = raggi && Number.isFinite(raggi.resa) ? { resa: raggi.resa, pieno: Math.min(raggi.pieno ?? raggi.resa, raggi.resa) } : null;
+    this._chunkOsservatore = null;
+  }
+
+  /**
+   * IL RIESAME: chi guarda ha cambiato chunk (o sono cambiati i raggi), quindi
+   * si ripassano tutti i chunk del mondo e si decide chi sale, chi scende e chi
+   * esce. Una passata sulle chiavi ogni sedici blocchi di cammino: sul mondo
+   * r400 (2.601 chunk) è mezzo millisecondo, e non succede a ogni fotogramma.
+   *
+   * ⚠ CHI ESCE, ESCE SUBITO: buttare una mesh è gratis, e tenerla un frame in
+   * più non serve a nessuno. Chi cambia livello va in coda: costruire costa, e
+   * la coda è già a bilancio e ordinata per distanza.
+   */
+  _riesamina(mondo, b) {
+    this._bersaglio = { x: b.x, z: b.z };
+    for (const kc of mondo.chunks.keys()) {
+      const costruito = this._livelli.get(kc);
+      const voluto = livelloPer(kc, b.x, b.z, this.raggi, costruito);
+      if (voluto === null) {
+        if (costruito !== undefined) this._rimuovi(kc);
+        this._codaPiena.delete(kc); this._codaAcqua.delete(kc);
+      } else if (voluto !== costruito) {
+        this._codaPiena.add(kc); this._codaAcqua.delete(kc);
+      }
+    }
   }
 
   /** Cambio stagione SMOOTH: riscrive in-place i colori delle cime d'erba
@@ -1059,8 +1239,14 @@ export class Mesher {
     const raggio = attorno ? RAGGIO_SUBITO : Infinity;
     const cx = attorno ? Math.floor(attorno.x / CHUNK) : 0;
     const cz = attorno ? Math.floor(attorno.z / CHUNK) : 0;
+    // ⚠ I RAGGI DI RESA VALGONO ANCHE QUI: con un punto da cui guardare, i chunk
+    // oltre `resa` non entrano nemmeno in coda. Senza punto (prove, zoo) si fa
+    // tutto pieno come sempre.
+    if (attorno) { this._bersaglio = { x: attorno.x, z: attorno.z }; this._chunkOsservatore = Math.floor(attorno.x / CHUNK) + ',' + Math.floor(attorno.z / CHUNK); }
+    else this._bersaglio = null;
     for (const kc of mondo.chunks.keys()) {
       if (raggio === Infinity) { this._chunk(mondo, kc); continue; }
+      if (this.raggi && this._livelloDi(kc) === null) { this._codaPiena.delete(kc); this._codaAcqua.delete(kc); continue; }
       const v = kc.indexOf(',');
       const dx = +kc.slice(0, v) - cx, dz = +kc.slice(v + 1) - cz;
       if (Math.max(Math.abs(dx), Math.abs(dz)) <= raggio) this._chunk(mondo, kc);
@@ -1171,6 +1357,15 @@ export class Mesher {
    */
   aggiorna(mondo, bersaglio = null) {
     if (mondo.cambiate.length) this._rillumina(mondo);   // luce: subito, costa a blocco
+    // i raggi li dice la fabbrica (dal profilo di qualità), se sa dirli
+    if (_f.raggi) {
+      const r = _f.raggi();
+      if (!!r !== !!this.raggi || (r && (r.resa !== this.raggi.resa || r.pieno !== this.raggi.pieno))) this.impostaRaggi(r);
+    }
+    if (this.raggi && bersaglio) {
+      const kc = Math.floor(bersaglio.x / CHUNK) + ',' + Math.floor(bersaglio.z / CHUNK);
+      if (kc !== this._chunkOsservatore) { this._chunkOsservatore = kc; this._riesamina(mondo, bersaglio); }
+    }
     // gli sporchi nuovi entrano in coda (il pieno vince sul solo-acqua)
     if (mondo.sporchi.size) {
       for (const kc of mondo.sporchi) { this._codaPiena.add(kc); this._codaAcqua.delete(kc); }
@@ -1204,6 +1399,8 @@ export class Mesher {
     this.statistiche.ultimaMs = performance.now() - t0;
     this.statistiche.chunkAttivi = this.chunks.size;
     this.statistiche.inCoda = this._codaPiena.size + this._codaAcqua.size;
+    let pelli = 0; for (const l of this._livelli.values()) if (l === 1) pelli++;
+    this.statistiche.pelli = pelli;
   }
 }
 
@@ -1211,7 +1408,7 @@ export class Mesher {
 // Roba interna esportata SOLO per i test (test/mesher.test.mjs): la riva e la
 // soglia di pendenza, cioè i numeri su cui sono tarate le soglie dello shader
 // dell'acqua — cambiarli qui lo scalibrerebbe in silenzio.
-export { rivaCella, Costruttore, PENDENZA_RIPIDA, RIVA_RAGGIO };
+export { rivaCella, Costruttore, PENDENZA_RIPIDA, RIVA_RAGGIO, costruisciPelle, livelloPer };
 // ⚠ ED ESPORTATO ANCHE IL PARACADUTE, perché superarlo spegne le ombre delle
 // lampade IN SILENZIO — nessun errore, solo luce che attraversa i muri. Lo zoo
 // ci sta vicino (allargare le piazzole allarga la griglia) e ha una prova che
