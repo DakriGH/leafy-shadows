@@ -13,7 +13,7 @@ import { normalizzaRegistro } from './schema.js';
 import { Campionatore } from './misura.js';
 import { Pannello } from './pannello.js';
 
-export function apriOfficina({ registri, campione, autore = 'officina', titolo = 'Officina', apertoSubito = false, agganciaFrame } = {}) {
+export function apriOfficina({ registri, campione, autore = 'officina', titolo = 'Officina', apertoSubito = false, agganciaFrame, contenitore = null, scuro = false } = {}) {
   registri = registri.map(normalizzaRegistro);
   const perChiave = new Map(registri.map((r) => [r.chiave, new Map(r.campi.map((c) => [c.chiave, c]))]));
 
@@ -31,9 +31,9 @@ export function apriOfficina({ registri, campione, autore = 'officina', titolo =
     if (corto) return `${a.fps} fps · ${a.disegni ?? '—'}d`;
     return `<b>${a.fps}</b> fps · p50 ${a.p50} · p99 ${a.p99} ms · <b>${a.disegni ?? '—'}</b> disegni · rt ${a.rtMs ?? '—'} ms`;
   };
-  const pannello = new Pannello({ registri, bus, vivi, titolo });
+  const pannello = new Pannello({ registri, bus, vivi, titolo, contenitore, scuro });
   if (apertoSubito) pannello.apri(true);
   if (agganciaFrame) agganciaFrame(() => campionatore.passo());
 
-  return { registri, bus, campionatore, pannello, passo: () => campionatore.passo() };
+  return { registri, bus, campionatore, pannello, vivi, passo: () => campionatore.passo() };
 }

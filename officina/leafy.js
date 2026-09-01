@@ -11,6 +11,7 @@
 // (acqua.js espone il suo, erba.js il suo) e questo file sparisce.
 
 import { apriOfficina } from './index.js';
+import { apriEditor } from './editor.js';
 import { tabellaMisure } from './misura.js';
 import { impacchetta, applica, salvaLocale, leggiLocali, copia } from './preset.js';
 
@@ -20,7 +21,7 @@ const RICETTE = ['cristallina', 'lago', 'abisso', 'kintsugi', 'benzina', 'bolla'
 const STILI = ['liscia', 'bande', 'rete', 'creste', 'tratti', 'scaglie', 'gocce', 'mosaico', 'vetro', 'inchiostro', 'pixel'];
 const MODELLI = ['piatto', 'celle', 'morbida', 'lucida', 'spenta', 'vetrosa'];
 
-export async function officinaLeafy({ apertoSubito = false } = {}) {
+export async function officinaLeafy({ apertoSubito = false, editor = true } = {}) {
   await attendi(() => !!(globalThis.LEAFY && globalThis.LEAFY.rig && globalThis.LEAFY.fabbrica && globalThis.LEAFY.rig.scena));
   const L = globalThis.LEAFY;
   const { rig, fabbrica: vi, erba: es, giorno: ai, scala: Js } = L;
@@ -215,12 +216,20 @@ export async function officinaLeafy({ apertoSubito = false } = {}) {
   };
   ricaricaPreset();
 
+  // ⚠ PRIMA LA CORNICE, POI IL PANNELLO: il pannello si incassa nel contenitore
+  // che la cornice gli lascia. Senza cornice (editor: false) resta la finestra
+  // flottante sopra il gioco.
+  const shell = editor ? apriEditor({ titolo: 'Officina', vivi: () => (off ? off.vivi(false) : ''), onRidimensiona: () => motore.resize() }) : null;
   off = apriOfficina({
     registri: [acqua, qualita, ombre, giorno, erba, motoreReg, diagnostica],
     campione: () => rig.campione(),
     agganciaFrame: (f) => scena.onAfterRenderObservable.add(() => { f(); applicaCull(); }),
     apertoSubito,
+    contenitore: shell ? shell.contenitore : null,
+    scuro: !!shell,
   });
+  off.editor = shell;
+  if (shell) shell.rimisura();
   globalThis.OFFICINA = off;
   return off;
 }

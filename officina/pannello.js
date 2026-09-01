@@ -14,81 +14,95 @@
 import { mostra, interpreta } from './schema.js';
 
 const CSS = `
-#officina { --inch: #0d2a1a; --carta: rgba(255,255,255,.94); --riga: rgba(13,42,26,.12); --acceso: #0d2a1a;
+#officina { --inch: #0d2a1a; --carta: rgba(255,255,255,.94); --riga: rgba(13,42,26,.12); --acceso: #0d2a1a; --accesoTesto: #eaf6ef;
+  --tenue: rgba(13,42,26,.06); --tenue2: rgba(13,42,26,.13); --campo: #fff; --esito: rgba(13,42,26,.035); --fuoco: #2f7d4f; --ombra: 0 4px 24px rgba(13,42,26,.16);
   position: fixed; z-index: 40; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--inch);
   right: 8px; bottom: 8px; width: min(380px, calc(100vw - 16px)); pointer-events: none; }
+/* ⚠ IL TEMA SCURO È DELL'EDITOR, NON DEL GIOCO: il pannello dentro la shell deve
+   dire «sei fuori dal gioco». Stessi controlli, altra carta. */
+#officina.scuro { --inch: #dfe8e2; --carta: #151c18; --riga: rgba(223,232,226,.12); --acceso: #79b8ff; --accesoTesto: #0b1a2b;
+  --tenue: rgba(223,232,226,.07); --tenue2: rgba(223,232,226,.15); --campo: #0f1512; --esito: rgba(223,232,226,.05); --fuoco: #79b8ff; --ombra: none; }
 #officina * { box-sizing: border-box; }
 #officina .off-tasto { pointer-events: auto; position: absolute; right: 0; bottom: 0; font: inherit; font-weight: 700;
   color: var(--inch); background: var(--carta); border: 1px solid var(--riga); border-radius: 8px; padding: 7px 11px; cursor: pointer;
-  box-shadow: 0 2px 10px rgba(13,42,26,.12); white-space: pre; }
+  box-shadow: var(--ombra); white-space: pre; }
 #officina.aperta .off-tasto { display: none; }
 #officina .off-corpo { display: none; pointer-events: auto; width: 100%; min-width: 0; background: var(--carta); border: 1px solid var(--riga); border-radius: 10px;
-  box-shadow: 0 4px 24px rgba(13,42,26,.16); max-height: min(78vh, 720px); overflow: hidden; flex-direction: column; touch-action: pan-y; }
+  box-shadow: var(--ombra); max-height: min(78vh, 720px); overflow: hidden; flex-direction: column; touch-action: pan-y; }
 #officina.aperta .off-corpo { display: flex; }
+/* incassato: dentro la shell dell'editor, niente finestra flottante */
+#officina.incassato { position: static; width: auto; height: 100%; pointer-events: auto; }
+#officina.incassato .off-tasto { display: none; }
+#officina.incassato .off-corpo { display: flex; height: 100%; max-height: none; border: 0; border-radius: 0; box-shadow: none; animation: none; }
+#officina.incassato [data-fa=chiudi], #officina.incassato .off-vivi { display: none; }
 #officina header { display: flex; align-items: center; gap: 6px; padding: 7px 8px 6px; border-bottom: 1px solid var(--riga); }
 #officina header .off-vivi { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 #officina header .off-vivi b { font-size: 14px; }
-#officina header button { font: inherit; color: var(--inch); background: rgba(13,42,26,.06); border: 1px solid var(--riga);
+#officina header .off-spazio { flex: 1; }
+#officina header button { font: inherit; color: var(--inch); background: var(--tenue); border: 1px solid var(--riga);
   border-radius: 6px; padding: 3px 7px; cursor: pointer; min-width: 30px; }
 #officina header button:disabled { opacity: .35; cursor: default; }
 #officina nav { display: flex; gap: 4px; padding: 6px 8px; overflow-x: auto; border-bottom: 1px solid var(--riga); scrollbar-width: none; }
-#officina nav button { font: inherit; font-size: 11px; color: var(--inch); background: rgba(13,42,26,.05); border: 1px solid var(--riga);
+#officina nav button { font: inherit; font-size: 11px; color: var(--inch); background: var(--tenue); border: 1px solid var(--riga);
   border-radius: 999px; padding: 4px 10px; white-space: nowrap; cursor: pointer; flex: 0 0 auto; }
-#officina nav button.acceso { background: var(--acceso); border-color: var(--acceso); color: #eaf6ef; }
-#officina .off-campi { overflow: auto; padding: 6px 10px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; min-width: 0; }
+#officina nav button.acceso { background: var(--acceso); border-color: var(--acceso); color: var(--accesoTesto); }
+#officina .off-campi { overflow: auto; padding: 6px 10px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; min-width: 0; flex: 1; }
 #officina .off-nota { font-size: 11px; opacity: .72; margin: 2px 0 4px; white-space: pre-wrap; }
 #officina .campo { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; min-width: 0; }
 #officina .campo .riga { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #officina .campo .nome { min-width: 0; flex: 1 1 auto; }
 #officina .campo .valore { font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; flex: 0 1 auto; }
 #officina .campo small { display: block; font-size: 10.5px; opacity: .62; line-height: 1.35; }
-#officina input[type=range] { width: 100%; accent-color: var(--inch); margin: 0; height: 22px; }
-#officina select, #officina input[type=text] { font: inherit; color: var(--inch); background: #fff; border: 1px solid var(--riga); border-radius: 6px; padding: 4px 6px; max-width: 58%; }
+#officina input[type=range] { width: 100%; accent-color: var(--acceso); margin: 0; height: 22px; }
+#officina select, #officina input[type=text] { font: inherit; color: var(--inch); background: var(--campo); border: 1px solid var(--riga); border-radius: 6px; padding: 4px 6px; max-width: 58%; }
 #officina input[type=color] { width: 44px; height: 26px; border: 1px solid var(--riga); border-radius: 6px; padding: 0; background: none; }
-#officina .interruttore { font: inherit; color: var(--inch); background: rgba(13,42,26,.06); border: 1px solid var(--riga); border-radius: 999px; padding: 3px 10px; cursor: pointer; min-width: 44px; }
-#officina .interruttore.acceso { background: var(--acceso); border-color: var(--acceso); color: #eaf6ef; }
-#officina .azione { font: inherit; font-weight: 600; color: var(--inch); background: rgba(13,42,26,.06); border: 1px solid var(--riga); border-radius: 7px; padding: 6px 10px; cursor: pointer; text-align: left; }
-#officina .azione:active { background: rgba(13,42,26,.14); }
-#officina .off-esito { margin: 0; padding: 7px 10px; border-top: 1px solid var(--riga); max-height: 34%; overflow: auto; font-size: 11px; white-space: pre-wrap; user-select: text; background: rgba(13,42,26,.035); }
-#officina button:focus-visible, #officina input:focus-visible, #officina select:focus-visible { outline: 2px solid #2f7d4f; outline-offset: 1px; }
+#officina .interruttore { font: inherit; color: var(--inch); background: var(--tenue); border: 1px solid var(--riga); border-radius: 999px; padding: 3px 10px; cursor: pointer; min-width: 44px; }
+#officina .interruttore.acceso { background: var(--acceso); border-color: var(--acceso); color: var(--accesoTesto); }
+#officina .azione { font: inherit; font-weight: 600; color: var(--inch); background: var(--tenue); border: 1px solid var(--riga); border-radius: 7px; padding: 6px 10px; cursor: pointer; text-align: left; }
+#officina .azione:active { background: var(--tenue2); }
+#officina .off-esito { margin: 0; padding: 7px 10px; border-top: 1px solid var(--riga); max-height: 34%; overflow: auto; font-size: 11px; white-space: pre-wrap; user-select: text; background: var(--esito); }
+#officina button:focus-visible, #officina input:focus-visible, #officina select:focus-visible { outline: 2px solid var(--fuoco); outline-offset: 1px; }
 @media (max-width: 720px), (pointer: coarse) {
-  #officina { right: 6px; left: 6px; bottom: 6px; width: auto; }
-  #officina .off-corpo { max-height: 62vh; }
-  #officina .off-tasto { right: 0; }
+  #officina:not(.incassato) { right: 6px; left: 6px; bottom: 6px; width: auto; }
+  #officina:not(.incassato) .off-corpo { max-height: 62vh; }
 }
-@media (prefers-reduced-motion: no-preference) { #officina .off-corpo { animation: off-sale .16s ease-out; } }
+@media (prefers-reduced-motion: no-preference) { #officina:not(.incassato) .off-corpo { animation: off-sale .16s ease-out; } }
 @keyframes off-sale { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
 `;
 
 export class Pannello {
-  constructor({ registri, bus, vivi, radice = document.body, titolo = 'Officina' }) {
+  constructor({ registri, bus, vivi, radice = document.body, titolo = 'Officina', contenitore = null, scuro = false }) {
     this.registri = registri;
     this.bus = bus;
     this._vivi = vivi || (() => '');
     this.attivo = registri[0] && registri[0].chiave;
     this._el = {};
-    this._costruisci(radice, titolo);
+    this.incassato = !!contenitore;
+    this._costruisci(contenitore || radice, titolo, scuro);
     this._orologio = setInterval(() => this.aggiorna(), 500);
     bus.osserva(() => this.aggiorna(true));
   }
 
-  apri(si = true) { this.radice.classList.toggle('aperta', si); if (si) this.aggiorna(true); }
-  get aperto() { return this.radice.classList.contains('aperta'); }
+  apri(si = true) { if (this.incassato) si = true; this.radice.classList.toggle('aperta', si); if (si) this.aggiorna(true); }
+  get aperto() { return this.incassato || this.radice.classList.contains('aperta'); }
 
   // Testo nel riquadro sotto i campi (misure, preset esportati). Resta finché
   // non lo si sostituisce: è fatto per essere letto, copiato, fotografato.
   esito(testo) { this._el.esito.hidden = !testo; this._el.esito.textContent = testo || ''; }
 
-  _costruisci(radice, titolo) {
+  _costruisci(radice, titolo, scuro) {
     if (!document.getElementById('officina-stile')) {
       const s = document.createElement('style'); s.id = 'officina-stile'; s.textContent = CSS; document.head.appendChild(s);
     }
     const r = (this.radice = document.createElement('div')); r.id = 'officina';
+    if (this.incassato) r.classList.add('incassato', 'aperta');
+    if (scuro) r.classList.add('scuro');
     r.innerHTML = `
       <button class="off-tasto" type="button" aria-label="apri ${titolo}">⚙ ${titolo}</button>
       <div class="off-corpo" role="dialog" aria-label="${titolo}">
         <header>
           <div class="off-vivi">…</div>
+          <span class="off-spazio"></span>
           <button type="button" data-fa="annulla" title="annulla">↶</button>
           <button type="button" data-fa="ripeti" title="ripeti">↷</button>
           <button type="button" data-fa="chiudi" title="chiudi">✕</button>

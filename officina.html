@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Leafy-Shadows — officina</title>
+<title>Leafy-Shadows — Officina (editor)</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd0e8; touch-action: none; }
   #tela { width: 100%; height: 100%; display: block; outline: none; }
@@ -64,7 +64,7 @@
     };
     window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
     window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
-    import('./main.js?v=49394de.d7eba82c').then(() => import('./officina/leafy.js')).then((m) => m.officinaLeafy({ apertoSubito: !matchMedia('(pointer: coarse)').matches })).catch(guasto);
+    import('./main.js?v=49394de.d7eba82c').then(() => import('./officina/leafy.js')).then((m) => m.officinaLeafy({ editor: !/[?&]flottante\b/.test(location.search) })).catch(guasto);
 
     // ⚠ SI APRE TOCCANDOLO. Il gestore sta sul PANNELLO e non sulla tela: se no
     // il tocco che apre il pannello sarebbe anche quello che ruota la camera.
