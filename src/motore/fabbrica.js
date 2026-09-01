@@ -411,6 +411,22 @@ export class Fabbrica {
   }
 
   // ── i nomi che il mondo si aspetta ────────────────────────────────────────
+  /**
+   * I RAGGI DI RESA PER IL MESHER, in blocchi: dentro `pieno` dettaglio pieno,
+   * fino a `resa` la pelle, oltre niente (vedi `costruisciPelle` nel mesher).
+   * ⚠ `resa` sta un chunk OLTRE la distanza di resa: il LOD del motore toglie
+   * la mesh a `fogEnd + raggio`, e un chunk che il mesher non costruisce ma il
+   * motore avrebbe ancora disegnato sarebbe un buco nella nebbia.
+   * ⚠ `pieno` è la manopola del profilo (`dist` è la distanza, `pieno` quanto
+   * di quella è a dettaglio pieno); se il profilo non lo dice, metà distanza —
+   * a settantacinque blocchi uno smusso è meno di un pixel su qualunque schermo.
+   */
+  raggi() {
+    const d = this.rig.distanzaResa;
+    if (!Number.isFinite(d)) return null;
+    const p = this.rig.profilo && Number.isFinite(this.rig.profilo.pieno) ? this.rig.profilo.pieno : d * 0.5;
+    return { resa: d + 16, pieno: Math.min(p, d) };
+  }
   materialeMondo() { return this.matMondo; }
   materialeAcqua() { return this.matAcqua; }
 
