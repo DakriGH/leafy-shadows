@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Leafy-Shadows — officina</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd0e8; touch-action: none; }
+  #tela { width: 100%; height: 100%; display: block; outline: none; }
+  #fps {
+    position: fixed; right: 8px; top: 8px; z-index: 10;
+    font: 600 13px/1.4 ui-monospace, monospace; color: #0d2a1a;
+    background: rgba(255,255,255,.72); padding: 5px 9px; border-radius: 6px;
+    pointer-events: none; text-align: right; white-space: pre;
+  }
+  #stato {
+    position: fixed; left: 8px; top: 8px; z-index: 10;
+    font: 12px/1.5 ui-monospace, monospace; color: #0d2a1a;
+    background: rgba(255,255,255,.72); padding: 6px 9px; border-radius: 6px;
+    white-space: pre; pointer-events: none;
+  }
+  /* ⚠ SUL TELEFONO IL PANNELLO SI MANGIAVA UN TERZO DELLO SCHERMO, e non è una
+     questione estetica: è un pannello che DEVE restare, perché su un telefono
+     non c'è una console e senza quei numeri «va piano» resta un'opinione. Se
+     però copre il gioco, la prima cosa che si fa è chiuderlo — e allora non
+     serve più a niente. Quindi si rimpicciolisce e si arrotola alle prime due
+     righe: si tocca per aprirlo tutto.
+     ⚠ E QUI VA RIACCESO «pointer-events», che sul pannello è spento apposta (se
+     no ruberebbe i trascinamenti alla camera). Senza questa riga il gestore del
+     tocco non riceve NIENTE, e sembra che il tocco non funzioni. */
+  /* ⚠ NON PIÙ LA LARGHEZZA MA LA MODALITÀ (vedi src/ui/modo.js): un Chromebook
+     ha lo schermo largo e il touchscreen, e con la media query si prendeva
+     sempre il vestito da mouse anche tenendolo piegato a tablet. */
+  .gui-tocco #stato { font-size: 10px; line-height: 1.35; padding: 4px 6px; max-width: 62vw;
+           max-height: 2.55em; overflow: hidden; pointer-events: auto; cursor: pointer; }
+  /* ⚠ APERTO NON DEVE TAGLIARE NIENTE, ed è la ragione per cui esiste questa
+     riga. Committente: «da cellulare la GUI è tagliata, quindi molte
+     informazioni vengono nascoste — non utile per mandarti gli screenshot dei
+     dati». Quel pannello esiste PER essere fotografato e mandato: se taglia, non
+     serve a niente. Aperto prende quasi tutto lo schermo e MANDA A CAPO. */
+  .gui-tocco #stato.aperto { max-height: 76vh; max-width: 94vw; overflow: auto;
+                  white-space: pre-wrap; word-break: break-word; }
+  .gui-tocco #fps { font-size: 11px; padding: 3px 6px; }
+  #guasto {
+    position: fixed; inset: 12px; z-index: 100; display: none;
+    font: 13px/1.55 ui-monospace, monospace; color: #fff; background: #8b1d1d;
+    padding: 14px; border-radius: 8px; overflow: auto; white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+  <canvas id="tela"></canvas>
+  <div id="stato">avvio…</div>
+  <div id="fps">—</div>
+  <pre id="guasto"></pre>
+  <script type="module">
+    // ⚠ IL BANNER ROSSO PRIMA DI TUTTO. È il canale di diagnosi sul telefono e
+    // sul Chromebook, dove la console non si apre: se il modulo principale muore
+    // durante l'import, senza questo si vede solo schermo nero.
+    const guasto = (e) => {
+      const p = document.getElementById('guasto');
+      p.style.display = 'block';
+      p.textContent += (p.textContent ? '\n\n' : '') + (e && e.stack ? e.stack : String(e));
+    };
+    window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
+    window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
+    import('./main.js?v=49394de.d7eba82c').then(() => import('./officina/leafy.js')).then((m) => m.officinaLeafy({ apertoSubito: !matchMedia('(pointer: coarse)').matches })).catch(guasto);
+
+    // ⚠ SI APRE TOCCANDOLO. Il gestore sta sul PANNELLO e non sulla tela: se no
+    // il tocco che apre il pannello sarebbe anche quello che ruota la camera.
+    const _st = document.getElementById('stato');
+    _st.addEventListener('click', () => _st.classList.toggle('aperto'));
+</script>
+  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">31/08, 02:20 · 49394de</div>
+</body>
+</html>
