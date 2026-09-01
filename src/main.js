@@ -19,7 +19,8 @@ import { Flora } from './motore/flora.js';
 import { Mondo } from './world/world.js';
 import { Mesher, collegaFabbrica as fabbricaMesher } from './world/mesher.js';
 import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
-import { generaOpenWorld } from './world/worldgen.js';
+import { generaOpenWorld, LIVELLO_ACQUA } from './world/worldgen.js';
+import { peloVicino, pianoDaTenere } from './world/pelo.js';
 import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
 import { miraCompleta, posabile, raggiungibile, portataRaggio } from './gioco/mira.js';
@@ -65,7 +66,22 @@ const mesher = new Mesher(rig.scena, mondo);
 
 // ---- il mondo, quello vero -------------------------------------------------
 const t0 = performance.now();
-const { alberi, lampioni } = generaOpenWorld(mondo, 4242, 48);
+// ⚠ L'ESTENSIONE È PARAMETRICA (`?mondo=N`, semilato in blocchi) PER MISURARE
+// LA SCALA, ed è il primo passo verso il mondo grande chiesto dal committente
+// («facciamo il mondo alto 300 blocchi e largo 4k così testiamo bene il
+// chunking e le performance»).
+//
+// ⚠ E I NUMERI DICONO CHE 4k NON SI FA COSÌ, va detto prima di provarci:
+// misurata in Node la generazione TUTTA IN UNA VOLTA (che è quella di oggi),
+// costa ~7,8 µs e ~0,55 KB per colonna, lineare — 66 ms/10 MB a semilato 48,
+// 801 ms/56 MB a 160. Un mondo 4000×4000 sono 16 milioni di colonne: **~2
+// minuti di blocco e ~9 GB di RAM**, prima ancora di contare i 300 di altezza.
+// Non è una taratura: serve la generazione PER CHUNK a richiesta più lo
+// scarico dei chunk lontani (lo streaming della fase R3), e la coda del mesher
+// è già il modello giusto. Fino ad allora questo parametro serve a trovare il
+// tetto vero di oggi con una misura invece che con una speranza.
+const _semilato = Math.max(16, Math.min(400, Number((location.search.match(/[?&]mondo=(\d+)/) || [])[1]) || 48));
+const { alberi, lampioni } = generaOpenWorld(mondo, 4242, _semilato);
 // ⚠ E ADESSO DIVENTANO CELLE. Il worldgen dà delle terne [x, quota, z] e prima
 // finivano dritte nelle istanze di mesh: fuori dal mondo, quindi irrompibili e
 // non salvabili. Posarle come blocchi le fa entrare in tutta la macchina che
@@ -917,6 +933,42 @@ sceltaAcqua.vaiA(Math.max(0, sceltaAcqua.voci.findIndex((v) => v.chiave === ACQU
 // di scritta addosso al primo fotogramma sono rumore. Si azzera subito.
 _acquaFinoA = 0;
 
+// ⚠ IL PIANO DELLO SPECCHIO VA MESSO SUL MARE, E NEL GIOCO NON LO FACEVA
+// NESSUNO — è la causa di «non riflette proprio nulla» e di metà del «sembra
+// monocromatica e opaca». Un riflesso planare specchia la scena rispetto a UN
+// piano: `creaSpecchio` lo lascia al valore di comodo del banco (9,5), e il
+// banco lo rimette a ogni vasca (`seguiSpecchio`) — il gioco non lo rimetteva
+// mai. Il pelo del mare vero sta a `LIVELLO_ACQUA + 15/16` = 5,94: si
+// specchiava rispetto a un piano tre blocchi e mezzo TROPPO ALTO, cioè
+// l'immagine riflessa era la scena sbagliata (spostata di sette blocchi in
+// verticale) — niente alberi, niente cielo giusto, solo una patina slavata.
+// ⚠ E VA CHIAMATO ANCHE PER LA RISACCA/il fondale alla Galaxy, che dallo
+// stesso livello ricavano dov'è la superficie.
+// ⚠ IL LIMITE RESTA UNO SOLO E VA SAPUTO: un piano per volta. Il mare
+// principale riflette; una pozza sopraelevata sul dirupo no — è la tecnica,
+// non una svista (vedi la nota di `creaSpecchio`).
+// ⚠ E IL PIANO SEGUE L'ACQUA, non è una costante: «il riflesso deve stare a
+// qualsiasi altezza dell'acqua, anche se faccio una grotta e ci metto acqua
+// sotto». `peloVicino` (world/pelo.js, provato in Node) cerca il pelo LIBERO
+// più vicino al giocatore pesando la verticale; `pianoDaTenere` lo sposta a
+// scatti da mezzo blocco, se no l'immagine riflessa slitterebbe camminando.
+// Si ricontrolla ogni mezzo secondo: cercare a ogni fotogramma sarebbe
+// sprecato (l'acqua non si sposta) e a ogni chunk sarebbe troppo tardi.
+let _pianoAcqua = LIVELLO_ACQUA + 15 / 16;
+let _pianoFra = 0;
+fabbrica.quotaSpecchioAcqua(_pianoAcqua);
+fabbrica.rivaTerreno(_pianoAcqua, 0);
+function seguiPeloAcqua(dt) {
+  _pianoFra -= dt;
+  if (_pianoFra > 0) return;
+  _pianoFra = 0.5;
+  const nuovo = pianoDaTenere(_pianoAcqua, peloVicino(mondo, passeggero.x, passeggero.y, passeggero.z));
+  if (nuovo === _pianoAcqua) return;
+  _pianoAcqua = nuovo;
+  fabbrica.quotaSpecchioAcqua(_pianoAcqua);
+  fabbrica.rivaTerreno(_pianoAcqua, 0);
+}
+
 /** La data come la legge un umano: «15 apr». */
 const MESI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
 function etichettaData() {
@@ -1195,6 +1247,7 @@ function firmaQuiete() {
 
 rig.avvia((dt) => {
   _misuraGiro(dt * 1000);
+  seguiPeloAcqua(dt);
   rig.quieteOmbre(firmaQuiete());
   giorno.aggiorna(dt);
   // ⚠ IL DISEGNO DELL'ACQUA SCORRE A TEMPO, NON A FOTOGRAMMI: a 144 Hz e a 30

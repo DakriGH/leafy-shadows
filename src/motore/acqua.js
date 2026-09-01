@@ -1696,11 +1696,37 @@ export const RICETTE = {
     // ancora vincere la trasparenza: è il Fresnel a dividere i due mestieri.
     // Moto e rilievo bassi per la stessa ragione dello specchio: un pelo
     // agitato sbriciola l'immagine riflessa, e l'immagine È la ricetta.
-    regole: { alfa: [0.50, 0.34, 0.90], moto: 0.018, rilievo: 0.14,
-              riflPeso: 1.15, riflTetto: 0.65, riflForza: 0.026,
-              fondo: 0.10, viraFondo: 78, satura: 0.26, schiuma: 0.72,
-              tagli: [0.30, 0.26, 0.52, 0.035], sfumaVia: [60, 130],
-              vera: [0.55, 0.22, 0.06, 0.10], caustiche: 0.35, assorbi: 0.42 },
+    // ⚠ RITARATA SUL VERDETTO «FOG MARINA» (31/08): «l'acqua è totalmente
+    // opaca… l'opaco è SOTTO l'acqua, non tutta; gli oggetti sotto devono
+    // sembrare violacei e opachi ma quelli vicini alla superficie sempre più
+    // trasparenti, mare completamente trasparente — come una fog marina».
+    // I tre guasti trovati al pixel:
+    //  · `riflPeso 1.15` (oltre il massimo fisico): il CIELO riflesso sulle
+    //    normali piegate faceva chiazze LATTEE su tutto il pelo — era quello
+    //    il «monocromatico opaco», e copriva pure la trasparenza. Torna 0,85:
+    //    lo specchio resta il piatto a vista radente (riflTetto 0,65), ma a
+    //    picco vince l'acqua limpida;
+    //  · la tinta resta LEGGERA per mandato aggiunto subito dopo («un colore
+    //    leggero, non azzurro brillante… per non staccare da ghibli e da
+    //    Leafy»): si tiene l'acquerello chiaro, con satura appena più su
+    //    (0,26 → 0,32) perché il profondo non scivoli nel grigio. Il viola
+    //    è affare della PROFONDITÀ (virata + assorbimento), non della tinta;
+    //  · schiuma larga 0,30 su mezzo pelo: la «nebbia» bianca di superficie.
+    //    Stretta a 0,14: un bordino a riva, il resto è vetro.
+    // La FOG vera la fanno corpo 0,15 (a fondo corsa ~70% di tinta violacea:
+    // «leggermente opaco» a dieci blocchi, non un muro) + assorbi 0,5 +
+    // scala fondale 0,22 (la virata si completa a dieci blocchi, come da
+    // mandato). Vicino a riva: corpo ~7%, fondo nitido coi SUOI colori.
+    // ⚠ E LE CAUSTICHE SCESE A 0,18: a 0,35 su un fondale che vira violaceo
+    // disegnavano chiazze bianche sparse su tutta la superficie — il
+    // «camuffamento» che il committente ha chiamato «schiuma in superficie
+    // incredibilmente opaca e fastidiosa». Restano come VELO (la nota della
+    // ricetta dice «un velo di caustiche»), non come disegno.
+    regole: { alfa: [0.34, 0.16, 0.88], moto: 0.018, rilievo: 0.16,
+              riflPeso: 0.85, riflTetto: 0.65, riflForza: 0.026,
+              fondo: 0.10, viraFondo: 78, satura: 0.32, schiuma: 0.80,
+              tagli: [0.12, 0.18, 0.52, 0.035], sfumaVia: [60, 130],
+              vera: [0.42, 0.22, 0.06, 0.11], caustiche: 0.18, assorbi: 0.44 },
   },
   // ── le complesse: ogni ricetta qui accende almeno un talento ──────────────
   abisso: {
@@ -2164,6 +2190,30 @@ function entraNellePassate(mesh) {
   return !FUORI_DALLE_PASSATE.test(mesh.name);
 }
 
+/**
+ * NELLO SPECCHIO CI VANNO ANCHE GLI ALONI E IL GIOCATORE, e questa è una
+ * distinzione che era sbagliata da me.
+ *
+ * ⚠ VERDETTO: «di notte il riflesso è opaco, non riflette bene e non riflette
+ * le luci». Gli aloni delle lampade erano fuori da TUTTE le passate — li avevo
+ * esclusi in blocco temendo che i billboard uscissero storti una volta
+ * specchiati. Il timore era infondato: un billboard si orienta verso la camera
+ * ATTIVA, e mentre si disegna lo specchio la camera attiva è quella
+ * specchiata, quindi guarda dove deve. Il risultato dell'esclusione era che di
+ * notte il lago rifletteva solo il buio: la cosa più bella di una passeggiata
+ * notturna — i lampioni sull'acqua — non c'era proprio.
+ *
+ * ⚠ MA SOLO NELLO SPECCHIO: nella RIFRAZIONE (quello che sta SOTTO il pelo) e
+ * nella mappa di PROFONDITÀ un alone additivo non ha senso — nella prima
+ * dipingerebbe luce sul fondale, nella seconda scriverebbe una profondità
+ * finta là dove c'è solo aria luminosa, e la schiuma di contatto nascerebbe
+ * attorno al nulla. Il giocatore idem: sopra il pelo si specchia, sotto no.
+ */
+const FUORI_DALLO_SPECCHIO = /^(acqua|prato|mirino|anteprima|colpetto|ancora)/;
+function entraNelloSpecchio(mesh) {
+  return !FUORI_DALLO_SPECCHIO.test(mesh.name);
+}
+
 function creaSpecchio(rig) {
   const dim = rig.dispositivo.mobile ? 256 : 512;
   const specchio = new MirrorTexture('specchio-acqua', dim, rig.scena, true);
@@ -2173,7 +2223,7 @@ function creaSpecchio(rig) {
   // «render target». Sfocandolo diventa una macchia di colore che si muove con
   // la scena, che è quello che di un riflesso si legge davvero da lontano.
   specchio.adaptiveBlurKernel = 12;
-  specchio.renderList = rig.scena.meshes.filter(entraNellePassate);
+  specchio.renderList = rig.scena.meshes.filter(entraNelloSpecchio);
   // ⚠ E VA REGISTRATA FRA I RENDER TARGET DELLA SCENA, O NON LA DISEGNA NESSUNO.
   // Babylon rende una `MirrorTexture` solo se la trova in
   // `scene.customRenderTargets` — e ce la mette DA SOLO quando la si assegna a
@@ -2184,7 +2234,7 @@ function creaSpecchio(rig) {
   // e il 100% dei texel sotto soglia, cioè non un pixel disegnato.
   if (!rig.scena.customRenderTargets.includes(specchio)) rig.scena.customRenderTargets.push(specchio);
   rig.scena.onNewMeshAddedObservable.add((mesh) => {
-    if (entraNellePassate(mesh) && specchio.renderList) specchio.renderList.push(mesh);
+    if (entraNelloSpecchio(mesh) && specchio.renderList) specchio.renderList.push(mesh);
   });
   return specchio;
 }

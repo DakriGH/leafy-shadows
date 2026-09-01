@@ -239,6 +239,55 @@ Foto A/B della stessa inquadratura: indistinguibili. La cucitura non si vede
 perché oltre 16 blocchi una lamella è larga meno di un pixel. `confineVicino`
 è la manopola se mai si vedesse.
 
+## 31/08 — IL RIFLESSO CHE NON C'ERA, e tre cause vere
+
+Verdetto: «l'acqua è totalmente opaca… non riflette proprio nulla… di notte
+non riflette le luci». Tre difetti distinti, tutti trovati misurando:
+
+1. **Il piano dello specchio non era mai stato agganciato nel GIOCO.**
+   `creaSpecchio` lo lascia al valore di comodo del banco (9,5) e il banco lo
+   rimette a ogni vasca; `main.js` non lo rimetteva MAI. Il pelo del mare sta a
+   `LIVELLO_ACQUA + 15/16` = **5,94**: si specchiava rispetto a un piano tre
+   blocchi e mezzo troppo alto, cioè un'immagine sbagliata di sette blocchi.
+   A schermo si legge come «acqua opaca e monocromatica», non come «riflesso
+   sbagliato» — nessun errore, nessun avviso.
+2. **Il piano ora SEGUE l'acqua** (verdetto: «deve stare a qualsiasi altezza,
+   anche in una grotta»): `world/pelo.js` — `peloVicino` cerca il pelo LIBERO
+   più vicino pesando la verticale ×2,2, `pianoDaTenere` lo sposta a scatti da
+   mezzo blocco (in continuo, l'immagine slitterebbe camminando). 6 prove in
+   Node, grotta compresa. Verificato a schermo: scavata una pozza in cima a una
+   collina, il piano salta da 5,94 a 12,94 da solo.
+3. **Gli aloni delle lampade erano fuori da TUTTE le passate** — esclusi da me
+   per prudenza sui billboard. Il timore era infondato (un billboard si orienta
+   sulla camera attiva, che nello specchio è quella specchiata) e il prezzo era
+   che di notte il lago rifletteva solo il buio. Ora c'è un filtro separato per
+   lo specchio (`entraNelloSpecchio`): aloni e giocatore SÌ nello specchio, NO
+   in rifrazione e profondità (un alone additivo nella mappa di profondità
+   scriverebbe profondità finta là dove c'è solo aria luminosa).
+
+## 31/08 — il mondo GRANDE: i numeri prima di provarci
+
+Richiesta: «mondo alto 300 e largo 4k per testare chunking e performance».
+Generazione attuale (tutta in una volta), misurata in Node:
+
+| semilato | colonne | tempo | heap |
+|---|---|---|---|
+| 48 (oggi) | 9.409 | 66 ms | 10 MB |
+| 96 | 37.249 | 275 ms | 29 MB |
+| 160 | 103.041 | 801 ms | 56 MB |
+
+Lineare: ~7,8 µs e ~0,55 KB per colonna. **4000×4000 = 16 milioni di colonne →
+~2 minuti di blocco e ~9 GB**, senza contare i 300 di altezza. Non è una
+taratura: serve generazione per chunk a richiesta + scarico dei lontani.
+
+**Provato a semilato 160 nel browser** (`?mondo=160`, 321×321, 871.744 blocchi,
+441 chunk): **928 mesh in scena ma solo 120 attive** — il culling fa il suo
+lavoro — con 370 MB di heap e **21,6 ms/frame** contro i ~2,4 del mondo
+piccolo. Il collo NON è il disegno: è che **nessun chunk viene mai scaricato**
+(il LOD lontano è `null`, ma la mesh resta viva e in elenco). A 4k sarebbero
+~125.000 mesh: il prossimo cantiere è lo scarico dei chunk oltre la distanza,
+ed è il cuore di R3.
+
 ## Da raccogliere
 - [ ] Il quadro `?misura` dal **telefono** (posa standard, percentili veri):
       `https://dakrigh.github.io/leafy-shadows/?misura`, aspettare il riquadro
