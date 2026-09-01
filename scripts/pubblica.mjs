@@ -54,7 +54,12 @@ const quando = new Date().toLocaleString('it', { day: '2-digit', month: '2-digit
 // locale non lo apre nessuno, ed è successo: gli stili dell'acqua si sceglievano
 // a parole finché non sono stati raggiungibili da un link.
 const esito = await build({
-  entryPoints: [join(radice, 'src/main.js'), join(radice, 'src/zoo.js'), join(radice, 'src/banco-acqua.js')],
+  // ⚠ QUATTRO INGRESSI: il quarto è il WORKER del mesher, che il browser carica
+  // da solo con `new Worker(new URL('./mesher-worker.js', import.meta.url))` —
+  // quindi deve esistere come file suo accanto a main.js, con lo stesso nome.
+  // esbuild non segue i Worker da sé: se manca da qui, in rete il mesher
+  // torna in linea in silenzio (il ripiego c'è, ma non è quello che si vuole).
+  entryPoints: [join(radice, 'src/main.js'), join(radice, 'src/zoo.js'), join(radice, 'src/banco-acqua.js'), join(radice, 'src/world/mesher-worker.js')],
 
   bundle: true,
   format: 'esm',
@@ -130,7 +135,7 @@ if (!existsSync(join(lavoro, '.git'))) {
 } else {
   esegui('git fetch -q origin && git reset -q --hard origin/main', lavoro);
 }
-for (const n of ['index.html', 'zoo.html', 'water.html', 'main.js', 'zoo.js', 'banco-acqua.js', '.nojekyll']) {
+for (const n of ['index.html', 'zoo.html', 'water.html', 'main.js', 'zoo.js', 'banco-acqua.js', 'mesher-worker.js', '.nojekyll']) {
   cpSync(join(www, n), join(lavoro, n));
 }
 // i modelli: sono dati, non codice, e vanno accanto alla pagina

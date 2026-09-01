@@ -19,6 +19,7 @@ import { materiaDi, tingiMateria } from './materie.js';
 import { FORME_EXTRA, FORME_VUOTE } from './forme.js';
 import { tintaPalette } from './motivi.js';
 import { GrigliaLuce, scatolaPerMondo } from './luce.js';
+import { fotografa } from './mesher-foto.js';
 
 // La fabbrica di resa. La inietta main all'avvio; qui si sa solo che espone
 // creaChunk / scrivi / rimuoviChunk / materialeMondo, e i quattro nomi della
@@ -768,6 +769,51 @@ function livelloPer(kc, bx, bz, raggi, costruito) {
   return null;
 }
 
+/**
+ * I DATI DI UN CHUNK, e basta: niente mesh, niente fabbrica, niente stato del
+ * mesher. È la funzione che gira in linea E nel Worker (vedi mesher-worker.js),
+ * e il fatto che sia una funzione pura è quello che rende le due strade
+ * intercambiabili — la prova `mesher-foto.test.mjs` pretende che diano gli
+ * stessi identici triangoli.
+ *
+ * @param mondo    il mondo vero, o una sua fotografia (mesher-foto.js)
+ * @param livello  0 pieno · 1 pelle
+ * @param soloAcqua rifà solo il liquido (la simulazione dell'acqua sporca chunk di continuo)
+ */
+export function costruisciChunkDati(mondo, kc, livello = 0, soloAcqua = false) {
+  const acqua = costruttoreAcqua();
+  if (soloAcqua) {
+    const scarto = new Costruttore();
+    for (const { x, y, z, tipo } of mondo.blocchiDelChunk(kc)) {
+      if (!defDi(tipo).acqua) continue;
+      costruisciBlocco(scarto, acqua, mondo, x, y, z, tipo);
+    }
+    return { soloAcqua: true, acqua: acqua.dati(), flussi: acqua.flussi, impatti: acqua.impatti };
+  }
+  const solidi = new Costruttore();
+  if (livello === 1) {
+    costruisciPelle(solidi, acqua, mondo, kc);
+  } else {
+    for (const { x, y, z, tipo } of mondo.blocchiDelChunk(kc)) {
+      costruisciBlocco(solidi, acqua, mondo, x, y, z, tipo);
+    }
+  }
+  return {
+    soloAcqua: false, vuoto: solidi.vuoto && acqua.vuoto,
+    solidi: solidi.dati(), erbe: solidi.erbe,
+    acqua: acqua.dati(), flussi: acqua.flussi, impatti: acqua.impatti,
+  };
+}
+
+/**
+ * QUANTI CHUNK SI SPEDISCONO AL WORKER PER FOTOGRAMMA, e quanti risultati si
+ * caricano in GPU. Spedire costa la fotografia (nove chunk scorsi, ~1 ms);
+ * caricare costa la VertexData e le normali (~1 ms a chunk pieno). Sono i due
+ * pezzi che restano sul filo principale, e vanno a bilancio come tutto il resto.
+ */
+const SPEDIZIONI_PER_GIRO = 4;
+const APPLICAZIONI_PER_GIRO = 3;
+
 // ---- mesher a chunk ------------------------------------------------------------
 
 // PARACADUTE: oltre questa taglia la griglia di luce non si calcola proprio.
@@ -827,6 +873,22 @@ export class Mesher {
      */
     this.raggi = null;
     this._livelli = new Map();     // kc → 0 | 1: com'è costruito ADESSO
+    /**
+     * IL WORKER: `undefined` = mai provato, `null` = non c'è (Node, browser
+     * senza Worker a moduli, o è morto) e si costruisce in linea come sempre.
+     *
+     * ⚠ È STATELESS APPOSTA. Prima idea: una copia del mondo nel Worker tenuta
+     * in pari dagli eventi. Ma la simulazione dell'acqua scrive «silenziosa»
+     * (nessun evento, per non svegliare il netcode a ogni cella) e la copia
+     * sarebbe divergita al primo ruscello, senza un errore. Quindi ogni lavoro
+     * porta con sé la FOTOGRAFIA della zona che gli serve (mesher-foto.js): un
+     * Uint16Array di 24×H×24 celle, e il Worker non ricorda niente fra un
+     * chunk e l'altro. Costa una copia da 30–60 KB a chunk, e in cambio non
+     * può mai essere sbagliato.
+     */
+    this.lavoro = undefined;
+    this._inVolo = new Map();      // kc → livello: spediti al Worker, non ancora tornati
+    this._pronti = [];             // risultati tornati, da caricare in GPU a bilancio
     this._chunkOsservatore = null; // "cx,cz" di chi guarda all'ultimo riesame
     this._bersaglio = null;        // {x, z} dell'ultimo riesame
     this.luce = null;              // GrigliaLuce (i muri), rifatta prima dei chunk
@@ -1088,41 +1150,62 @@ export class Mesher {
     // REBUILD SOLO-ACQUA: la simulazione tocca solo celle d'acqua, ricostruire
     // anche tutti i solidi del chunk (i cappelli d'erba pesano 100+ tri l'uno)
     // faceva crollare gli fps durante l'espansione. Qui si rifà solo il liquido.
-    const e0 = this.chunks.get(kc);
-    if (soloAcqua && e0) {
-      const acqua = costruttoreAcqua();
-      const scarto = new Costruttore();
-      for (const { x, y, z, tipo } of mondo.blocchiDelChunk(kc)) {
-        if (!defDi(tipo).acqua) continue;
-        costruisciBlocco(scarto, acqua, mondo, x, y, z, tipo);
-      }
-      _f.scrivi(e0.acqua, acqua.dati());
-      e0.flussi = acqua.flussi;
-      e0.impatti = acqua.impatti;
-      return;
-    }
-
+    if (soloAcqua && !this.chunks.get(kc)) return;
     // il livello che merita da dove si guarda: null = non lo si costruisce
     const livello = this._livelloDi(kc);
     if (livello === null) { this._rimuovi(kc); return; }
-    const solidi = new Costruttore();
-    const acqua = costruttoreAcqua();
-    if (livello === 1) {
-      costruisciPelle(solidi, acqua, mondo, kc);
-    } else {
-      for (const { x, y, z, tipo } of mondo.blocchiDelChunk(kc)) {
-        costruisciBlocco(solidi, acqua, mondo, x, y, z, tipo);
-      }
+    this._applica(mondo, kc, livello, costruisciChunkDati(mondo, kc, livello, soloAcqua));
+  }
+
+  /** Carica in GPU quello che `costruisciChunkDati` ha prodotto, in linea o nel Worker. */
+  _applica(mondo, kc, livello, r) {
+    if (r.soloAcqua) {
+      const e0 = this.chunks.get(kc);
+      if (!e0) return;
+      _f.scrivi(e0.acqua, r.acqua);
+      e0.flussi = r.flussi;
+      e0.impatti = r.impatti;
+      return;
     }
     this._cieloChunk(kc, mondo);
-    if (solidi.vuoto && acqua.vuoto) { this._rimuovi(kc); return; }
+    if (r.vuoto) { this._rimuovi(kc); return; }
     const e = this._entry(kc);
-    _f.scrivi(e.solidi, solidi.dati());
-    e.erbe = solidi.erbe;
-    _f.scrivi(e.acqua, acqua.dati());
-    e.flussi = acqua.flussi;
-    e.impatti = acqua.impatti;
+    _f.scrivi(e.solidi, r.solidi);
+    e.erbe = r.erbe;
+    _f.scrivi(e.acqua, r.acqua);
+    e.flussi = r.flussi;
+    e.impatti = r.impatti;
     this._livelli.set(kc, livello);
+  }
+
+  /**
+   * Il Worker, la prima volta che serve. `null` se non si può: si costruisce in
+   * linea, che è quello che fanno le prove in Node e i browser vecchi.
+   * ⚠ A MODULI, e senza import map: il Worker importa solo `world/`, che non
+   * nomina il motore e non ha specificatori nudi — è la regola della casa che
+   * paga qui. Se il Worker muore, i lavori in volo tornano in coda e da lì in
+   * poi si va in linea: un chunk in ritardo si vede, un chunk perso no.
+   */
+  _avviaLavoro() {
+    if (this.lavoro !== undefined) return this.lavoro;
+    this.lavoro = null;
+    if (typeof Worker !== 'function') return null;
+    try {
+      const w = new Worker(new URL('./mesher-worker.js', import.meta.url), { type: 'module' });
+      w.onmessage = (ev) => { this._pronti.push(ev.data); };
+      w.onerror = (ev) => {
+        console.warn('mesher: il Worker si è fermato, si costruisce in linea —', ev && ev.message);
+        for (const kc of this._inVolo.keys()) this._codaPiena.add(kc);
+        this._inVolo.clear();
+        try { w.terminate(); } catch {}
+        this.lavoro = null;
+      };
+      this.lavoro = w;
+    } catch (e) {
+      console.warn('mesher: niente Worker —', e && e.message);
+      this.lavoro = null;
+    }
+    return this.lavoro;
   }
 
   /** Il livello voluto per questo chunk adesso (0 pieno · 1 pelle · null niente). */
@@ -1259,6 +1342,10 @@ export class Mesher {
     // apposta, con i chunk lontani da costruire con calma. Svuotarle tutte e
     // due, com'era prima, vorrebbe dire che il resto del mondo non arriva mai.
     this._codaAcqua.clear();
+    // ⚠ E I RISULTATI IN VOLO PARLANO DEL MONDO DI PRIMA: quando torneranno,
+    // `_inVolo` non li conosce più e `aggiorna` li lascia cadere.
+    this._inVolo.clear();
+    this._pronti.length = 0;
     this.statistiche.ultimaMs = performance.now() - t0;
     this.statistiche.chunkAttivi = this.chunks.size;
     this.statistiche.inCoda = this._codaPiena.size;
@@ -1375,8 +1462,22 @@ export class Mesher {
       for (const kc of mondo.sporchiAcqua) if (!this._codaPiena.has(kc)) this._codaAcqua.add(kc);
       mondo.sporchiAcqua.clear();
     }
-    if (this._codaPiena.size === 0 && this._codaAcqua.size === 0) return;
+    if (this._codaPiena.size === 0 && this._codaAcqua.size === 0 && this._pronti.length === 0) return;
     const t0 = performance.now();
+    const w = this._avviaLavoro();
+    // ---- quello che il Worker ha finito si carica in GPU, a bilancio ----------
+    // ⚠ PRIMA di spedire altro: così un chunk sporcato di nuovo mentre era in
+    // volo riparte dal risultato già applicato e non salta un giro.
+    let applicati = 0;
+    while (this._pronti.length && applicati < APPLICAZIONI_PER_GIRO) {
+      const r = this._pronti.shift();
+      const livello = this._inVolo.get(r.kc);
+      this._inVolo.delete(r.kc);
+      if (livello === undefined) continue;                  // un lavoro rimesso in coda dopo un guasto
+      if (!mondo.chunks.has(r.kc)) { this._rimuovi(r.kc); continue; }
+      this._applica(mondo, r.kc, livello, r);
+      applicati++;
+    }
     // ordina per distanza dal punto guardato: ciò che si vede si aggiorna prima
     const bx = bersaglio ? bersaglio.x : 0, bz = bersaglio ? bersaglio.z : 0;
     const coda = [];
@@ -1390,15 +1491,35 @@ export class Mesher {
     });
     let fatti = 0;
     for (const [kc, soloAcqua] of coda) {
+      const dove = soloAcqua ? this._codaAcqua : this._codaPiena;
+      if (!mondo.chunks.has(kc)) { this._rimuovi(kc); dove.delete(kc); continue; }
+      if (w) {
+        // ---- la strada del Worker: si fotografa e si spedisce -----------------
+        if (fatti >= SPEDIZIONI_PER_GIRO) break;
+        if (this._inVolo.has(kc)) continue;                 // torna al prossimo giro, col risultato applicato
+        const livello = this._livelloDi(kc);
+        if (livello === null) { this._rimuovi(kc); dove.delete(kc); continue; }
+        if (soloAcqua && !this.chunks.get(kc)) { dove.delete(kc); continue; }
+        const foto = fotografa(mondo, kc, livello, soloAcqua);
+        if (!foto) { this._rimuovi(kc); dove.delete(kc); continue; }
+        w.postMessage(foto, [foto.celle.buffer]);
+        this._inVolo.set(kc, livello);
+        dove.delete(kc);
+        fatti++;
+        continue;
+      }
+      // ---- in linea, com'è sempre stato --------------------------------------
       if (fatti > 0 && performance.now() - t0 > 3) break;   // bilancio: mai il primo
-      if (mondo.chunks.has(kc)) this._chunk(mondo, kc, soloAcqua);
-      else this._rimuovi(kc);
-      (soloAcqua ? this._codaAcqua : this._codaPiena).delete(kc);
+      this._chunk(mondo, kc, soloAcqua);
+      dove.delete(kc);
       fatti++;
     }
     this.statistiche.ultimaMs = performance.now() - t0;
     this.statistiche.chunkAttivi = this.chunks.size;
-    this.statistiche.inCoda = this._codaPiena.size + this._codaAcqua.size;
+    // ⚠ IN CODA CONTA ANCHE CHI È IN VOLO: per chi aspetta «tutto costruito» un
+    // chunk nel Worker è lavoro che manca, e il pannello deve dirlo.
+    this.statistiche.inCoda = this._codaPiena.size + this._codaAcqua.size + this._inVolo.size;
+    this.statistiche.inVolo = this._inVolo.size;
     let pelli = 0; for (const l of this._livelli.values()) if (l === 1) pelli++;
     this.statistiche.pelli = pelli;
   }
@@ -1408,7 +1529,7 @@ export class Mesher {
 // Roba interna esportata SOLO per i test (test/mesher.test.mjs): la riva e la
 // soglia di pendenza, cioè i numeri su cui sono tarate le soglie dello shader
 // dell'acqua — cambiarli qui lo scalibrerebbe in silenzio.
-export { rivaCella, Costruttore, PENDENZA_RIPIDA, RIVA_RAGGIO, costruisciPelle, livelloPer };
+export { rivaCella, Costruttore, PENDENZA_RIPIDA, RIVA_RAGGIO, costruisciPelle, livelloPer, costruisciBlocco, costruttoreAcqua, PELLE_PARETE_MAX };
 // ⚠ ED ESPORTATO ANCHE IL PARACADUTE, perché superarlo spegne le ombre delle
 // lampade IN SILENZIO — nessun errore, solo luce che attraversa i muri. Lo zoo
 // ci sta vicino (allargare le piazzole allarga la griglia) e ha una prova che
