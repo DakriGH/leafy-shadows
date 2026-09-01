@@ -909,7 +909,26 @@ let _acquaScritta = '', _acquaFinoA = 0;
 // tecnico — «è importantissimo lo specchio, voglio proprio vedere un lago
 // specchiato nel mondo». Prima era `ghibli`; il lago ne è l'erede col
 // riflesso planare e l'acqua vera accesi.
-const ACQUA_DI_PARTENZA = 'lago';
+//
+// ⚠ E PER ORA SI PARTE DA `ghibli`, CHE È UN PRESTITO, NON UN RIPENSAMENTO.
+// Misurato qui (RTX 4060, 1280×720, posa standard, fotogramma tirato a mano
+// senza vsync): `ghibli` 2,5 ms e 138 disegni, `lago` 5,7 ms e **448**. I 310
+// disegni di differenza sono le tre rese complete della scena che `lago`
+// accende — specchio, rifrazione, profondità — e sono la causa del salto da
+// 80 a 12 fotogrammi al secondo (docs/DIAGNOSI-PRESTAZIONI.md §1).
+//
+// ⚠ IL PUNTO NON È CHE `lago` SIA TROPPO BELLO: è che quelle passate stanno
+// FUORI dai profili di qualità. Il livello «bassa» spegne le ombre del sole e
+// lascia intatte tre rese della scena, che è l'esatto contrario di una scala
+// di qualità. Finché la scala non le governa (passo 2) e non costano meno
+// (passo 3), la ricetta di partenza non può essere quella che le accende
+// tutte — un gioco che parte a 12 fps non lo giudica nessuno.
+//
+// ⚠ E SI TORNA A `lago` ALLA FINE DEL PASSO 3, non «un giorno»: da lì il
+// profilo decide da sé quante passate concedere, e chi ha la macchina per lo
+// specchio se lo tiene. La pillola 💧 intanto lo raggiunge in un tocco, e il
+// banco dell'acqua parte da `lago` come prima — lì si guarda, non si gioca.
+const ACQUA_DI_PARTENZA = 'ghibli';
 const sceltaAcqua = new SceltaAcqua(
   Object.entries(RICETTE).map(([chiave, r]) => ({ chiave, nome: r.nome, nota: r.nota })),
   (chiave, voce, i) => {

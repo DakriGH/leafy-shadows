@@ -288,6 +288,45 @@ piccolo. Il collo NON è il disegno: è che **nessun chunk viene mai scaricato**
 ~125.000 mesh: il prossimo cantiere è lo scarico dei chunk oltre la distanza,
 ed è il cuore di R3.
 
+## 02/09 — IL BANCO DI SESSIONE, e il costo vero delle tre passate
+
+⚠ **Ambiente**: il pane del browser non fa girare `requestAnimationFrame`
+(scheda nascosta), quindi il fotogramma si tira a mano — `beginFrame`, i
+callback del loop, `endFrame` — con una **`gl.finish()` dopo ognuno**. Rispetto
+al quadro del 30/08 cambia in meglio: niente attesa artificiale del giro, e il
+tempo è CPU+GPU serializzati invece della sola coda dei comandi. Non c'è vsync,
+quindi il p50 è il COSTO e non il pannello. Posa standard: spawn, camera di
+fabbrica (α −0,785 · β 1,014 · r 25,5), ore 10:05, ciclo del giorno fermo,
+1280×720, q0, RTX 4060. Il banco sta in `diagnostica/banco.js` (fuori dal repo).
+
+⚠ **E LA CAMERA GIRA DI MEZZO MILLESIMO DI RADIANTE A FOTOGRAMMA**, se no la
+misura mente: da fermi `quieteOmbre` congela la mappa dopo tre giri e le quattro
+cascate spariscono dal conto. Chi gioca gira la camera. Sotto ci sono tutt'e due
+le colonne, perché la differenza fra loro È il valore del congelamento.
+
+| ricetta | p50 in movimento | disegni | p50 da fermo | disegni |
+|---|---|---|---|---|
+| `ghibli` (0 passate) | **4,1 ms** | **390** | 2,2 ms | 130 |
+| `lago` (specchio + rifrazione + profondità) | **6,1 ms** | **547** | 5,4 ms | 367 |
+
+Le tre passate valgono **+157 disegni e +2,0 ms** su una RTX 4060 a 1280×720 —
+e da fermo +237 disegni, cioè il 180% in più di quello che la scena costa da
+sola. Su una GPU a tile con un decimo della banda è la differenza fra 80 e 12.
+
+**Due fatti nuovi, trovati misurando e non leggendo:**
+
+1. **`autoCalcDepthBounds` costa 60 disegni e 1,5 ms A FOTOGRAMMA ANCHE CON LA
+   MAPPA D'OMBRA CONGELATA.** Misurato con `ghibli` da fermo: 130 → **70**
+   disegni e 2,5 → **1,0 ms** spegnendolo. Il riduttore min/max si tira dietro
+   un `DepthRenderer` suo, a piena risoluzione, sull'intera scena, e non gli
+   importa che le cascate non si stiano rifacendo. È il passo 4, ed è gratis.
+2. **Le liste delle passate si riempiono di mesh MORTE all'avvio.** Con `lago`
+   di partenza, a mondo costruito le liste contavano **114 e 124 voci** contro
+   le **78 e 83** delle stesse liste create dopo la generazione: una trentina di
+   mesh di chunk ricostruiti durante il worldgen, tolte dalla scena e mai tolte
+   dalle liste (`dispose()` non tocca i `customRenderTargets`). Ogni voce morta
+   è un controllo per passata, per fotogramma, per sempre.
+
 ## Da raccogliere
 - [ ] Il quadro `?misura` dal **telefono** (posa standard, percentili veri):
       `https://dakrigh.github.io/leafy-shadows/?misura`, aspettare il riquadro
