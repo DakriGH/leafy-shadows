@@ -2337,6 +2337,55 @@ export function governaPassate(rig, servono, visibile) {
   if (rig._profonditaAcqua) rig._profonditaAcqua.enabled = !!(visibile && servono.profondita);
 }
 
+/**
+ * QUANTO GRANDI SONO LE PASSATE — e ogni quanto si rifanno.
+ *
+ * ⚠ QUESTE TRE SONO LE UNICHE MANOPOLE DELL'ACQUA CHE SI GIRANO A CALDO: il
+ * resto (`vera`, `riflesso`) sta nello shader e vuole un materiale nuovo. Qui
+ * si cambia solo quanti PIXEL costano, e si può fare a ogni cambio di gradino
+ * senza una ricompilazione.
+ *
+ * ⚠ E LA MAPPA DI PROFONDITÀ NON SI RIDIMENSIONA DA SOLA. Babylon la crea
+ * grande quanto la tela nell'istante in cui nasce e non la tocca più
+ * (`depthRenderer.pure.js`: `{ width: engine.getRenderWidth(), … }`, nessun
+ * osservatore sul resize). Quindi era l'unica passata a PIENA RISOLUZIONE ×
+ * DPR, sorda sia alla finestra che cambia sia a `scala` del profilo: al livello
+ * «bassa», con la scena renderizzata a metà lato, la mappa di profondità restava
+ * intera. Si rimisura da fuori, ed è questa funzione a farlo.
+ *
+ * @param p  `{ lato, ogni, prof }` — lato di specchio e rifrazione in pixel,
+ *           ogni quanti fotogrammi si rifà lo specchio, e la mappa di
+ *           profondità come frazione dello schermo.
+ */
+export function misuraPassate(rig, p) {
+  const lato = Math.max(64, p.lato | 0);
+  const sp = rig._specchioAcqua;
+  if (sp) {
+    if (sp.getSize().width !== lato) sp.resize(lato);
+    // ⚠ LO SPECCHIO NON HA BISOGNO DI ESSERE DI QUESTO FOTOGRAMMA. È
+    // un'immagine sfocata di una scena che si muove piano; rifarla ogni due o
+    // tre giri non si vede, e vale una resa completa della scena in meno ogni
+    // volta che si salta. `refreshRate` in Babylon è «ogni quanti fotogrammi».
+    const ogni = Math.max(1, p.ogni | 0);
+    if (sp.refreshRate !== ogni) { sp.refreshRate = ogni; sp.resetRefreshCounter(); }
+  }
+  const rf = rig._rifrazioneAcqua;
+  if (rf && rf.getSize().width !== lato) rf.resize(lato);
+  misuraProfondita(rig, p.prof);
+}
+
+/** La mappa di profondità come frazione dello schermo VERO (scala hardware compresa). */
+export function misuraProfondita(rig, frazione) {
+  const dr = rig._profonditaAcqua;
+  if (!dr) return;
+  const mappa = dr.getDepthMap();
+  const f = Math.max(0.2, Math.min(1, frazione || 1));
+  const l = Math.max(64, Math.round(rig.motore.getRenderWidth() * f));
+  const a = Math.max(64, Math.round(rig.motore.getRenderHeight() * f));
+  const d = mappa.getSize();
+  if (d.width !== l || d.height !== a) mappa.resize({ width: l, height: a });
+}
+
 export function profonditaCondivisa(rig) {
   if (!rig._profonditaAcqua) {
     rig._profonditaAcqua = rig.scena.enableDepthRenderer(rig.camera, false, undefined, undefined, true);
@@ -2380,7 +2429,19 @@ export class Acqua {
     // letture in più, e la regola della casa è che ciò che non si paga non
     // deve nemmeno essere compilato.
     const vera = Math.max(0, Math.min(3, ({ ...base, ...opzioni }).vera || 0));
-    this.vera = ricca ? vera : 0;
+    // ⚠ IL PROFILO DI QUALITÀ È UN TETTO, NON UNA SCELTA: la ricetta dice cosa
+    // vuole, il profilo dice fin dove si può arrivare, e vince il minimo. È la
+    // riga che mancava il 31/08, quando «lago» ha potuto accendere tre rese
+    // complete della scena senza che nessun gradino di qualità lo sapesse — il
+    // livello «bassa» spegneva le ombre del sole e lasciava intatte tre rese
+    // della scena. Chi passa il tetto è la fabbrica (`_tettoAcqua`), che lo
+    // riceve da `applicaProfilo`.
+    // ⚠ E IL TETTO STA NELLA CHIAVE DI CACHE DEI MATERIALI, se no cambiare
+    // gradino non ricostruirebbe niente: `vera` e `riflesso` si compilano nello
+    // shader, non sono manopole da girare a caldo.
+    const tetto = opzioni.tetto || {};
+    this.tetto = { vera: tetto.vera ?? 3, riflesso: tetto.riflesso !== false };
+    this.vera = ricca ? Math.min(vera, this.tetto.vera) : 0;
     this.profondita = this.vera >= 1;
     this.rifrazione = this.vera >= 2;
     this.caustiche = this.vera >= 3;
@@ -2440,7 +2501,7 @@ export class Acqua {
     // ⚠ IL RIFLESSO SI DECIDE ALLA COSTRUZIONE come tutto il resto: è un altro
     // sorgente (una lettura da texture in più) e un altro COSTO (un render in
     // più della lista). Non è una manopola da girare a caldo.
-    this.riflesso = !!riflesso;
+    this.riflesso = !!riflesso && this.tetto.riflesso;
     this.uSchermo = new Vector2(1, 1);
     // ⚠ LA TINTA PUÒ ARRIVARE DALLA RICETTA. Di fabbrica viene da `blocks.js`,
     // che resta l'unico posto dove sta scritto di che colore è l'acqua del

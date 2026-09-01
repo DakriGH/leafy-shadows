@@ -16,7 +16,7 @@ import { RawTexture3D } from '@babylonjs/core/Materials/Textures/rawTexture3D.js
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Prato } from './prato.js';
-import { Acqua, governaPassate } from './acqua.js';
+import { Acqua, governaPassate, misuraPassate, misuraProfondita } from './acqua.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { Mesh as MeshCostanti } from '@babylonjs/core/Meshes/mesh.js';
 import '@babylonjs/core/Meshes/Builders/capsuleBuilder.js';
@@ -164,7 +164,15 @@ export class Fabbrica {
     // NON aveva un aspetto suo: era terreno semitrasparente. E intanto il
     // mesher le calcolava già corrente, tipo di faccia e distanza dalla sponda,
     // che questa fabbrica buttava via a ogni chunk. Vedi `acqua.js`.
-    this.acqua = new Acqua(rig, { ricca: rig.fissi.acquaRicca });
+    // ⚠ IL TETTO PARTE APERTO, e non è pigrizia: chi decide quanta acqua ci si
+    // può permettere è il profilo di qualità, che arriva subito dopo
+    // (`applicaProfiloAcqua`, chiamata da `rig.applicaProfilo`). Partire chiusi
+    // vorrebbe dire compilare due volte il materiale all'avvio — una col tetto
+    // di comodo e una col tetto vero — per niente.
+    this._tettoAcqua = { vera: 3, riflesso: true };
+    this._ricettaAcqua = null;
+    this._profAcqua = 1;
+    this.acqua = new Acqua(rig, { ricca: rig.fissi.acquaRicca, tetto: this._tettoAcqua });
     this.matAcqua = this.acqua.materiale;
 
     this._conMappa = new Set();
@@ -857,6 +865,12 @@ export class Fabbrica {
     // passata inutile è niente, un fotogramma di acqua senza fondale si vede.
     if ((this._giroPassate = (this._giroPassate || 0) + 1) % 30 === 1 || !this._mesheAcqua) {
       this._mesheAcqua = this.scena.meshes.filter((m) => m.name.startsWith('acqua:'));
+      // ⚠ E QUI SI RIMISURA LA MAPPA DI PROFONDITÀ, perché nessun altro lo fa:
+      // Babylon la crea grande quanto la tela e non la ridimensiona MAI — né
+      // quando la finestra cambia, né quando il profilo cambia `scala`. Un
+      // controllo ogni trenta giri è gratis e chiude tutt'e due i buchi con
+      // una riga sola invece che con due osservatori.
+      if (this._profAcqua) misuraProfondita(this.rig, this._profAcqua);
     }
     const piani = this.scena.frustumPlanes;
     const visibile = !piani || this._mesheAcqua.some((m) => m.isEnabled() && m.isInFrustum(piani));
@@ -901,20 +915,78 @@ export class Fabbrica {
    */
   cambiaRicettaAcqua(nome) {
     this._acque = this._acque || {};
-    const chiave = 'ricetta:' + nome;
+    // ⚠ IL TETTO DEL PROFILO STA NELLA CHIAVE, e senza questo pezzo il resto non
+    // servirebbe a niente: `vera` e `riflesso` si compilano nello shader, quindi
+    // la stessa ricetta a due gradini diversi sono due MATERIALI diversi. Con la
+    // chiave sul solo nome il primo compilato vincerebbe per sempre, e cambiare
+    // qualità non toglierebbe una sola passata — in silenzio, che è il modo
+    // peggiore.
+    const t = this._tettoAcqua;
+    const chiave = `ricetta:${nome}|${t.vera}|${t.riflesso ? 1 : 0}`;
     if (!this._acque[chiave]) {
-      this._acque[chiave] = new Acqua(this.rig, { ricca: this.rig.fissi.acquaRicca, ricetta: nome });
+      this._acque[chiave] = new Acqua(this.rig, { ricca: this.rig.fissi.acquaRicca, ricetta: nome, tetto: t });
     }
     this.acqua = this._acque[chiave];
+    this._ricettaAcqua = nome;
+    this._montaAcqua();
+    return this.acqua.ricetta;
+  }
+
+  /**
+   * QUELLO CHE VA RIFATTO A OGNI CAMBIO DI MATERIALE DELL'ACQUA.
+   *
+   * ⚠ E LA QUOTA DELLO SPECCHIO È LA RIGA CHE CI VOLEVA. Lo specchio è un
+   * singleton del rig, ma nasce la PRIMA volta che un materiale col riflesso
+   * lo chiede — col piano al valore di comodo (9,5). Partendo da un'acqua senza
+   * specchio e passando a una che ce l'ha (dalla pillola 💧, o perché la scala
+   * di qualità è risalita), lo specchio nasceva lì e nessuno gli diceva più
+   * dov'è l'acqua: `seguiPeloAcqua` in main.js riapplica il piano solo quando
+   * CAMBIA, e da fermi non cambia mai. Difetto muto: a schermo si legge come
+   * «l'acqua non riflette», che è esattamente il verdetto già pagato una volta.
+   */
+  _montaAcqua() {
     this.matAcqua = this.acqua.materiale;
     for (const mesh of this._chunkMesh) {
       if (mesh.name.startsWith('acqua')) mesh.material = this.matAcqua;
     }
-    return this.acqua.ricetta;
+    if (this._quotaSpecchio !== undefined) this.acqua.quotaSpecchio(this._quotaSpecchio);
+  }
+
+  /**
+   * L'ACQUA DENTRO IL PROFILO DI QUALITÀ — la porta che il 31/08 non c'era.
+   *
+   * ⚠ IL DIFETTO CHE CURA, in una riga: l'unica leva che i profili avevano
+   * sull'acqua era `ombraAcqua`, cioè un dettaglio; e intanto una ricetta
+   * poteva accendere TRE rese complete della scena per fotogramma senza che
+   * nessun gradino lo sapesse. Il livello «bassa» spegneva le ombre del sole e
+   * lasciava intatte specchio, rifrazione e profondità — l'esatto contrario di
+   * una scala di qualità.
+   *
+   * Due mestieri diversi, e vanno tenuti separati:
+   *  · il TETTO (`acquaVera`, `acquaSpecchio`) vive nello shader: cambiarlo
+   *    vuol dire ricostruire il materiale, e per questo passa dalla stessa
+   *    porta che usa chi cambia ricetta a mano (cache compresa);
+   *  · la MISURA (`acquaLato`, `acquaOgni`, `acquaProf`) è solo pixel, e si
+   *    gira a caldo senza ricompilare niente.
+   */
+  applicaProfiloAcqua(p) {
+    const vera = p.acquaVera ?? 3;
+    const riflesso = p.acquaSpecchio !== false;
+    const t = this._tettoAcqua;
+    if (t.vera !== vera || t.riflesso !== riflesso) {
+      this._tettoAcqua = { vera, riflesso };
+      // ⚠ SI RICOSTRUISCE DALLO STESSO POSTO DA CUI SI CAMBIA A MANO: due
+      // strade che fanno la stessa cosa divergono sempre, di solito il giorno
+      // che se ne cambia una sola.
+      if (this._ricettaAcqua) this.cambiaRicettaAcqua(this._ricettaAcqua);
+      else this.cambiaStileAcqua(this.acqua.stile, this.acqua.onde, this.acqua.modello, this.acqua.riflesso, this.acqua.vera);
+    }
+    this._profAcqua = p.acquaProf ?? 1;
+    misuraPassate(this.rig, { lato: p.acquaLato ?? 512, ogni: p.acquaOgni ?? 1, prof: this._profAcqua });
   }
 
   /** Dove sta il pelo da riflettere: un riflesso planare ha UN piano solo. */
-  quotaSpecchioAcqua(y) { this.acqua.quotaSpecchio(y); }
+  quotaSpecchioAcqua(y) { this._quotaSpecchio = y; this.acqua.quotaSpecchio(y); }
 
   /** Un impatto sull'acqua VIVA: anelli che si allargano da (x, z). */
   toccaAcqua(x, z, forza = 1) { this.acqua.tocca(x, z, forza); }
@@ -941,17 +1013,16 @@ export class Fabbrica {
     // diversi e due materiali diversi. Con la chiave sul solo nome il secondo
     // non sarebbe mai nato e il bottone del moto non avrebbe fatto niente —
     // in silenzio, che è il modo peggiore.
+    const t = this._tettoAcqua;
     const impronta = (a) => `${a.stile}|${a.modello}|${a.onde ? 1 : 0}|${a.riflesso ? 1 : 0}|${a.vera}`;
-    const chiave = `${nome}|${modello}|${onde ? 1 : 0}|${riflesso ? 1 : 0}|${vera}`;
+    const chiave = `${nome}|${modello}|${onde ? 1 : 0}|${riflesso ? 1 : 0}|${vera}|${t.vera}|${t.riflesso ? 1 : 0}`;
     this._acque = this._acque || { [impronta(this.acqua)]: this.acqua };
     if (!this._acque[chiave]) {
-      this._acque[chiave] = new Acqua(this.rig, { ricca: this.rig.fissi.acquaRicca, stile: nome, onde, modello, riflesso, vera });
+      this._acque[chiave] = new Acqua(this.rig, { ricca: this.rig.fissi.acquaRicca, stile: nome, onde, modello, riflesso, vera, tetto: t });
     }
+    this._ricettaAcqua = null;
     this.acqua = this._acque[chiave];
-    this.matAcqua = this.acqua.materiale;
-    for (const mesh of this._chunkMesh) {
-      if (mesh.name.startsWith('acqua')) mesh.material = this.matAcqua;
-    }
+    this._montaAcqua();
     return this.acqua.stile;
   }
 

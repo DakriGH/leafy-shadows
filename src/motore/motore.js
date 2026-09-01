@@ -615,6 +615,17 @@ export class Rig {
     // oggetti che si tengono per mano. `bersagli` è il canale che esiste già
     // per questo — è come ci arrivano l'erba e le particelle.
     if (bersagli.fabbrica) bersagli.fabbrica.ombreSullAcqua(p.ombraAcqua !== false);
+    // ⚠ E L'ACQUA INTERA, non solo la sua ombra — è la riga che mancava, e la
+    // sua assenza è costata 68 fotogrammi al secondo. Una ricetta può accendere
+    // TRE rese complete della scena a fotogramma (specchio, rifrazione,
+    // profondità): finché l'unica leva del profilo era `ombraAcqua`, il gradino
+    // «bassa» spegneva le ombre del sole e lasciava intatte tre rese della
+    // scena. Adesso il profilo dice il tetto (`acquaVera`, `acquaSpecchio`) e la
+    // misura (`acquaLato`, `acquaOgni`, `acquaProf`), e l'acqua non può
+    // accendersi niente che il gradino non abbia concesso.
+    // ⚠ DOPO `applicaScala`, non prima: la mappa di profondità si misura in
+    // frazione dello schermo VERO, e lo schermo vero cambia proprio lì sopra.
+    if (bersagli.fabbrica && bersagli.fabbrica.applicaProfiloAcqua) bersagli.fabbrica.applicaProfiloAcqua(p);
 
     // le ombre del sole. ⚠ `shadowEnabled = false` toglie la mappa dai render
     // target (verificato nel sorgente della scena): non è solo il

@@ -112,6 +112,20 @@ export class SceltaAcqua {
     this.cambia(v.chiave, v, this.indice);
   }
 
+  /**
+   * SPOSTA L'ETICHETTA SENZA APPLICARE NIENTE.
+   *
+   * ⚠ SERVE QUANDO IL GIOCO CAMBIA DA SÉ QUELLO CHE LA PILLOLA MOSTRA: dal
+   * 02/09 la scala di qualità può scendere per conto suo, e una pillola che
+   * continuasse a dire ULTRA mentre il gioco gira a MEDIA sarebbe peggio di non
+   * averla — è la stessa regola dell'Officina, che disegna sempre il valore
+   * VERO della scena e mai quello che crede di aver scritto.
+   */
+  mostra(i) {
+    this.indice = ((i % this.voci.length) + this.voci.length) % this.voci.length;
+    this.disegna();
+  }
+
   disegna() {
     const v = this.voci[this.indice];
     this.nodo.querySelector('.nome').textContent = v.nome;

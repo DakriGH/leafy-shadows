@@ -6,7 +6,12 @@ import assert from 'node:assert/strict';
 import { LIVELLI, DPR_MAX, TEXEL_PER_BLOCCO, classeDispositivo, fissiDiAvvio, ScalaQualita } from '../src/motore/qualita.js';
 
 const CHIAVI = ['scala', 'cascate', 'mappa', 'ombraZ', 'pcf', 'sole', 'dist', 'erba', 'erbaR',
-                'ombraOgni', 'ombraAcqua', 'fxaa', 'particelle'];
+                'ombraOgni', 'ombraAcqua', 'fxaa', 'particelle',
+                // ⚠ LE CINQUE DELL'ACQUA, e la prova esiste per il difetto che ha
+                // fatto crollare la build del 31/08: l'acqua accendeva fino a TRE
+                // rese complete della scena e i profili non avevano nessuna leva
+                // su di lei. Una colonna dimenticata qui è la stessa cosa.
+                'acquaVera', 'acquaSpecchio', 'acquaLato', 'acquaOgni', 'acquaProf'];
 
 for (const [nome, livelli] of Object.entries(LIVELLI)) {
   test(`«${nome}»: ogni gradino ha tutte le colonne`, () => {
@@ -25,11 +30,18 @@ for (const [nome, livelli] of Object.entries(LIVELLI)) {
     // continuerebbe a scendere cercando sollievo che non arriva mai.
     for (let i = 1; i < livelli.length; i++) {
       const a = livelli[i - 1], b = livelli[i];
-      for (const k of ['scala', 'cascate', 'mappa', 'ombraZ', 'dist', 'erba', 'erbaR']) {
+      for (const k of ['scala', 'cascate', 'mappa', 'ombraZ', 'dist', 'erba', 'erbaR',
+                       'acquaVera', 'acquaLato', 'acquaProf']) {
         assert.ok(b[k] <= a[k], `${nome}: «${k}» risale da ${a[k]} a ${b[k]} fra i gradini ${i - 1} e ${i}`);
       }
-      for (const k of ['pcf', 'sole', 'fxaa', 'particelle']) {
+      for (const k of ['pcf', 'sole', 'fxaa', 'particelle', 'acquaSpecchio']) {
         assert.ok(!(b[k] && !a[k]), `${nome}: «${k}» si riaccende al gradino ${i}`);
+      }
+      // ⚠ E LE CADENZE VANNO NELL'ALTRO VERSO: «ogni N fotogrammi» più grande
+      // vuol dire meno lavoro. Scendendo di gradino non si può rifare una cosa
+      // PIÙ spesso di quanto la si rifacesse sopra.
+      for (const k of ['ombraOgni', 'acquaOgni']) {
+        assert.ok(b[k] >= a[k], `${nome}: «${k}» scende da ${a[k]} a ${b[k]} fra i gradini ${i - 1} e ${i}`);
       }
     }
   });
@@ -86,6 +98,36 @@ test('la mappa d\'ombra e la sua portata scendono INSIEME', () => {
         `(mappa ${p.mappa}, portata ${p.ombraZ})`);
     }
   }
+});
+
+test('l\'acqua non può accendere passate che il profilo non concede', () => {
+  // ⚠ È LA PROVA CHE MANCAVA IL 31/08, e la sua assenza è costata 68 fotogrammi
+  // al secondo. La ricetta «lago» accende specchio + rifrazione + profondità:
+  // tre rese complete della scena per fotogramma. Nessun profilo le conosceva,
+  // quindi il gradino «bassa» spegneva le ombre del sole e lasciava intatte tre
+  // rese della scena — l'esatto contrario di una scala di qualità.
+  for (const [nome, livelli] of Object.entries(LIVELLI)) {
+    for (const [i, p] of livelli.entries()) {
+      assert.ok(p.acquaVera >= 0 && p.acquaVera <= 3, `${nome}[${i}]: acquaVera fuori scala (${p.acquaVera})`);
+      assert.ok(p.acquaProf > 0 && p.acquaProf <= 1, `${nome}[${i}]: acquaProf fuori scala (${p.acquaProf})`);
+      assert.ok(p.acquaLato >= 128 && p.acquaLato <= 1024, `${nome}[${i}]: acquaLato ${p.acquaLato}`);
+      assert.ok(p.acquaOgni >= 1 && p.acquaOgni <= 8, `${nome}[${i}]: acquaOgni ${p.acquaOgni}`);
+      // ⚠ LO SPECCHIO SENZA LA PROFONDITÀ NON HA SENSO in questo impianto: la
+      // stessa `uSchermo` serve a tutt'e due, e una ricetta con lo specchio e
+      // `vera 0` è la combinazione che nessun profilo deve poter chiedere.
+      if (p.acquaSpecchio) assert.ok(p.acquaVera >= 1, `${nome}[${i}]: specchio senza profondità`);
+    }
+    // ⚠ E IL FONDO DELLA SCALA NON DEVE AVERE NESSUNA PASSATA D'ACQUA: è la
+    // corsia d'emergenza, e una resa in più della scena lì dentro è proprio la
+    // cosa che tiene una macchina incollata sotto i trenta.
+    const fondo = livelli[livelli.length - 1];
+    assert.equal(fondo.acquaVera, 0, `${nome}: l'ultimo gradino paga ancora l'acqua vera`);
+    assert.equal(fondo.acquaSpecchio, false, `${nome}: l'ultimo gradino paga ancora lo specchio`);
+  }
+  // ⚠ E LA MAPPA DI PROFONDITÀ A PIENA RISOLUZIONE LA PAGA SOLO CHI PUÒ: su
+  // mobile è la passata più cara di tutte (piena risoluzione × DPR).
+  assert.ok(LIVELLI.mobile[0].acquaProf <= 0.5, 'mobile non deve mai avere la profondità a piena risoluzione');
+  assert.equal(LIVELLI.desktop[0].acquaProf, 1, 'e chi ha la macchina la vede intera');
 });
 
 test('e il tetto dei pixel è più basso su mobile', () => {

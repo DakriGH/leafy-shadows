@@ -807,15 +807,36 @@ scala.avvia();
 // fotogrammi, che è comunque prima che la scala possa decidere qualcosa.
 misuraHz().then((hz) => scala.impostaHz(hz));
 
-// ⚠ L'AUTOMATISMO È FUORI, PER DECISIONE: «toglierei il preset automatico, è
-// inconsistente; scegliamo vari livelli — bassa, media, alta, ultra — ma a
-// priori dobbiamo puntare al massimo su ogni dispositivo». Quindi: si parte
-// FISSI al gradino più alto, ovunque, telefono compreso; la qualità si cambia
-// solo a mano, dalla pillola qui sotto o col tasto K. La macchina della scala
-// resta (i suoi profili SONO i livelli), ma `osserva()` non viene più chiamata:
-// nessuno scende da solo, nessuno «pompa» — il difetto documentato più volte in
-// CLAUDE.md della scala che oscillava sotto gli occhi.
-scala.fissa(0);
+// ⚠ SI PARTE DAL MASSIMO OVUNQUE, telefono compreso — questo non cambia, ed è
+// mandato del committente: «a priori dobbiamo puntare al massimo su ogni
+// dispositivo». `ScalaQualita` nasce già al gradino 0 e `avvia()` l'ha appena
+// applicato: non serve nessun `fissa`.
+//
+// ⚠ E `fissa(0)` NON ERA «partire al massimo»: era «partire al massimo E NON
+// MUOVERSI PIÙ». Metteva `manuale = true` prima ancora che il giocatore
+// toccasse qualcosa, cioè spegneva l'automatismo di fabbrica su tutte le
+// macchine — comprese quelle che a q0 fanno sei fotogrammi al secondo e non
+// hanno modo di saperlo (su un telefono la pillola ⚙ la si trova DOPO aver
+// deciso che il gioco è rotto).
+//
+// ⚠ IL CONTRATTO NUOVO È UNO SOLO, e risponde al verdetto che aveva staccato
+// l'automatismo («il preset automatico è inconsistente», la scala che
+// «pompava» su e giù): **automatico finché non lo tocchi, mai più dopo**. Chi
+// sceglie un livello dalla pillola o col tasto K chiama `fissa`, e da quel
+// momento la scala non si muove più da sola per tutta la sessione. Nessuno si
+// vede cambiare la grafica sotto gli occhi dopo aver detto cosa vuole.
+//
+// ⚠ E L'OSCILLAZIONE, che era il difetto vero, ha già le sue tre cure in
+// `gioco/adatta.js`, tutte provate in Node: si scende dopo 3 misure e si
+// risale dopo 8; il gradino che non ha retto si ricorda con un'attesa che
+// RADDOPPIA a ogni buca (senza, la prova conta 66 oscillazioni in 17 minuti);
+// e una discesa che non guadagna almeno l'8% si ANNULLA da sola — «una scala
+// che non verifica è una scala che spera». Quello che mancava non era la
+// prudenza: era che nessuno la chiamasse.
+//
+// ⚠ E LA PILLOLA SEGUE: se la scala scende da sola, l'etichetta si sposta sul
+// nome più vicino (`mostra`, che non riapplica niente). Una pillola che dice
+// ULTRA mentre il gioco gira a MEDIA è peggio di non averla.
 // ⚠ I NOMI SONO POCHI E GROSSI, non un nome per gradino: sette gradini con
 // sette nomi sono un menu di sfumature indistinguibili. Quattro nomi, quattro
 // salti che si VEDONO. La mappa è sugli indici della tabella LIVELLI.
@@ -827,6 +848,20 @@ const sceltaGrafica = new SceltaAcqua(
   (chiave, voce) => scala.fissa(voce.gradino),
   { id: 'graficaSel', emoji: '⚙', titolo: 'Livello di grafica (anche col tasto K)', sotto: 1 },
 );
+/**
+ * QUALE DEI QUATTRO NOMI DESCRIVE IL GRADINO IN CUI SI È.
+ *
+ * ⚠ I NOMI SONO QUATTRO E I GRADINI SETTE, quindi la scala automatica passa da
+ * gradini che non hanno un nome. Si prende l'ultimo nome che comincia a quel
+ * gradino o prima — cioè si arrotonda per DIFETTO: q4 con i nomi su [0,2,3,5] è
+ * «media» (che comincia a 3), non «bassa». Dire un nome più alto di quello che
+ * si sta vedendo sarebbe l'unico errore che conta.
+ */
+function nomeDelGradino(g) {
+  let i = 0;
+  for (let k = 0; k < LIVELLI_GRAFICA.length; k++) if (LIVELLI_GRAFICA[k][1] <= g) i = k;
+  return i;
+}
 
 // ---- la barra in mano -------------------------------------------------------
 const barra = new Barra({
@@ -1050,10 +1085,11 @@ function aggiornaStato() {
   _storiaFps.push(fps);
   if (_storiaFps.length > 240) _storiaFps.shift();
   if (_storiaLivelli[_storiaLivelli.length - 1] !== scala.livello) _storiaLivelli.push(scala.livello);
-  // ⚠ `scala.osserva` NON SI CHIAMA PIÙ: l'adattamento automatico è fuori per
-  // decisione del committente («il preset automatico è inconsistente… a priori
-  // puntiamo al massimo su ogni dispositivo»). La storia dei livelli resta nel
-  // rapporto perché adesso ogni cambio è una scelta di qualcuno, e si vede.
+  // ⚠ E QUI LA SCALA GUARDA. Finché nessuno ha toccato la pillola può scendere
+  // (e risalire) da sola; al primo `fissa` si ferma per sempre. La storia dei
+  // livelli resta nel rapporto: è l'unico modo di vedere, da un telefono che
+  // non si può profilare, se la scala ha lavorato o ha pompato.
+  if (scala.osserva(fps, ora)) sceltaGrafica.mostra(nomeDelGradino(scala.livello));
   // ⚠ L'ETICHETTA DELL'ACQUA STA NELLA SPIA, non in un riquadro suo: nel gioco
   // lo spazio a schermo è del gioco, e un pannello in più coprirebbe proprio
   // l'acqua che si sta guardando. Scade da sola dopo sei secondi.

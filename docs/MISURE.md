@@ -327,6 +327,52 @@ sola. Su una GPU a tile con un decimo della banda è la differenza fra 80 e 12.
    dalle liste (`dispose()` non tocca i `customRenderTargets`). Ogni voce morta
    è un controllo per passata, per fotogramma, per sempre.
 
+## 02/09 — PASSO 2: l'acqua entra nei profili, e la scala torna a guardare
+
+Stesso banco, stessa posa, ricetta `lago` forzata a mano su ogni gradino (è il
+caso peggiore: la ricetta che accende tutto).
+
+| gradino | p50 | disegni | passate dell'acqua |
+|---|---|---|---|
+| q0 ULTRA | 5,0 ms | 547 | specchio 512² · rifrazione 512² · profondità 1280 |
+| q2 ALTA | 3,9 ms | 300 | specchio 256² ogni 2 · rifrazione 256² · profondità 544 |
+| q3 | 3,1 ms | 206 | (niente specchio) rifrazione 256² · profondità 448 |
+| q5 | **1,4 ms** | **108** | **nessuna** |
+| q0 (ritorno) | 5,0 ms | 537 | come sopra — i materiali sono in cache, risalire non ricompila |
+
+Prima di questo passo le tre passate erano identiche a q0 e a q6: **547 disegni
+al gradino più basso**, con la scena renderizzata a 0,42 di lato. Adesso il
+gradino di emergenza costa 108 disegni, cioè un quinto.
+
+⚠ **La mappa di profondità è quella che cambia di più**, e nessuno se n'era
+accorto: a q2 passa da 1280 a 544 di lato, cioè da 921.600 a 165.000 pixel di
+profondità per fotogramma — perché adesso è una FRAZIONE dello schermo vero
+(scala hardware compresa) e non un'istantanea presa quando è nata.
+
+### E la scala di qualità è riattaccata al giro
+
+Contratto nuovo: **automatica finché non la tocchi, ferma per sempre dopo**.
+`scala.fissa(0)` all'avvio non voleva dire «parti dal massimo» (ci si parte
+comunque) ma «parti dal massimo e non muoverti più»: metteva `manuale = true`
+prima ancora che il giocatore toccasse qualcosa.
+
+Provato a schermo con un carico finto (45 ms di attesa per fotogramma, cioè una
+macchina da ~19 fps), guardando la pillola ⚙ e il profilo vero:
+
+    q0 ULTRA → q2 ALTA → q4 MEDIA → q6 BASSA → q4 MEDIA
+    scala 1,00 → 0,85 → 0,60 → 0,42 → 0,60
+    acquaVera 3 → 3 → 1 → 0 → 1     acquaSpecchio sì → sì → no → no → no
+
+Il ritorno da q6 a q4 **non è un'oscillazione, è la verifica**: il carico finto
+è una costante che nessuna riduzione di qualità può togliere, quindi la discesa
+non ha guadagnato l'8% e la scala l'ha annullata da sola («una scala che non
+verifica è una scala che spera»). È esattamente il comportamento che il
+committente aveva chiesto quando ha tolto l'automatismo, e che allora mancava.
+
+E la pillola ⚙ segue il gradino (`mostra`, che sposta l'etichetta senza
+riapplicare niente): una pillola che dice ULTRA mentre il gioco gira a MEDIA è
+peggio di non averla.
+
 ## Da raccogliere
 - [ ] Il quadro `?misura` dal **telefono** (posa standard, percentili veri):
       `https://dakrigh.github.io/leafy-shadows/?misura`, aspettare il riquadro

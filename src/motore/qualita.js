@@ -122,6 +122,31 @@ export const DPR_MAX = { mobile: 1.5, desktop: 2 };
  *  · `erba`       la densità dell'erba, `erbaR` quanti chunk attorno
  *  · `fxaa`       l'antialiasing sull'immagine
  *  · `particelle` gli effetti
+ *
+ * ⚠ E LE CINQUE COLONNE DELL'ACQUA, che prima non c'erano ed è il difetto che
+ * ha fatto crollare la build del 31/08 da 80 fotogrammi a 12. L'acqua accende
+ * fino a TRE rese complete della scena per fotogramma (specchio, rifrazione,
+ * profondità) e l'unica leva che i profili avevano su di lei era `ombraAcqua`:
+ * il gradino «bassa» spegneva le ombre del sole e lasciava intatte tre rese
+ * della scena, che è l'esatto contrario di una scala di qualità. Una ricetta
+ * poteva accendersi passate che nessun profilo sapeva di pagare.
+ *  · `acquaVera`     il TETTO della scala «vera» (0 pittura · 1 profondità ·
+ *                    2 + rifrazione · 3 + caustiche). La ricetta chiede, il
+ *                    profilo concede: `min(ricetta, profilo)`.
+ *  · `acquaSpecchio` se il riflesso planare è permesso (la ricetta lo chiede)
+ *  · `acquaLato`     il lato in pixel di specchio e rifrazione
+ *  · `acquaOgni`     ogni quanti fotogrammi si rifà lo specchio
+ *  · `acquaProf`     la mappa di profondità come frazione dello SCHERMO —
+ *                    ⚠ prima era sempre a piena risoluzione (× DPR fino a 2) e
+ *                    non seguiva nemmeno `scala`: Babylon la crea grande quanto
+ *                    la tela nel momento in cui nasce, e non la ridimensiona mai
+ *                    (verificato in `depthRenderer.pure.js`).
+ *
+ * ⚠ IL TETTO NON È UNA MANOPOLA A CALDO: `vera` e `riflesso` si compilano nello
+ * shader (la solita regola della casa — quello che non si paga non deve nemmeno
+ * essere compilato), quindi cambiare gradino RICOSTRUISCE il materiale. Si
+ * tiene in cache come tutti gli altri: scendere e risalire non ricompila due
+ * volte.
  */
 /**
  * ⚠ TEXEL PER BLOCCO: LA GRANDEZZA CHE DECIDE L'ACNE, ed è `mappa / ombraZ`.
@@ -179,23 +204,35 @@ export const LIVELLI = {
     // due secondi e mezzo (sotto i 24 fps le basta UNA misura, vedi
     // `gioco/adatta.js`). Tarare il tetto è indovinare; far scendere la scala è
     // misurare.
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, ombraOgni: 3, ombraAcqua: true , fxaa: false, particelle: true },
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: true },
-    { scala: 0.85, cascate: 2, mappa:  768, ombraZ: 34, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false },
-    { scala: 0.72, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false },
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, ombraOgni: 3, ombraAcqua: true , fxaa: false, particelle: true,
+      acquaVera: 3, acquaSpecchio: true , acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: true,
+      acquaVera: 2, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
+    { scala: 0.85, cascate: 2, mappa:  768, ombraZ: 34, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false,
+      acquaVera: 1, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.40 },
+    { scala: 0.72, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false,
+      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
     // ⚠ GLI ULTIMI TRE SONO LA CORSIA D'EMERGENZA: brutti, ma GIOCABILI. In
     // Lantern esistono per la stessa ragione — senza, le GPU più deboli
     // restavano incollate sotto i trenta senza via d'uscita.
-    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
-    { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  50, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
-    { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
+    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false,
+      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
+    { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  50, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false,
+      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
+    { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false,
+      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
   ],
   desktop: [
-    { scala: 1.00, cascate: 4, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, ombraOgni: 1, ombraAcqua: true , fxaa: true,  particelle: true },
-    { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 130, erba: 6.0, erbaR: 5, ombraOgni: 2, ombraAcqua: true , fxaa: true,  particelle: true },
-    { scala: 0.85, cascate: 2, mappa: 1024, ombraZ: 45, pcf: true,  sole: true,  dist: 110, erba: 4.5, erbaR: 4, ombraOgni: 2, ombraAcqua: true , fxaa: true,  particelle: true },
-    { scala: 0.70, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist:  90, erba: 3.0, erbaR: 3, ombraOgni: 3, ombraAcqua: false, fxaa: true,  particelle: false },
-    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  70, erba: 1.5, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false },
+    { scala: 1.00, cascate: 4, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, ombraOgni: 1, ombraAcqua: true , fxaa: true,  particelle: true,
+      acquaVera: 3, acquaSpecchio: true , acquaLato: 512, acquaOgni: 1, acquaProf: 1.00 },
+    { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 130, erba: 6.0, erbaR: 5, ombraOgni: 2, ombraAcqua: true , fxaa: true,  particelle: true,
+      acquaVera: 3, acquaSpecchio: true , acquaLato: 512, acquaOgni: 2, acquaProf: 0.75 },
+    { scala: 0.85, cascate: 2, mappa: 1024, ombraZ: 45, pcf: true,  sole: true,  dist: 110, erba: 4.5, erbaR: 4, ombraOgni: 2, ombraAcqua: true , fxaa: true,  particelle: true,
+      acquaVera: 3, acquaSpecchio: true , acquaLato: 256, acquaOgni: 2, acquaProf: 0.50 },
+    { scala: 0.70, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist:  90, erba: 3.0, erbaR: 3, ombraOgni: 3, ombraAcqua: false, fxaa: true,  particelle: false,
+      acquaVera: 2, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
+    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  70, erba: 1.5, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false,
+      acquaVera: 1, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
     // ⚠ ANCHE IL DESKTOP HA LA SUA CORSIA D'EMERGENZA, e mancava. Il commento
     // due scale più su lo diceva già — «senza, le GPU più deboli restavano
     // incollate sotto i trenta senza via d'uscita» — ma l'avevo scritto solo per
@@ -204,8 +241,10 @@ export const LIVELLI = {
     // 2015, che è più debole del Mali-G68 del suo telefono; ma ha un mouse,
     // quindi prendeva questa scala. Misurato: è sceso fino all'ULTIMO gradino
     // (storia [0, 3, 4]) e faceva ancora 13 fps, senza più strada davanti.
-    { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  55, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
-    { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false },
+    { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  55, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false,
+      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.50 },
+    { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false,
+      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.50 },
   ],
 };
 
