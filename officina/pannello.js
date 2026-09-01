@@ -37,7 +37,7 @@ const CSS = `
 #officina nav button.acceso { background: var(--acceso); border-color: var(--acceso); color: #eaf6ef; }
 #officina .off-campi { overflow: auto; padding: 6px 10px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; min-width: 0; }
 #officina .off-nota { font-size: 11px; opacity: .72; margin: 2px 0 4px; white-space: pre-wrap; }
-#officina .campo { display: grid; gap: 3px; min-width: 0; }
+#officina .campo { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; min-width: 0; }
 #officina .campo .riga { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #officina .campo .nome { min-width: 0; flex: 1 1 auto; }
 #officina .campo .valore { font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; flex: 0 1 auto; }
