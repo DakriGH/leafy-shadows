@@ -273,4 +273,13 @@ export class Mondo {
     if (!c) return;
     for (const [k, tipo] of c) yield { x: dax(k), y: day(k), z: daz(k), tipo };
   }
+  /** Come `perOgni`, su UN chunk: cb(x, y, z, tipo) senza allocare. Serve a chi
+   *  fotografa una zona del mondo per il Worker del mesher (nove chunk a
+   *  fotografia: con `blocchiDelChunk` sarebbero decine di migliaia di oggetti
+   *  per chunk costruito). */
+  perOgniDelChunk(kc, cb) {
+    const c = this.chunks.get(kc);
+    if (!c) return;
+    for (const [k, tipo] of c) cb(dax(k), day(k), daz(k), tipo);
+  }
 }
