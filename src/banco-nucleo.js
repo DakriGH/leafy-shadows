@@ -11,6 +11,8 @@ import { costruisciChunkNucleo, mappaAltezze, SCARTO_Y } from './nucleo/mesher-n
 import { Mondo } from './world/world.js';
 import { generaOpenWorld } from './world/worldgen.js';
 import { registraDecorazioni } from './world/decorazioni.js';
+import { Modelli, leggiModello } from './nucleo/modelli.js';
+import { defDi } from './world/blocks.js';
 import { Diagnostica } from './ui/diagnostica.js';
 
 const tela = document.getElementById('tela');
@@ -36,6 +38,7 @@ const opz = {
 
 const { gl, dpr, ridimensiona } = creaContesto(tela, { antialias: true, dprMax: opz.dprMax });
 const resa = new Resa(gl);
+const modelli = new Modelli(gl);
 resa.ombra = opz.ombra;
 
 // ── il mondo finto ──────────────────────────────────────────────────────────
@@ -62,7 +65,11 @@ function costruisciMondoVero(semilato, erba) {
   for (const kc of [...resa.chunks.keys()]) resa.rimuovi(kc);
   registraDecorazioni();
   mondoVero = new Mondo();
-  generaOpenWorld(mondoVero, 4242, semilato);
+  // ⚠ COME main.js: il generatore ritorna i posti degli alberi e dei lampioni,
+  // e li posa chi chiama (sono blocchi con forma «modello»).
+  const { alberi, lampioni } = generaOpenWorld(mondoVero, 4242, semilato);
+  for (const [x, h, z] of alberi) mondoVero.metti(x, h, z, 'albero', true);
+  for (const [x, h, z] of lampioni) mondoVero.metti(x, h, z, 'lampione', true);
   const tGen = performance.now() - t0;
   const chunks = [];
   let cxMin = 1e9, czMin = 1e9, cxMax = -1e9, czMax = -1e9;
@@ -80,6 +87,27 @@ function costruisciMondoVero(semilato, erba) {
 let tempiMondo = null;
 if (opz.mondo) tempiMondo = costruisciMondoVero(opz.mondo, opz.erba);
 else costruisciMondo(opz.raggio, opz.erba);
+
+// ── i modelli: alberi e lampioni del mondo, a istanze (un disegno per tipo) ──
+async function caricaModelli() {
+  if (!mondoVero) return;
+  const perTipo = new Map();
+  mondoVero.perOgni((x, y, z, tipo) => {
+    const d = defDi(tipo);
+    if (d.forma !== 'modello' || !d.modello) return;
+    if (!perTipo.has(d.modello)) perTipo.set(d.modello, []);
+    perTipo.get(d.modello).push(x + 0.5, y, z + 0.5, 1);
+  });
+  for (const [nome, lista] of perTipo) {
+    try {
+      const r = await fetch(`./modelli/nucleo/${nome}.bin`);
+      if (!r.ok) throw new Error(`${r.status}`);
+      modelli.registra(nome, leggiModello(await r.arrayBuffer()));
+      modelli.istanze(nome, lista);
+    } catch (e) { console.warn(`modello ${nome}: ${e.message}`); }
+  }
+}
+caricaModelli();
 resa.tutto = opz.tutto;
 
 // ── la camera: orbita, come nel gioco ───────────────────────────────────────
@@ -135,7 +163,9 @@ function giro(adesso) {
   if (ridimensiona()) { /* la viewport è già messa */ }
   sole(dt);
   const oc = occhio();
-  resa.disegna({ occhio: oc, centro: cam.centro, fov: cam.fov, rapporto: tela.width / tela.height }, dt);
+  const camera = { occhio: oc, centro: cam.centro, fov: cam.fov, rapporto: tela.width / tela.height };
+  resa.disegna(camera, dt);
+  modelli.disegna(resa, camera);
   const js = performance.now() - tj;
   tempi.push(dt * 1000); if (tempi.length > 240) tempi.shift();
   jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
@@ -172,11 +202,11 @@ const q = (arr, p) => { if (!arr.length) return 0; const s = arr.slice().sort((a
 function stampa() {
   const p50 = q(tempi, 0.5), p99 = q(tempi, 0.99), fps = p50 ? 1000 / p50 : 0;
   storiaFps.push(Math.round(fps)); if (storiaFps.length > 120) storiaFps.shift();
-  const st = resa.statistiche;
+  const st = { disegni: resa.statistiche.disegni + modelli.statistiche.disegni, triangoli: resa.statistiche.triangoli + modelli.statistiche.triangoli, chunkVisti: resa.statistiche.chunkVisti, chunkTotali: resa.statistiche.chunkTotali };
   fpsBox.textContent = `${fps.toFixed(0)} fps\n${p50.toFixed(1)} / ${p99.toFixed(1)} ms\nJS ${q(jsMs, 0.5).toFixed(2)} ms`;
   stato.textContent = `NUCLEO ${opz.mondo ? `F1 · open world vero (semilato ${opz.mondo}, ${chunkVeri} chunk, ${blocchiVeri.toLocaleString('it')} blocchi, gen ${tempiMondo.tGen.toFixed(0)} ms + mesh ${tempiMondo.tMesh.toFixed(0)} ms)` : 'F0'} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
     + `disegni ${st.disegni}  triangoli ${st.triangoli.toLocaleString('it')}  chunk ${st.chunkVisti}/${st.chunkTotali}\n`
-    + `ombra del sole: ${resa.ombra ? 'horizon mapping' : 'spenta'} · erba ${opz.erba} · costruzione ${tCostruzione.toFixed(0)} ms\n`
+    + `ombra del sole: ${resa.ombra ? 'horizon mapping' : 'spenta'} · erba ${opz.erba} · modelli ${modelli.statistiche.istanze} istanze in ${modelli.statistiche.disegni} disegni · costruzione ${tCostruzione.toFixed(0)} ms\n`
     + `${nomeScheda(gl)}\n`
     + `?mondo=48 ?raggio=${opz.raggio} ?erba=${opz.erba} ?ombra=${opz.ombra ? 'sì' : 'no'} ?dpr=${opz.dprMax} ?rampa ?tutto  ·  tocca lo schermo per girare`
     + (esitiRampa.length ? '\nRAMPA  fps  p50   p99   dis  triangoli\n' + esitiRampa.map((e) => `r${e.raggio} e${e.erba}${e.tutto ? ' tutto' : ''}  ${String(e.fps).padStart(3)}  ${String(e.p50).padStart(5)}  ${String(e.p99).padStart(5)}  ${String(e.disegni).padStart(3)}  ${e.triangoli.toLocaleString('it')}`).join('\n') : '')
@@ -194,11 +224,11 @@ const diagnostica = new Diagnostica(() => ({
   profilo: { banco: opz.mondo ? 'nucleo F1 mondo vero' : 'nucleo F0', mondo: opz.mondo, raggio: opz.raggio, erba: opz.erba, ombra: resa.ombra, tutto: !!resa.tutto, dprMax: opz.dprMax, jsMs: +q(jsMs, 0.5).toFixed(2), jsP99: +q(jsMs, 0.99).toFixed(2), rampa: esitiRampa },
   ombreLampade: false, antialias: true,
   fps: q(tempi, 0.5) ? 1000 / q(tempi, 0.5) : null, p50: q(tempi, 0.5), p99: q(tempi, 0.99),
-  disegni: resa.statistiche.disegni, triangoli: resa.statistiche.triangoli, ombreMs: 0,
+  disegni: resa.statistiche.disegni + modelli.statistiche.disegni, triangoli: resa.statistiche.triangoli + modelli.statistiche.triangoli, ombreMs: 0,
   storiaFps, storiaLivelli: [],
   scheda: nomeScheda(gl), software: /swiftshader|llvmpipe/i.test(nomeScheda(gl)),
-  chunk: resa.statistiche.chunkTotali, blocchi, luci: 0, decorazioni: 0, erba: 0, ora: `${Math.floor(ora * 24)}h`, giorno: 0,
+  chunk: resa.statistiche.chunkTotali, blocchi, luci: 0, decorazioni: modelli.statistiche.istanze, erba: 0, ora: `${Math.floor(ora * 24)}h`, giorno: 0,
   worldgenMs: tCostruzione, meshMs: tCostruzione,
 }), () => { const oc = occhio(); resa.disegna({ occhio: oc, centro: cam.centro, fov: cam.fov, rapporto: tela.width / tela.height }, 0); return Promise.resolve(tela.toDataURL('image/webp', 0.6)); });
 
-globalThis.NUCLEO = { resa, cam, opz, statistiche: () => ({ fps: 1000 / (q(tempi, 0.5) || 1), p50: q(tempi, 0.5), p99: q(tempi, 0.99), js: q(jsMs, 0.5), ...resa.statistiche, costruzioneMs: tCostruzione, fotogrammi }), diagnostica };
+globalThis.NUCLEO = { resa, modelli, cam, opz, statistiche: () => ({ fps: 1000 / (q(tempi, 0.5) || 1), p50: q(tempi, 0.5), p99: q(tempi, 0.99), js: q(jsMs, 0.5), ...resa.statistiche, modelli: { ...modelli.statistiche }, costruzioneMs: tCostruzione, fotogrammi }), diagnostica };
