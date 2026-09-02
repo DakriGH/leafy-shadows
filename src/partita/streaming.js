@@ -35,6 +35,7 @@ export class Streaming {
     // butta, non si disegna un chunk già stantio.
     this.lavoro = lavoro;
     this._marca = new Map();
+    this._vuoti = new Set();   // chunk generati senza blocchi (lo zoo, il vuoto): non si rimettono in coda a ogni giro
     this.frontiera = new Frontiera(mondo, genera, { margineGenera: 2 * CHUNK, margineTieni: 5 * CHUNK });
     this.coda = new Set();
     this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0, inVolo: 0 };
@@ -59,12 +60,12 @@ export class Streaming {
     const t0 = performance.now();
     const m = this.mondo, r = this.resa;
     this.frontiera.assicura(x, z, { resa: this.raggioResa });
-    for (const kc of m.sporchi) this.coda.add(kc); m.sporchi.clear();
+    for (const kc of m.sporchi) { this.coda.add(kc); this._vuoti.delete(kc); } m.sporchi.clear();
     for (const kc of m.sporchiAcqua) this.coda.add(kc); m.sporchiAcqua.clear();
     // ⚠ NON si rimette in coda chi è IN VOLO: rimesso, il suo risultato tornava
     // «stantio» (la coda lo aveva) e si buttava, per sempre — camminando, il
     // mondo non cresceva più. Visto nel bundle, 60 blocchi a est dello spawn.
-    for (const kc of m.generati) if (!r.chunks.has(kc) && !(this.lavoro && this.lavoro.inVolo.has(kc))) this.coda.add(kc);
+    for (const kc of m.generati) if (!r.chunks.has(kc) && !this._vuoti.has(kc) && !(this.lavoro && this.lavoro.inVolo.has(kc))) this.coda.add(kc);
     for (const kc of [...r.chunks.keys()]) if (!m.generati.has(kc)) { r.rimuovi(kc); this.coda.delete(kc); this.statistiche.scaricati++; }
     if (this.coda.size) {
       const ordine = this._ordine; ordine.length = 0;
@@ -78,7 +79,7 @@ export class Streaming {
         if (this.lavoro && this.lavoro.vivo && this.lavoro.inVolo.has(kc)) continue;   // già in volo: si rimanda al ritorno
         this.coda.delete(kc);
         if (!m.generati.has(kc)) continue;
-        if (!m.chunks.has(kc)) { if (r.chunks.has(kc)) r.rimuovi(kc); continue; }   // svuotato del tutto
+        if (!m.chunks.has(kc)) { if (r.chunks.has(kc)) r.rimuovi(kc); this._vuoti.add(kc); this._vicini--; continue; }   // vuoto: niente da disegnare
         if (this.lavoro && this.lavoro.vivo && budgetMs !== Infinity) {
           const marca = (this._marca.get(kc) || 0) + 1; this._marca.set(kc, marca);
           if (this.lavoro.manda(m, kc, this.erba, marca) === null) { if (r.chunks.has(kc)) r.rimuovi(kc); }

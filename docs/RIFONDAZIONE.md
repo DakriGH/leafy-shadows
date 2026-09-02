@@ -340,6 +340,24 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   (~0,3 ms sul Mali, da misurare), acceso solo se il 🩺 lo permette; (3) i
   raggi «volumetrici» come cartelli sfumati del sole basso, non ray marching.
   Prima gli sprite additivi: costano niente e danno il 90% dell'effetto.
+  ✅ 02/09: `nucleo/bagliori.js` — un disegno a istanze per tutte le lanterne
+  (sei vertici da gl_VertexID, cartello verso la camera, alone + cuore,
+  additivo, profondità letta e non scritta, tenue di giorno). Interruttore
+  nell'Officina. Il bloom a un quarto resta il gradino dopo.
+- **02/09, LO ZOO** (`partita/zoo.js`, `?zoo`, dall'Officina «🦁 vai allo
+  zoo»): la scena di prova generata per chunk come l'open world: piano 64×64,
+  vasca, scalinata, muro dei materiali (una colonna per blocco della
+  cassetta), viale dei lampioni, boschetto, arredi in fila, lampade colorate.
+  ⚠ La luce COLORATA non c'è ancora: la luce cotta è un nibble monocromo; per
+  le lampade rosse/verdi/blu servirà o un canale colore nella luce cotta (tre
+  nibble) o le luci dinamiche per pixel, da misurare.
+- **⏳ IL MULTIPLAYER (MMO)**: sarà un modulo a parte, rifatto da zero (quello
+  di Leafy c'era e va rifatto meglio). Le basi già poste: passo fisso e
+  deterministico (corpi e passeggero), un chunk = seme + differenze
+  (`salvataggio.js`: è lo stesso modello del netcode), i modelli dagli eventi
+  del mondo (un `metti` remoto è un evento come uno locale). Da progettare:
+  autorità del server sulle modifiche, interpolazione dei giocatori remoti,
+  interessi per chunk (si ricevono solo i chunk vicini).
 
 ## 4c. Il mandato sullo stile (02/09, ripetuto dal committente)
 
