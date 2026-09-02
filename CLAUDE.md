@@ -1387,6 +1387,31 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   è un `GL_INVALID_OPERATION` (multisample): per mostrare una texture a
   schermo si disegna un quad.
 
+### LA PARTITA (`partita.html`, `src/partita.js`, `src/partita/`) — il sandbox sul nucleo
+- **È il gioco che nasce sul nucleo**: resa `nucleo/`, mondo `world/` (lo
+  stesso di oggi), chi cammina/mira/scava è `gioco/` (che non sa del motore, e
+  infatti gira pari pari), comandi a dito `ui/comandi.js`. `src/partita/` sono
+  i pezzi nuovi e si provano in Node: `corpi.js` (fisica a passo fisso),
+  `streaming.js` (frontiera + coda di costruzione), `registro-modelli.js`
+  (istanze dagli eventi del mondo); `sguardo.js` è DOM.
+- ⚠ **Le modifiche passano da `streaming.tocca(x, z)`**: il mondo segna i
+  chunk di bordo, ma la luce cotta arriva a SEI celle — un lampione a tre
+  celle dal confine illumina il chunk accanto, che il mondo non segna.
+- ⚠ **`inCoda` conta solo i chunk ENTRO la resa**: quelli oltre restano in
+  coda apposta (la frontiera genera 32 blocchi più in là della resa) e non
+  sono arretrato. Un test che pretende zero coda «totale» sbaglia.
+- ⚠ **La finestra delle altezze va aperta PRIMA di caricare i chunk**
+  (`resa.apriFinestraAltezze`): `carica` scrive la tegola solo se la
+  finestra c'è. Si sposta a un quarto dal bordo e riscrive tutte le tegole.
+- ⚠ **La lanterna accesa è una ZONA del modello, non un colore**: la
+  luminanza della texture del lampione marcava la piastra alla base; il vetro
+  sta a quota 2,05-2,62 entro 0,3 dall'asse (`testaAccesa` nel convertitore).
+  Di notte, prima, i lampioni erano pali neri con una pozza ai piedi — e
+  nessuno se n'era accorto per tre scatti, perché la pozza c'era.
+- ⚠ **Le istanze dei modelli sono OTTO float** (x y z scala | r g b giro):
+  `istanze(nome, lista)` accetta anche la forma corta a quattro e la allunga.
+  I corpi passano la lunga (`perIstanza = 8`) e la riusano ogni fotogramma.
+
 ## «Desktop» non vuol dire «GPU da desktop»
 
 ⚠ **Il Chromebook del committente ha una Intel HD 400 del 2015, che è più debole
