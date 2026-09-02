@@ -259,6 +259,7 @@ export class Resa {
     this.impostaMaterie([[0, 0, 0, 0], [1, 0, 0, 0]]);   // 0 nessuna, 1 emissiva (il banco)
     this.ombra = true;
     this.tutto = false;   // il banco: niente frustum, per misurare il tetto dei disegni
+    this.erbaFinoA = 6 * 16;   // LOD: i fili entro sei chunk, come erbaR del profilo ULTRA
     this.sole = { verso: [-0.5, -0.7, -0.3], colore: [1.0, 0.96, 0.86], forza: 1.0, cielo: [0.60, 0.68, 0.82] };
     this.nebbia = { da: 90, a: 150, colore: [0.72, 0.85, 0.92] };
   }
@@ -384,7 +385,10 @@ export class Resa {
       if (!this.tutto && !scatolaNelFrustum(this.piani, c.x0, c.y0 + c.minY, c.z0, c.x0 + 16, c.y0 + c.maxY + 1, c.z0 + 16)) continue;
       visti++;
       if (c.quadAcqua > 0) this._visibili.push(c);
-      if (c.verticiErba > 0) this._visibiliErba.push(c);
+      // ⚠ LOD DELL'ERBA: i fili si disegnano solo entro `erbaFinoA` blocchi dal
+      // centro del chunk (come il raggio del prato di oggi): da lontano l'erba è
+      // la tinta della cima, e i triangoli risparmiati sono migliaia per chunk.
+      if (c.verticiErba > 0 && Math.hypot(c.x0 + 8 - camera.occhio[0], c.z0 + 8 - camera.occhio[2]) <= this.erbaFinoA) this._visibiliErba.push(c);
       if (c.quad === 0) continue;
       gl.uniform3f(u.uChunk, c.chunk[0], c.chunk[1], c.chunk[2]);
       gl.bindVertexArray(c.vao);
