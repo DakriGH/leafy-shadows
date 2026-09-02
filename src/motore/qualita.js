@@ -187,18 +187,25 @@ export const LIVELLI = {
     // ⚠ E NON È UN FISSO: si accende e si spegne a caldo, quindi sta nella scala
     // e non in `fissiDiAvvio`.
     //
-    // ⚠ LE OMBRE OGNI DUE GIRI SU MOBILE IN ALTO, tre più giù. Il numero nasce
-    // da una misura sul telefono del committente (Mali-G68): la mappa d'ombra
-    // costava 5,22 ms spalmati su un fotogramma da 25,6 — il venti per cento
-    // del tempo. A tre giri erano 3,5. ⚠ MA TRE GIRI A TRENTA FOTOGRAMMI SONO
-    // CENTO MILLISECONDI: l'ombra del giocatore che cammina avanza a scatti
-    // visibili, ed è una delle «ombre a scatti» che il committente odia. Da
-    // quando la mappa si CONGELA da sola a scena ferma (rig.quieteOmbre) il
-    // risparmio grosso viene da lì, non dal passo: due giri sui primi gradini
-    // costano ~0,4 ms in più e tolgono metà dello scatto. Tre restano dove
-    // la scala sta già stringendo.
+    // ⚠ LE OMBRE OGNI TRE GIRI SU MOBILE, e il numero viene da una misura sul
+    // telefono del committente (Mali-G68): la mappa d'ombra costava 5,22 ms
+    // spalmati su un fotogramma da 25,6 — il venti per cento del tempo. A tre
+    // giri erano 3,5. Ho provato due giri sui primi gradini (l'ombra del
+    // giocatore a tre giri su trenta fotogrammi avanza a scatti): rapporto 🩺
+    // del 02/09 alle 10:53, 30 fps piatti a q0 con 109 disegni. Su questa GPU
+    // il costo è il NUMERO DI DISEGNI, non i pixel, e da quando il sole
+    // quantizzato fine tiene la mappa viva col ciclo del giorno (main.js,
+    // firmaQuiete) ogni giro in più di cascate sono ~25 disegni. Tre giri.
     // ⚠ E NON È «abbassare la qualità»: la mappa resta 1024 a due cascate, cioè
     // l'ombra è LA STESSA. Cambia solo ogni quanto la si ridisegna.
+    //
+    // ⚠ E L'ACQUA SUL TELEFONO È PITTURA A OGNI GRADINO (`acquaVera` 0, niente
+    // specchio), dallo stesso rapporto: con `lago` di partenza il profilo
+    // concedeva specchio e passata di rifrazione/profondità, cioè due liste di
+    // disegno intere in più per fotogramma — misurate su una RTX, dove sono
+    // gratis, mai sul Mali, dove sono 30 fps piatti (109 disegni contro i 47
+    // della build da 87 fps del 31/08). La ricetta chiede, il profilo concede:
+    // qui non concede, e `lago` resta `lago` nel colore e nel moto.
     //
     // ⚠ IL PRIMO GRADINO È IL TETTO, E DEVE ESSERE GENEROSO. Questo l'ho
     // sbagliato una volta: avevo abbassato l'erba QUI, sul gradino zero, per
@@ -210,12 +217,12 @@ export const LIVELLI = {
     // due secondi e mezzo (sotto i 24 fps le basta UNA misura, vedi
     // `gioco/adatta.js`). Tarare il tetto è indovinare; far scendere la scala è
     // misurare.
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, ombraOgni: 2, ombraAcqua: true , fxaa: false, particelle: true,
-      acquaVera: 3, acquaSpecchio: true , acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, ombraOgni: 2, ombraAcqua: false, fxaa: false, particelle: true,
-      acquaVera: 2, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, ombraOgni: 3, ombraAcqua: true , fxaa: false, particelle: true,
+      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: true,
+      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
     { scala: 0.85, cascate: 2, mappa:  768, ombraZ: 34, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false,
-      acquaVera: 1, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.40 },
+      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.40 },
     { scala: 0.72, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false,
       acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
     // ⚠ GLI ULTIMI TRE SONO LA CORSIA D'EMERGENZA: brutti, ma GIOCABILI. In

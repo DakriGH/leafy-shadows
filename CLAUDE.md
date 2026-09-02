@@ -225,6 +225,30 @@ tre cure, nessuna è una manopola alzata.
   Il bias resta 0,002 e il normalBias 0,006: servono ai modelli, che
   proiettano ancora con le facce davanti.
 
+### ⚠ IL TELEFONO PAGA I DISEGNI, NON I PIXEL (rapporto 🩺 del 02/09, 10:53)
+
+La prima build con R3 + ombre + `lago` sul Mali-G68: **30 fps piatti a q0**
+(bloccato a mano), p50 33 ms, p99 105 ms, **109 disegni** — contro i 47
+disegni della build da 87 fps del 31/08. Il verdetto del committente: «abbastanza
+tremendo». La scala automatica, prima del blocco, era scesa 0 → 3 → 2 → 3 → 5.
+
+Cosa aveva raddoppiato i disegni, senza toccare un pixel:
+- `lago` come ricetta di partenza, e il profilo mobile q0 che le concedeva
+  specchio (256²) e passata di rifrazione/profondità: **due liste di disegno
+  intere in più** per fotogramma. Misurate su una RTX (361 disegni, 2,8 ms:
+  gratis), mai sul Mali, dove ogni disegno è CPU del browser. Ora sul telefono
+  l'acqua è pittura a ogni gradino (`acquaVera` 0, niente specchio): `lago`
+  resta nel colore e nel moto, perde il riflesso vero.
+- la mappa d'ombra viva col ciclo del giorno (quanto del sole 1/1000) a
+  `ombraOgni` 2: ~25 disegni in più a giro. Tornato a 3 sui gradini mobili.
+
+⚠ La regola da portarsi dietro: **una passata in più sul telefono non si giudica
+dal lato in pixel** (256² è niente per la GPU) ma dalla lista che disegna. Se
+una cosa costa disegni, sul Mali la si misura col 🩺 prima di concederla a q0.
+⚠ E il p99 a 105 ms con p50 a 33 dice che c'è anche un lavoro a scatti (ogni
+tanto un fotogramma da tre): da cercare col prossimo rapporto, con la scala
+libera e una nota su cosa si stava facendo.
+
 ### ⚠ MODELLI: proiettano ma NON ricevono
 Una chioma è una pila di coni: se riceve la propria ombra i piani bassi vanno al
 buio e l'albero esce mezzo nero. In Leafy il fogliame è tinta piatta.
