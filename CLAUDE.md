@@ -1441,14 +1441,20 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - ⚠ **Le forme tornite si avvolgono come dice la normale** (`metti` in
   `cuboidi.js` scambia due vertici se il triangolo gira al contrario): senza,
   il tornio girava verso dentro e col culling si vedeva l'interno del gatto.
-- **La luce cotta è PER VERTICE** (`Pennello._luceVertice`: otto celle verso
-  fuori, media) e le bande si fanno nel FRAGMENT sulla luce interpolata
-  (`vCielo`, `vBlocco`); il colore e il sole restano `flat`. L'erba compila lo
-  stesso fragment con `flat` tolto. ⚠ Chi legge la luce «della cella davanti»
-  torna ai quadrati che il committente ha bocciato.
-- **L'ombra del sole è morbida**: mappa delle altezze in filtro LINEAR e
-  penombra proporzionale al cammino nel loop dell'horizon mapping (stesso
-  codice in `resa.js` e `modelli.js`: se cambia uno, cambia l'altro).
+- ⚠ **LA REGOLA DI LEAFY SULLA LUCE, ribadita dal committente**: «non ci
+  devono essere face shading come i blocchi di Minecraft: due oggetti dello
+  stesso colore hanno lo stesso colore, a meno che uno sia in ombra o in
+  luce». Quindi la NORMALE NON ENTRA NEL COLORE (niente `dot(n, sole)`, in
+  `resa.js` e in `modelli.js`), il cielo cotto è PER FACCIA (`flat`, la cella
+  d'aria davanti), e si scurisce solo chi è in ombra (horizon mapping) o senza
+  cielo. Solo la luce di blocco (le pozze dei lampioni) è per vertice, media
+  delle celle d'ARIA attorno (`Pennello._bloccoVertice`), a bande nel
+  fragment. Una media del cielo che prendeva anche le celle solide toglieva il
+  sole a ogni faccia accanto a un blocco: «artefatti ovunque».
+- **L'ombra del sole**: mappa delle altezze in NEAREST (filtrata, ogni gradino
+  faceva una rampa d'ombra sul blocco accanto) e penombra proporzionale al
+  cammino nel loop dell'horizon mapping (stesso codice in `resa.js` e
+  `modelli.js`: se cambia uno, cambia l'altro).
 - **Il sole a mezzogiorno è bianco** (partita e banco): al sole pieno la
   palette è esatta. Il caldo entra solo col sole basso (`caldo` da `alt`).
 - **L'erba è del colore della cima del blocco sotto** (`ciuffo(..., colCima)`),

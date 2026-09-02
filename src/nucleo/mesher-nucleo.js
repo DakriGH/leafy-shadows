@@ -61,28 +61,42 @@ const IV = (dx, dy, dz) => ((dy + 1) * 3 + (dz + 1)) * 3 + (dx + 1);
  * non costa un pixel.
  */
 class Pennello {
-  constructor(c, ox, oz, luceDi) { this.c = c; this.ox = ox; this.oz = oz; this._materia = 0; this.luceDi = luceDi; }
+  constructor(c, ox, oz, luceDi, aria) { this.c = c; this.ox = ox; this.oz = oz; this._materia = 0; this.luceDi = luceDi; this.aria = aria; this._cielo = 15; this._cella = null; }
   materia(i) { this._materia = i | 0; }
+  /** La cella del blocco in lavorazione: il cielo si legge davanti alla faccia, per faccia. */
+  cella(x, y, z) { this._cella = [x, y, z]; }
   /**
-   * ⚠ LA LUCE È PER VERTICE, NON PER FACCIA: la media delle otto celle attorno
-   * al punto spostato di mezzo blocco verso fuori. Un vertice sullo spigolo
-   * legge metà celle d'aria e metà del vicino, e la faccia SFUMA da un
-   * vertice all'altro: le pozze dei lampioni sono tonde e la luce del cielo
-   * si abbassa negli angoli (l'occlusione ambientale di Minecraft, gratis).
-   * Prima ogni faccia leggeva la sua cella e basta, e il committente vedeva
-   * «un sistema di illuminazione a quadrati».
+   * ⚠ LA REGOLA DI LEAFY: DUE FACCE DELLO STESSO COLORE HANNO LO STESSO COLORE,
+   * a meno che una sia in ombra. Quindi il CIELO è per faccia (la cella d'aria
+   * davanti, il massimo fra i versi di uno smusso), niente sfumature né
+   * occlusione ambientale: una media che prendeva anche le celle solide
+   * toglieva il sole a ogni faccia accanto a un altro blocco, e il committente
+   * vedeva «artefatti ovunque». Solo la LUCE DI BLOCCO (le pozze dei lampioni)
+   * è per vertice, media delle celle d'ARIA attorno: le pozze sono tonde e
+   * a bande, come in gioco.
    */
-  _luceVertice(p, f) {
+  _cieloFaccia(f) {
+    const [x, y, z] = this._cella;
+    let ci = -1;
+    for (let a = 0; a < 3; a++) {
+      if (!f[a]) continue;
+      const c1 = this.luceDi(x + (a === 0 ? f[0] : 0), y + (a === 1 ? f[1] : 0), z + (a === 2 ? f[2] : 0))[0];
+      if (c1 > ci) ci = c1;
+    }
+    return ci < 0 ? this.luceDi(x, y + 1, z)[0] : ci;
+  }
+  _bloccoVertice(p, f) {
     const l = Math.hypot(f[0], f[1], f[2]) || 1;
     const qx = p[0] + f[0] / l * 0.5, qy = p[1] + f[1] / l * 0.5, qz = p[2] + f[2] / l * 0.5;
-    let ci = 0, bl = 0;
+    let bl = 0, n = 0;
     for (const dx of [-0.45, 0.45]) for (const dy of [-0.45, 0.45]) for (const dz of [-0.45, 0.45]) {
-      const [c1, b1] = this.luceDi(Math.floor(qx + dx), Math.floor(qy + dy), Math.floor(qz + dz));
-      ci += c1; bl += b1;
+      const cx = Math.floor(qx + dx), cy = Math.floor(qy + dy), cz = Math.floor(qz + dz);
+      if (!this.aria(cx, cy, cz)) continue;
+      bl += this.luceDi(cx, cy, cz)[1]; n++;
     }
-    return [Math.round(ci / 8), Math.round(bl / 8)];
+    return n ? Math.round(bl / n) : 0;
   }
-  _v(p, ni, colore, f) { const l = this._luceVertice(p, f); return [p[0] - this.ox, p[1] + SCARTO_Y, p[2] - this.oz, ni, l[0], l[1], colore, 0, this._materia]; }
+  _v(p, ni, colore, f) { return [p[0] - this.ox, p[1] + SCARTO_Y, p[2] - this.oz, ni, this._cielo, this._bloccoVertice(p, f), colore, 0, this._materia]; }
   _giro(a, b, c, fuori) {
     const abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
     const acx = c[0] - a[0], acy = c[1] - a[1], acz = c[2] - a[2];
@@ -91,11 +105,11 @@ class Pennello {
   }
   tri(a, b, c, colore, fuori) {
     if (this._giro(a, b, c, fuori)) { const t = b; b = c; c = t; }
-    const ni = indiceNormale(fuori[0], fuori[1], fuori[2]);
+    const ni = indiceNormale(fuori[0], fuori[1], fuori[2]); this._cielo = this._cieloFaccia(fuori);
     this.c.quadDa(this._v(a, ni, colore, fuori), this._v(b, ni, colore, fuori), this._v(c, ni, colore, fuori), this._v(c, ni, colore, fuori));
   }
   quad(a, b, c, d, colore, fuori) {
-    const ni = indiceNormale(fuori[0], fuori[1], fuori[2]);
+    const ni = indiceNormale(fuori[0], fuori[1], fuori[2]); this._cielo = this._cieloFaccia(fuori);
     if (this._giro(a, b, c, fuori)) { const t = b; b = d; d = t; }
     this.c.quadDa(this._v(a, ni, colore, fuori), this._v(b, ni, colore, fuori), this._v(c, ni, colore, fuori), this._v(d, ni, colore, fuori));
   }
@@ -136,7 +150,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   const lc = (luce && yLo <= yHi) ? cuociLuce(mondo, kc, yLo - 2, yHi + 3) : null;
   const ce = new CostruttoreErba(Number.isFinite(yLo) ? yLo : 0);   // l'erba a fili, con la sua base
   const luceDi = (x, y, z) => (lc ? lc.leggi(x, y, z) : [15, 0]);
-  const pen = new Pennello(c, ox, oz, luceDi);
+  const pen = new Pennello(c, ox, oz, luceDi, (x, y, z) => !opaco(mondo.tipo(x, y, z)));
   const vicini = new Uint8Array(27);
   // ⚠ IL BIT «VENTO» PER L'ACQUA DICE «VERTICE IN CIMA ALLA CELLA»: il vertex
   // shader abbassa al pelo anche gli orli delle pareti, se no una parete
@@ -183,7 +197,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
         if (opaco(mondo.tipo(x + dx, y + dy, z + dz))) vicini[IV(dx, dy, dz)] = 1;
       }
       const vicinoSolido = (dx, dy, dz) => vicini[IV(dx, dy, dz)] === 1;
-      pen.materia(mat);
+      pen.materia(mat); pen.cella(x, y, z);
       const cxm = x + 0.5, cym = y + 0.5, czm = z + 0.5;
       const extra = def.forma && FORME_EXTRA[def.forma];
       if (extra) extra(pen, cxm, cym, czm, pal, () => false);

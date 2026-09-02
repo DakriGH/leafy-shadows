@@ -315,6 +315,14 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   delle altezze filtrata linearmente e penombra che cresce con la distanza
   dall'ostacolo (copertura = (cima − raggio)/(0,3 + 0,1·cammino)); la chioma
   dell'albero è un disco a cupola, non una croce. Stessi 8 passi di prima.
+  ⚠ CORRETTO SUBITO DOPO (verdetto: «artefatti ovunque, ti sei dimenticato lo
+  stile di Leafy: niente face shading»): il cielo è tornato PER FACCIA (la
+  media sui vertici prendeva le celle solide e spegneva il sole accanto a ogni
+  blocco), la mappa delle altezze è tornata NEAREST (filtrata faceva rampe
+  d'ombra su ogni gradino), e la normale NON entra più nel colore: nessun
+  `dot(n, sole)`, né sui blocchi né sui modelli. Resta per vertice solo la
+  luce dei lampioni, sulle celle d'aria. Due facce dello stesso colore hanno
+  lo stesso colore, a meno che una sia in ombra: la pulizia delle reference.
 - **02/09, i colori** («molto diversi da Leafy e dalla concept»): a mezzogiorno
   il sole è BIANCO, quindi al sole pieno si vede la palette esatta; il caldo
   entra solo col sole basso; l'ombra è scura ma meno blu. L'erba: le lamelle
