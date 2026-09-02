@@ -29,6 +29,7 @@ layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNor;        // int8 nx ny nz (normalizzati)
 layout(location = 2) in vec4 aCol;        // rgb normalizzati
 layout(location = 3) in vec4 aIst;        // per istanza: x y z, scala
+layout(location = 5) in vec4 aTinta;      // per istanza: r g b (moltiplica il colore), giro attorno a Y
 layout(location = 4) in uint aMat;        // materia, byte 15
 uniform mat4 uVP;
 uniform float uTempo;
@@ -44,10 +45,14 @@ flat out vec3 vColSole;
 out float vNebbia;
 out vec3 vPos;
 void main() {
-  vec3 p = aIst.xyz + aPos * aIst.w;
-  vec3 n = normalize(aNor);
+  // il giro attorno a Y (i corpi del sandbox, un albero girato a caso): seno e
+  // coseno per vertice costano meno di una matrice per istanza
+  float cg = cos(aTinta.w), sg = sin(aTinta.w);
+  vec3 q = vec3(aPos.x * cg - aPos.z * sg, aPos.y, aPos.x * sg + aPos.z * cg);
+  vec3 p = aIst.xyz + q * aIst.w;
+  vec3 n = normalize(vec3(aNor.x * cg - aNor.z * sg, aNor.y, aNor.x * sg + aNor.z * cg));
   int materia = int(aMat);
-  vec3 base = pow(aCol.rgb, vec3(2.2));
+  vec3 base = pow(aCol.rgb * aTinta.rgb, vec3(2.2));
   vec4 mat = uMaterie[materia];
   float faccia = step(0.12, dot(n, -uSoleVerso));
   float sole = floor(faccia * uSoleForza * 3.0 + 0.5) / 3.0;
@@ -94,6 +99,41 @@ void main() {
   colore = vec4(c, 1.0);
 }`;
 
+/** Da [x,y,z,scala]* a [x,y,z,scala,r,g,b,giro]* (tinta bianca, giro zero); a otto passa com'è. */
+export function allungaIstanze(lista, perIstanza = 4) {
+  if (perIstanza === 8) return lista instanceof Float32Array ? lista : new Float32Array(lista);
+  const n = lista.length / 4, out = new Float32Array(n * 8);
+  for (let i = 0; i < n; i++) { out.set([lista[i * 4], lista[i * 4 + 1], lista[i * 4 + 2], lista[i * 4 + 3], 1, 1, 1, 0], i * 8); }
+  return out;
+}
+
+/**
+ * UN CUBO PROCEDURALE nel formato dei modelli (20 byte per vertice), bianco:
+ * la tinta la dà l'istanza. Base a y = 0, lato 1, centrato in x e z. È il
+ * corpo del sandbox; con lo stesso stampo si fanno lastre e pali.
+ */
+export function modelloCubo(colore = [255, 255, 255], sx = 1, sy = 1, sz = 1) {
+  const F = [   // [normale, quattro vertici in senso antiorario visti da fuori]
+    [[0, 0, 1], [[-1, 0, 1], [1, 0, 1], [1, 1, 1], [-1, 1, 1]]],
+    [[0, 0, -1], [[1, 0, -1], [-1, 0, -1], [-1, 1, -1], [1, 1, -1]]],
+    [[1, 0, 0], [[1, 0, 1], [1, 0, -1], [1, 1, -1], [1, 1, 1]]],
+    [[-1, 0, 0], [[-1, 0, -1], [-1, 0, 1], [-1, 1, 1], [-1, 1, -1]]],
+    [[0, 1, 0], [[-1, 1, 1], [1, 1, 1], [1, 1, -1], [-1, 1, -1]]],
+    [[0, -1, 0], [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]]],
+  ];
+  const n = 36, out = new Uint8Array(n * 20), dv = new DataView(out.buffer);
+  let i = 0;
+  const metti = (v, nn) => {
+    const o = i * 20;
+    dv.setFloat32(o, v[0] * sx / 2, true); dv.setFloat32(o + 4, v[1] * sy, true); dv.setFloat32(o + 8, v[2] * sz / 2, true);
+    out[o + 12] = nn[0] * 127 & 255; out[o + 13] = nn[1] * 127 & 255; out[o + 14] = nn[2] * 127 & 255; out[o + 15] = 0;
+    out[o + 16] = colore[0]; out[o + 17] = colore[1]; out[o + 18] = colore[2]; out[o + 19] = 255;
+    i++;
+  };
+  for (const [nn, [a, b, c, d]] of F) { metti(a, nn); metti(b, nn); metti(c, nn); metti(a, nn); metti(c, nn); metti(d, nn); }
+  return { byte: out, vertici: n, triangoli: 12, minY: 0, maxY: sy, raggio: Math.hypot(sx, sz) / 2 };
+}
+
 export class Modelli {
   constructor(gl) {
     this.gl = gl;
@@ -115,18 +155,21 @@ export class Modelli {
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.BYTE, true, 20, 12);
     gl.enableVertexAttribArray(4); gl.vertexAttribIPointer(4, 1, gl.UNSIGNED_BYTE, 20, 15);
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 20, 16);
+    // ⚠ OTTO FLOAT PER ISTANZA: x y z scala | r g b giro. `istanze()` accetta
+    // anche la forma corta a quattro (tinta bianca, giro zero) e la allunga.
     gl.bindBuffer(gl.ARRAY_BUFFER, t.ibo);
-    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 16, 0); gl.vertexAttribDivisor(3, 1);
+    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 32, 0); gl.vertexAttribDivisor(3, 1);
+    gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 4, gl.FLOAT, false, 32, 16); gl.vertexAttribDivisor(5, 1);
     gl.bindVertexArray(null);
     this.tipi.set(nome, t);
     return t;
   }
 
   /** Le istanze di un tipo: [x, y, z, scala, …]. Si ricarica al prossimo disegno. */
-  istanze(nome, lista) {
+  istanze(nome, lista, perIstanza = 4) {
     const t = this.tipi.get(nome); if (!t) return;
-    t.istanze = lista instanceof Float32Array ? lista : new Float32Array(lista);
-    t.n = t.istanze.length / 4; t.sporco = true;
+    t.istanze = allungaIstanze(lista, perIstanza);
+    t.n = t.istanze.length / 8; t.sporco = true;
   }
 
   /** Disegna tutti i tipi con le stesse uniform della resa dei chunk, nella

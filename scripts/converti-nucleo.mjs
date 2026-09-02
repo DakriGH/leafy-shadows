@@ -27,6 +27,12 @@ const SCHIARISCI = 1.6;
  *  il verde della texture — di notte è la lampada che si vede, non il vetro. */
 const SOGLIA_EMISSIVA = 0.4;   // sul colore GREZZO della texture: la testa verde chiara vale 0,44, il palo blu 0,19-0,30
 const COLORE_LAMPADA = [0xff / 255, 0xd8 / 255, 0x89 / 255];
+/** Il vetro della lanterna: baricentro fra 2,05 e 2,62 di quota, tutto entro 0,3 dall'asse. */
+function testaAccesa(vs) {
+  let y = 0, r = 0;
+  for (const v of vs) { y += v.pos[1] / 3; r = Math.max(r, Math.hypot(v.pos[0], v.pos[2])); }
+  return y >= 2.05 && y < 2.62 && r <= 0.3;
+}
 
 // ── PNG (solo quello che serve: 8 bit, RGB/RGBA, non interlacciato) ─────────
 function decodificaPng(buf) {
@@ -122,13 +128,19 @@ function converti(nome) {
           // dopo la potenza anche il blu del palo supera la soglia
           const lum = 0.3 * col[0] + 0.59 * col[1] + 0.11 * col[2];
           col = col.map((c) => Math.pow(Math.max(0, c), 1 / SCHIARISCI));
-          const materia = (nome === 'lampione' && lum > SOGLIA_EMISSIVA) ? 1 : 0;
-          if (materia === 1) col = COLORE_LAMPADA;
           const vs = idx.map((i) => {
             const pos = trasf(m, [P.dati[i * 3], P.dati[i * 3 + 1], P.dati[i * 3 + 2]]);
             const nrm = N ? trasfN(m, [N.dati[i * 3], N.dati[i * 3 + 1], N.dati[i * 3 + 2]]) : [0, 1, 0];
             return { pos, nrm };
           });
+          // ⚠ LA TESTA ACCESA È UNA ZONA, NON UN COLORE: la luminanza della texture
+          // marcava la BASE del palo (la piastra chiara, y 0-0,13) e lasciava il
+          // vetro della lanterna scuro — di notte il lampione era un palo nero con
+          // una pozza ai piedi. Il vetro sta fra 2,05 e 2,62 di quota entro un
+          // raggio di 0,3 (il tetto a 2,6-2,8 è più largo e resta scuro).
+          const materia = (nome === 'lampione' && testaAccesa(vs)) ? 1 : 0;
+          if (materia === 1) col = COLORE_LAMPADA;
+          void lum;
           tri.push({ vs, col, materia });
         }
       }

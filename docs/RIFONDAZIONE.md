@@ -238,6 +238,28 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   92 lo specchio (solidi + modelli, niente erba). La porta è il 🩺 dal Mali con
   e senza `?specchio`. `?vedi` mostra lo specchio nudo in un angolo.
   Le pozze dei lampioni sono più calde e piene (1,3/1,02/0,58 sul bianco).
+- **02/09, LA PARTITA (`partita.html`, `src/partita.js`, `src/partita/`)**: il
+  sandbox sul nucleo, giocabile da telefono e da computer. Si cammina
+  (`gioco/passeggero.js`, a passo fisso 60 Hz), si vola (F), si guarda
+  trascinando o col mouse catturato, si scava tenendo premuto e si posa
+  (`gioco/mira.js`, `gioco/scavo.js`, la cassetta di `gioco/cantiere.js`),
+  con joystick e piccone a dito (`ui/comandi.js`). Il mondo è INFINITO: la
+  frontiera di `world/` genera, `partita/streaming.js` costruisce (mesh +
+  luce cotta) dal chunk più vicino entro un budget di 5 ms a fotogramma e
+  scarica il lontano; la mappa delle altezze per l'ombra è una FINESTRA di
+  512 blocchi che segue chi cammina (`resa.apriFinestraAltezze`, una tegola
+  16×16 per chunk). I CORPI (`partita/corpi.js`) sono scatole a passo fisso,
+  un asse per volta con sottopassi, sonno, mucchio: `?corpi=200` o il tasto
+  🎲/C ne lancia venti; si disegnano a istanze con tinta e giro per istanza
+  (otto float, `nucleo/modelli.js`). Alberi e lampioni arrivano dagli eventi
+  del mondo (`partita/registro-modelli.js`), quindi posare un albero dalla
+  cassetta lo fa apparire. Terza persona con V (un omino-cubo, per ora).
+  In SwiftShader a 960×540: 154 chunk costruiti all'avvio (480k blocchi),
+  ~165 disegni con lo specchio, 150 corpi a JS 2 ms. ⏳ La porta è il 🩺 dal
+  Mali. ⚠ La lanterna del lampione è finalmente ACCESA di notte: il
+  convertitore marcava come emissiva la piastra alla base (era la zona più
+  chiara della texture); ora l'emissiva è il vetro (quota 2,05-2,62, raggio
+  ≤ 0,3).
 
 ## 4c. Il mandato sullo stile (02/09, ripetuto dal committente)
 

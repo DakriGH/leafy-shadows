@@ -21,6 +21,10 @@ for (const nome of ['albero', 'lampione', 'panchina']) {
 test('il lampione ha una testa emissiva (materia 1) e l\'albero no', () => {
   const leggi = (n) => { const b = readFileSync(new URL(`../modelli/nucleo/${n}.bin`, import.meta.url)); return leggiModello(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)); };
   const conta = (m) => { let e = 0; for (let i = 0; i < m.vertici; i++) if (m.byte[i * 20 + 15] === 1) e++; return e; };
-  assert.ok(conta(leggi('lampione')) > 0);
+  const l = leggi('lampione');
+  assert.ok(conta(l) > 0);
+  // ⚠ ED È IN ALTO: il vetro della lanterna, non la piastra alla base
+  const dv = new DataView(l.byte.buffer, l.byte.byteOffset);
+  for (let i = 0; i < l.vertici; i++) if (l.byte[i * 20 + 15] === 1) assert.ok(dv.getFloat32(i * 20 + 4, true) > 1.9, 'la testa accesa sta sopra il palo');
   assert.equal(conta(leggi('albero')), 0);
 });
