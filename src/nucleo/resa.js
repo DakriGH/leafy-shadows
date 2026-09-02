@@ -287,6 +287,12 @@ export class Resa {
     this._riflessione = new Float32Array(16);
     this._voti = new Map();
     this.vpCorrente = null;     // il VP della passata in corso (specchio o vista): i modelli lo leggono
+    // ⚠ LA FINESTRA DELLE ALTEZZE: nel mondo in streaming la mappa per l'horizon
+    // mapping non può coprire tutto — è una texture quadrata che SEGUE chi
+    // cammina (`apriFinestraAltezze`, `seguiAltezze`), e ogni chunk ci scrive la
+    // sua tegola 16×16 quando entra o cambia. Nel banco resta la mappa intera.
+    this.finestra = null;
+    this._tegolaVuota = new Uint8Array(256);
     this.taglio = -1e9;         // la quota sotto cui la passata in corso non disegna
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
@@ -356,10 +362,87 @@ export class Resa {
     c.x0 = dati.cx * 16; c.z0 = dati.cz * 16; c.minY = dati.minY; c.maxY = dati.maxY;
     c.y0 = dati.y0 || 0;
     c.chunk = [c.x0, c.y0, c.z0];
+    // la tegola delle altezze (quota di mondo + 1, come mappaAltezze), per la finestra
+    if (dati.altezze) {
+      if (!c.tegola) c.tegola = new Uint8Array(256);
+      for (let lx = 0; lx < 16; lx++) for (let lz = 0; lz < 16; lz++) { const a = dati.altezze[lx * 16 + lz]; c.tegola[lz * 16 + lx] = a < 0 ? 0 : Math.max(0, Math.min(255, a + 1)); }
+      if (this.finestra) this._scriviTegola(c);
+    }
+  }
+
+  /**
+   * Apre la finestra delle altezze (lato in blocchi, multiplo di 16) centrata
+   * su (x, z). Da chiamare PRIMA di caricare i chunk del mondo in streaming.
+   */
+  apriFinestraAltezze(x, z, lato = 512) {
+    const gl = this.gl;
+    if (!this.altezze) this.altezze = gl.createTexture();
+    this.finestra = { lato, x0: 0, z0: 0, vuota: new Uint8Array(lato * lato), spostamenti: 0 };
+    gl.bindTexture(gl.TEXTURE_2D, this.altezze);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    this._centraFinestra(x, z, true);
+  }
+
+  /** La finestra segue chi cammina: si sposta (e si riscrive) solo quando si è a un quarto dal bordo. */
+  seguiAltezze(x, z) { if (this.finestra) this._centraFinestra(x, z, false); }
+
+  _centraFinestra(x, z, forza) {
+    const gl = this.gl, f = this.finestra, mezzo = f.lato / 2;
+    if (!forza && Math.abs(x - (f.x0 + mezzo)) < f.lato / 4 && Math.abs(z - (f.z0 + mezzo)) < f.lato / 4) return false;
+    f.x0 = Math.floor((x - mezzo) / 16) * 16; f.z0 = Math.floor((z - mezzo) / 16) * 16;
+    this.altRett = [f.x0, f.z0, 1 / f.lato, 1 / f.lato];
+    gl.bindTexture(gl.TEXTURE_2D, this.altezze);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, f.lato, f.lato, 0, gl.RED, gl.UNSIGNED_BYTE, f.vuota);
+    for (const c of this.chunks.values()) if (c.tegola) this._scriviTegola(c);
+    f.spostamenti++;
+    return true;
+  }
+
+  _scriviTegola(c, vuota = false) {
+    const gl = this.gl, f = this.finestra;
+    const px = c.x0 - f.x0, pz = c.z0 - f.z0;
+    if (px < 0 || pz < 0 || px + 16 > f.lato || pz + 16 > f.lato) return;
+    gl.bindTexture(gl.TEXTURE_2D, this.altezze);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, px, pz, 16, 16, gl.RED, gl.UNSIGNED_BYTE, vuota ? this._tegolaVuota : c.tegola);
+  }
+
+  /**
+   * LA CELLA MIRATA: dodici spigoli in linea, neri e poi bianchi (si leggono su
+   * ogni fondo), con `progresso` 0..1 lo scavo la tinge d'arancio. Si disegna
+   * dopo i solidi e i modelli, prima dell'acqua, con la profondità.
+   */
+  evidenzia(x, y, z, progresso = 0) {
+    const gl = this.gl;
+    if (!this.programmaSpigoli) {
+      this.programmaSpigoli = compila(gl, `#version 300 es
+uniform mat4 uVP; uniform vec4 uCella;   // x y z, gonfiore
+const vec3 V[8] = vec3[8](vec3(0,0,0), vec3(1,0,0), vec3(1,0,1), vec3(0,0,1), vec3(0,1,0), vec3(1,1,0), vec3(1,1,1), vec3(0,1,1));
+const int I[24] = int[24](0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7);
+void main() { vec3 v = V[I[gl_VertexID]]; v = v * (1.0 + 2.0 * uCella.w) - uCella.w; gl_Position = uVP * vec4(uCella.xyz + v, 1.0); }`,
+      `#version 300 es
+precision mediump float; uniform vec3 uColore; out vec4 colore; void main() { colore = vec4(uColore, 1.0); }`);
+      this.uSpigoli = { uVP: gl.getUniformLocation(this.programmaSpigoli, 'uVP'), uCella: gl.getUniformLocation(this.programmaSpigoli, 'uCella'), uColore: gl.getUniformLocation(this.programmaSpigoli, 'uColore') };
+      this.vaoSpigoli = gl.createVertexArray();
+    }
+    const u = this.uSpigoli;
+    gl.useProgram(this.programmaSpigoli);
+    gl.uniformMatrix4fv(u.uVP, false, this.vp);
+    gl.bindVertexArray(this.vaoSpigoli);
+    gl.uniform4f(u.uCella, x, y, z, 0.012); gl.uniform3f(u.uColore, 0.05, 0.16, 0.10);
+    gl.drawArrays(gl.LINES, 0, 24);
+    gl.uniform4f(u.uCella, x, y, z, 0.004); gl.uniform3f(u.uColore, 1.0, 1.0 - 0.45 * progresso, 1.0 - 0.8 * progresso);
+    gl.drawArrays(gl.LINES, 0, 24);
+    gl.bindVertexArray(null);
   }
 
   rimuovi(kc) {
     const c = this.chunks.get(kc); if (!c) return;
+    if (this.finestra && c.tegola) this._scriviTegola(c, true);
     this.gl.deleteVertexArray(c.vao); this.gl.deleteBuffer(c.vbo);
     if (c.vaoAcqua) { this.gl.deleteVertexArray(c.vaoAcqua); this.gl.deleteBuffer(c.vboAcqua); }
     if (c.vaoErba) { this.gl.deleteVertexArray(c.vaoErba); this.gl.deleteBuffer(c.vboErba); }

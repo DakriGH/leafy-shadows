@@ -1,0 +1,87 @@
+// LO STREAMING DEL NUCLEO — la frontiera genera, questo costruisce e scarica.
+//
+// Il mondo è infinito (`world/frontiera.js`, `generaChunkOpenWorld`): si
+// genera fino a un margine oltre la resa, si costruisce (mesh + luce cotta)
+// solo entro la resa, dal chunk più vicino, dentro un BUDGET di millisecondi
+// per fotogramma — almeno un chunk a giro, così la coda non si ferma mai, e
+// mai più del budget, così il fotogramma non scatta. I chunk che la frontiera
+// scarica escono dallo schermo nello stesso giro.
+//
+// ⚠ LE MODIFICHE PASSANO DA QUI: il mondo segna `sporchi` (e i vicini di bordo,
+// `_sporca`), ma la LUCE COTTA arriva a sei celle dal chunk (`luce-cotta.js`,
+// MARGINE): un lampione posato a tre celle dal confine illumina anche il
+// chunk accanto, che il mondo non segna. `tocca(x, z)` aggiunge i vicini
+// entro quel margine. Chi cambia un blocco chiama `tocca`.
+//
+// ⚠ NIENTE DOM: riceve mondo, resa e generatore. Si prova in Node con una resa
+// finta (`test/streaming.test.mjs`).
+import { Frontiera } from '../world/frontiera.js';
+import { CHUNK } from '../world/world.js';
+import { costruisciChunkNucleo } from '../nucleo/mesher-nucleo.js';
+
+const MARGINE_LUCE = 6;
+
+export class Streaming {
+  /**
+   * @param mondo    il mondo
+   * @param resa     chi ha `carica(kc, dati)`, `rimuovi(kc)`, `chunks` (Map)
+   * @param genera   (mondo, cx, cz) → decorazioni, come vuole la frontiera
+   */
+  constructor(mondo, resa, genera, { erba = 8, raggioResa = 96, budgetMs = 5 } = {}) {
+    this.mondo = mondo; this.resa = resa; this.erba = erba; this.raggioResa = raggioResa; this.budgetMs = budgetMs;
+    this.frontiera = new Frontiera(mondo, genera, { margineGenera: 2 * CHUNK, margineTieni: 5 * CHUNK });
+    this.coda = new Set();
+    this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0 };
+    this._ordine = [];
+  }
+
+  /** L'avvio: genera e costruisce tutto quello che serve intorno, senza budget. */
+  avvio(x, z) {
+    this.frontiera.assicura(x, z, { resa: this.raggioResa }, { subito: true });
+    this.aggiorna(x, z, Infinity);
+  }
+
+  /** Un blocco cambiato in (x, z): il suo chunk e i vicini entro il margine della luce. */
+  tocca(x, z) {
+    for (const dx of [-MARGINE_LUCE, 0, MARGINE_LUCE]) for (const dz of [-MARGINE_LUCE, 0, MARGINE_LUCE]) {
+      this.coda.add(Math.floor((x + dx) / CHUNK) + ',' + Math.floor((z + dz) / CHUNK));
+    }
+  }
+
+  /** Un giro: da chiamare a ogni fotogramma con la posizione di chi cammina. */
+  aggiorna(x, z, budgetMs = this.budgetMs) {
+    const t0 = performance.now();
+    const m = this.mondo, r = this.resa;
+    this.frontiera.assicura(x, z, { resa: this.raggioResa });
+    for (const kc of m.sporchi) this.coda.add(kc); m.sporchi.clear();
+    for (const kc of m.sporchiAcqua) this.coda.add(kc); m.sporchiAcqua.clear();
+    for (const kc of m.generati) if (!r.chunks.has(kc)) this.coda.add(kc);
+    for (const kc of [...r.chunks.keys()]) if (!m.generati.has(kc)) { r.rimuovi(kc); this.coda.delete(kc); this.statistiche.scaricati++; }
+    if (this.coda.size) {
+      const ordine = this._ordine; ordine.length = 0;
+      for (const kc of this.coda) { const d = distanza(kc, x, z); if (d <= this.raggioResa + CHUNK) ordine.push([d, kc]); }
+      ordine.sort((a, b) => a[0] - b[0]);
+      let fatti = 0;
+      this._vicini = ordine.length;
+      for (const [, kc] of ordine) {
+        if (fatti > 0 && performance.now() - t0 > budgetMs) break;
+        this.coda.delete(kc);
+        if (!m.generati.has(kc)) continue;
+        if (!m.chunks.has(kc)) { if (r.chunks.has(kc)) r.rimuovi(kc); continue; }   // svuotato del tutto
+        r.carica(kc, costruisciChunkNucleo(m, kc, { erba: this.erba }));
+        fatti++; this.statistiche.costruiti++;
+      }
+      this._vicini -= fatti;
+    } else this._vicini = 0;
+    // ⚠ IN CODA = quelli ENTRO la resa ancora da costruire: i chunk oltre restano
+    // in coda apposta (si costruiranno avvicinandosi) e non sono lavoro arretrato.
+    this.statistiche.inCoda = this._vicini;
+    this.statistiche.ultimaMs = performance.now() - t0;
+    this.statistiche.chunk = r.chunks.size;
+  }
+}
+
+function distanza(kc, x, z) {
+  const v = kc.indexOf(',');
+  return Math.hypot((+kc.slice(0, v)) * CHUNK + CHUNK / 2 - x, (+kc.slice(v + 1)) * CHUNK + CHUNK / 2 - z);
+}
