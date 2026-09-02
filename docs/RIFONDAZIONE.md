@@ -292,9 +292,17 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   blu (il giocatore, in terza persona, con un passetto quando cammina), il
   gatto arancione come PNG, il fungo rosso col fratellino marrone, il gradino
   e la scala di legno, la canna da pesca, il retino, la cazzuola, il megafono:
-  tutti blocchi «modello» posabili dalla cassetta e disegnati a istanze. Sono
-  asset TEMPORANEI dichiarati («aiutano a dare un feeling vivo»): quando
-  arriveranno i modelli veri si sostituisce la funzione, il nome resta.
+  tutti blocchi «modello» posabili dalla cassetta e disegnati a istanze.
+  Il committente ha bocciato la prima stesura a scatole («non modelli cuboid
+  temporanei per il gatto, e gli oggetti falli come nella reference, uguali,
+  belli»): `cuboidi.js` ha preso i SOLIDI TORNITI a otto lati (profilo raggio
+  per quota, scala non uniforme, rotazioni XYZ attorno a un perno) e gli
+  arredi sono rifatti sfaccettati: testa e corpo del gatto torniti, orecchie a
+  punta col dentro rosa, pupille sul lato interno, zampe tonde, zaino rosso e
+  bastoncino per l'arancione; cappelli dei funghi a cupola; cono del megafono
+  con la bocca azzurra; anello del mulinello; rete a cono. Verificati a
+  schermo da davanti e di lato (scatti nel banco). Restano modelli di codice,
+  non asset d'artista: i .glb veri li sostituiranno con lo stesso nome.
 
 ## 4c. Il mandato sullo stile (02/09, ripetuto dal committente)
 
