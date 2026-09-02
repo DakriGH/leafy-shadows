@@ -130,6 +130,26 @@ giocabile finché il nucleo nuovo non lo supera in TUTTO, e a quel punto si
 spegne il vecchio. Nessuna fase dura più di qualche giorno di lavoro; se una
 porta non passa, non si va avanti: si misura e si cambia tecnica.
 
+## 4b. Stato
+
+- **02/09, F0 pubblicata**: `nucleo.html` — `src/nucleo/` (formato a 8 byte,
+  gl, matrici, resa) + `src/banco-nucleo.js`. Cento chunk di terreno finto,
+  224k triangoli, un disegno per chunk, luce cotta, erba nel mesh, horizon
+  mapping. In Chromium software: 52 disegni per 117k triangoli in vista, JS
+  0,4 ms a fotogramma. La porta si misura sul Mali col 🩺 del banco
+  (`?raggio=` chunk per lato, `?erba=` croci per cima, `?ombra=no` spegne
+  l'horizon mapping, `?dpr=` tetto di risoluzione).
+- Decisioni prese dal committente («vai con i consigli»): pannello di
+  riferimento il Mali a 90 Hz finché non se ne misura un altro; ombre del sole
+  direzionali via horizon mapping; Babylon solo attrezzo offline.
+- **Lo specchio dell'acqua rientra nel piano** (F3), e la domanda del
+  committente era giusta: «è la stessa telecamera specchiata, vecchissimi giochi
+  ci riescono con 64 MB». Vero. Il costo non era la RAM né i pixel: era che
+  ogni passata rifaceva TUTTE le chiamate di disegno del motore vecchio, e sul
+  Mali ogni chiamata è tempo di CPU. Con un disegno per chunk una passata
+  specchiata sono ~50 disegni a 256², cioè quello che facevano Quake 3 e
+  Mario 64. Si misura in F3 con la porta, non si vieta.
+
 ## 5. Le decisioni che spettano al committente
 
 1. **Il pannello di riferimento**: 90 Hz (il Mali di oggi) o 120/144 (quale
