@@ -70,6 +70,20 @@
   medio: 1/4; lontano: 1/30 + nessuna animazione) — il costo CPU deve crescere
   con quello che si VEDE, non con quello che ESISTE.
 
+**Stato R3 al 02/09 (ramo `claude/rework-architettura`, sessione cloud):**
+- ✅ scarico dei chunk oltre la distanza + PELLE per i lontani + raggi dal profilo
+  (`pieno`, da aggiungere alla tabella LIVELLI: con la pelle `dist` può salire);
+- ✅ mesher in Worker stateless con fotografia della zona; avvio: 3×3 in linea,
+  il resto dal Worker a bilancio;
+- ✅ identità della materia per vertice + tavolozza per pixel (multi-materiale
+  in una chiamata di disegno; §13 completo: emissione, brillio, cielo, curva);
+- ✅ uniform delle lampade una volta per programma per fotogramma;
+- ✅ Officina nel sorgente (`src/officina/`, `officina.html`);
+- ⏳ catalogo asset dichiarativo, LOD/impostor dei modelli, streaming della
+  GENERAZIONE (oggi il mondo si genera tutto: a r400 sono 2 minuti e 9 GB —
+  serve worldgen per chunk a richiesta, ora che le mesh sanno scaricarsi);
+- ⏳ luci in cluster (oltre 24 lampade) e UBO per fotogramma.
+
 ### Fase R4 — Il look di Leafy, riconquistato
 - Confronto A/B con Lantern (stessa ora, stessa scena): palette, tinta
   dell'ombra, hue shift del ciclo del giorno, saturazione.
