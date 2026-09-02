@@ -190,6 +190,41 @@ metro che si pretende di ombreggiare toglie texel a quelli vicini. Col sole a
 sei gradi le cascate si stirano e il bordo diventa una scalinata: per questo il
 sole non scende sotto i **14°** (`ALTEZZA_MIN` in `giorno.js`).
 
+### ⚠ LE OMBRE A SCATTI E L'ACNE CHE RESTAVA (02/09/2026, dal cloud)
+
+Il committente: «una cosa che odio sono le ombre a scatti e l'acne». Tre cause,
+tre cure, nessuna è una manopola alzata.
+
+- **Gli scatti erano una SCELTA, non un costo.** La firma di quiete (`main.js`,
+  `firmaQuiete`) quantizzava il sole a 1/100 (≈ 0,6°) per far congelare la
+  mappa anche col ciclo del giorno acceso. Ma il giorno dura cinque minuti: il
+  sole fa 1,2° al secondo, la mappa si rifaceva ogni mezzo secondo e a ogni
+  rifacimento TUTTE le ombre saltavano di un decimo di blocco a dieci blocchi
+  d'altezza. Ora il quanto è 1/1000: lo decide lo SPOSTAMENTO dell'ombra (un
+  centesimo di blocco, sotto il pixel), e la cadenza si adegua da sé alla
+  velocità del sole — giorno veloce → mappa viva, ciclo spento → congelata.
+  ⚠ Non si torna a un quanto largo per «far congelare di più»: si congela
+  quando il sole è fermo, e basta.
+- **Il passo `ombraOgni` è uno scatto anche lui**: a tre giri su trenta
+  fotogrammi l'ombra del giocatore avanza ogni cento millisecondi. Desktop:
+  1 sui primi tre gradini, 2 al quarto. Mobile: 2 sui primi due, 3 sotto. Il
+  risparmio grosso da fermi lo fa il congelamento, non il passo.
+- **L'acne del mondo si cura CAMBIANDO FACCIA** (`motore.js`, `ombreDalRetro`;
+  `fabbrica.js`, `_ombraDalRetro`): la mappa d'ombra del mondo si disegna con
+  le facce che il sole NON vede. Il mesher emette solo facce fra pieno e vuoto,
+  quindi ogni rilievo è un guscio: la faccia illuminata non finisce nella mappa
+  e non può farsi ombra da sola, a qualunque altezza del sole e con qualunque
+  texel; la faccia di dietro sta sullo spigolo che fa la sagoma, quindi l'ombra
+  non si stacca da terra; e la faccia di dietro, che sì fa acne con sé stessa,
+  è già nera per `facciaAlSole`. ⚠ NON `forceBackFacesOnly`: è globale, e le
+  chiome sono piani incrociati senza dietro — metà chioma sparirebbe
+  dall'ombra. Si gira la cullatura mesh per mesh, negli osservatori
+  `onBefore/AfterShadowMapRenderMeshObservable`, e la chiede solo chi ha un
+  dietro chiuso. ⚠ Se un giorno il mesher emettesse geometria APERTA (un piano
+  singolo, una tenda, un vetro a lastra) quella mesh NON deve avere il flag.
+  Il bias resta 0,002 e il normalBias 0,006: servono ai modelli, che
+  proiettano ancora con le facce davanti.
+
 ### ⚠ MODELLI: proiettano ma NON ricevono
 Una chioma è una pila di coni: se riceve la propria ombra i piani bassi vanno al
 buio e l'albero esce mezzo nero. In Leafy il fogliame è tinta piatta.

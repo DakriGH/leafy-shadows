@@ -252,6 +252,13 @@ export class Fabbrica {
     acqua.receiveShadows = this.rig.profilo.ombraAcqua !== false;
     this.rig.proietta(solidi);          // ⚠ elenco, non «tutto meno qualcosa»
     solidi._proietta = true;            // lo stato che legge «aggiornaOmbre»
+    // ⚠ E PROIETTA CON LE FACCE DI DIETRO: il mesher emette solo le facce fra
+    // pieno e vuoto, quindi ogni rilievo è un guscio chiuso verso l'alto, e la
+    // faccia che il sole non vede condivide lo spigolo con quella che vede. Nella
+    // mappa d'ombra ci finisce quella di dietro (motore.js, «ombreDalRetro»):
+    // la faccia illuminata non è più nella mappa e non può fare acne con sé
+    // stessa. Gli alberi NO — le chiome sono piani incrociati, senza «dietro».
+    solidi._ombraDalRetro = true;
     this._lod(solidi); this._lod(acqua);
     this._chunkMesh.add(solidi); this._chunkMesh.add(acqua);
     return { solidi, acqua };

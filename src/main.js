@@ -1302,15 +1302,19 @@ function _misuraGiro(msFrame) {
 function firmaQuiete() {
   const c = rig.camera, s = rig.soleVerso, p = passeggero;
   const q = (v, k) => Math.round(v * k);
-  // ⚠ IL SOLE È QUANTIZZATO LARGO (1/100 ≈ 0,6°), ed è la riga che fa valere il
-  // congelamento ANCHE col ciclo del giorno attivo: a passo fine il sole
-  // «cambiava» ogni fotogramma e la mappa non si congelava mai — nemmeno da
-  // fermi, che è il caso del diorama e di chi costruisce. Così l'ombra avanza a
-  // micro-scatti (uno ogni ~mezzo secondo di gioco): quando il quanto cambia la
-  // mappa si rifà col sole VERO, quindi la posizione è sempre giusta — è solo
-  // la cadenza a essere diradata. Sul Mali-G68 le cascate valgono ~2,4 ms a
-  // fotogramma (rapporto 🩺 del 30/08): da fermi diventano ~zero.
-  return `${q(s.x, 100)},${q(s.y, 100)},${q(s.z, 100)}|${q(c.alpha, 1000)},${q(c.beta, 1000)},${q(c.radius, 100)}`
+  // ⚠ IL QUANTO DEL SOLE LO DECIDE LO SPOSTAMENTO DELL'OMBRA, NON IL RISPARMIO.
+  // Era 1/100 (≈ 0,6°), scelto perché facesse congelare la mappa anche col
+  // ciclo del giorno acceso — e col giorno di cinque minuti il sole fa 1,2°
+  // al secondo: la mappa si rifaceva ogni mezzo secondo, e a ogni rifacimento
+  // TUTTE le ombre saltavano di un decimo di blocco a dieci blocchi d'altezza.
+  // Erano «le ombre a scatti» che il committente odia, e non erano un costo:
+  // erano una scelta. Con 1/1000 (≈ 0,06°) un passo sposta un'ombra di un
+  // centesimo di blocco a dieci blocchi — meno di un pixel a qualunque
+  // distanza da cui la si guardi — e la cadenza si adegua da sé alla velocità
+  // del sole: giorno di cinque minuti → la mappa vive (com'è giusto: il sole
+  // si muove davvero), giorno di un'ora → un rinnovo ogni cinque secondi,
+  // ciclo spento → congelata. Il risparmio da fermi c'è ancora, dove è vero.
+  return `${q(s.x, 1000)},${q(s.y, 1000)},${q(s.z, 1000)}|${q(c.alpha, 1000)},${q(c.beta, 1000)},${q(c.radius, 100)}`
     + `|${q(c.target.x, 100)},${q(c.target.y, 100)},${q(c.target.z, 100)}`
     + `|${q(p.x, 100)},${q(p.y, 100)},${q(p.z, 100)}|${fabbrica.revOmbre || 0}`;
 }
