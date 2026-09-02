@@ -27,6 +27,7 @@ import { FORME_VUOTE } from '../world/forme.js';
 import { CostruttoreNucleo } from './formato.js';
 import { livelloAcqua } from '../world/blocks.js';
 import { cuociLuce } from './luce-cotta.js';
+import { CostruttoreErba } from './erba.js';
 
 /** Lo scarto in Y: il mondo può scendere sotto zero, il byte no. */
 export const SCARTO_Y = 64;
@@ -52,7 +53,7 @@ function hash(x, y, z) {
 
 /**
  * Costruisce il chunk `kc` («cx,cz») del mondo.
- * @returns {{ byte, quad, vertici, triangoli, minY, maxY, y0, cx, cz, altezze, acqua: { byte, quad } }}
+ * @returns {{ byte, quad, vertici, triangoli, minY, maxY, y0, cx, cz, altezze, acqua: { byte, quad }, erba: { byte, vertici, fili, yBase } }}
  *   `altezze` è la cima solida di ogni colonna del chunk (16×16, Int16, -1 se vuota):
  *   serve alla mappa delle altezze per l'ombra del sole.
  */
@@ -68,9 +69,14 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   let yLo = Infinity, yHi = -Infinity;
   mondo.perOgniDelChunk(kc, (x, y) => { if (y < yLo) yLo = y; if (y > yHi) yHi = y; });
   const lc = (luce && yLo <= yHi) ? cuociLuce(mondo, kc, yLo - 2, yHi + 3) : null;
+  const ce = new CostruttoreErba(Number.isFinite(yLo) ? yLo : 0);   // l'erba a fili, con la sua base
   const luceDi = (x, y, z) => (lc ? lc.leggi(x, y, z) : [15, 0]);
   const q = (x, y, z, n, col, vento = 0, mat = 0, cielo = 15, blocco = 0) => [x - ox, y + SCARTO_Y, z - oz, n, cielo, blocco, col, vento, mat];
-  const qa = (x, y, z, n, col, prof, liv) => [x - ox, y + SCARTO_Y, z - oz, n, prof, liv, col, 0, 0];
+  // ⚠ IL BIT «VENTO» PER L'ACQUA DICE «VERTICE IN CIMA ALLA CELLA»: il vertex
+  // shader abbassa al pelo anche gli orli delle pareti, se no una parete
+  // d'acqua alta una cella spunta di un sedicesimo sopra il pelo abbassato e
+  // sul lago si vedono mille velette grigie (visto nel banco, primo piano).
+  const qa = (x, y, z, n, col, prof, liv, cima) => [x - ox, y + SCARTO_Y, z - oz, n, prof, liv, col, cima ? 1 : 0, 0];
 
   mondo.perOgniDelChunk(kc, (x, y, z, tipo) => {
     const def = defDi(tipo);
@@ -106,7 +112,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
       else if (n === 3) { a = [X, Y, Z + 1]; b = [X, Y, Z]; cc = [X + 1, Y, Z]; d = [X + 1, Y, Z + 1]; }
       else if (n === 4) { a = [X + 1, Y, Z + 1]; b = [X + 1, Y + 1, Z + 1]; cc = [X, Y + 1, Z + 1]; d = [X, Y, Z + 1]; }
       else              { a = [X, Y, Z]; b = [X, Y + 1, Z]; cc = [X + 1, Y + 1, Z]; d = [X + 1, Y, Z]; }
-      if (acqua) ca.quadDa(qa(...a, n, col, prof, liv), qa(...b, n, col, prof, liv), qa(...cc, n, col, prof, liv), qa(...d, n, col, prof, liv));
+      if (acqua) ca.quadDa(qa(...a, n, col, prof, liv, a[1] === Y + 1), qa(...b, n, col, prof, liv, b[1] === Y + 1), qa(...cc, n, col, prof, liv, cc[1] === Y + 1), qa(...d, n, col, prof, liv, d[1] === Y + 1));
       else {
         // ⚠ LA LUCE DELLA FACCIA È QUELLA DELLA CELLA CHE HA DAVANTI (la cella d'aria)
         const [ci, bl] = luceDi(x + dx, y + dy, z + dz);
@@ -116,23 +122,17 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
     }
 
     // ⚠ L'ERBA STA NEL MESH (rifondazione, tecnica 3): sulle cime col cappello,
-    // due quad a croce per ciuffo, la cima ondeggia. Stesso colore della cima,
-    // appena più scuro, come i fili del prato di oggi.
-    if (def.cappello && !mondo.tipo(x, y + 1, z)) {
-      const cf = scurisci(pal.cima, 0.92);
-      const [ce, be] = luceDi(x, y + 1, z);
-      for (let k = 0; k < erba; k++) {
-        if (hash(x, z, k) < 0.3) continue;
-        const X = x, Z = z, Y = y + 1, T = y + 2;
-        c.quadDa(q(X, Y, Z, 2, cf, 0, 0, ce, be), q(X, T, Z, 2, cf, 1, 0, ce, be), q(X + 1, T, Z + 1, 2, cf, 1, 0, ce, be), q(X + 1, Y, Z + 1, 2, cf, 0, 0, ce, be));
-        c.quadDa(q(X + 1, Y, Z, 2, cf, 0, 0, ce, be), q(X + 1, T, Z, 2, cf, 1, 0, ce, be), q(X, T, Z + 1, 2, cf, 1, 0, ce, be), q(X, Y, Z + 1, 2, cf, 0, 0, ce, be));
-        if (T + SCARTO_Y > maxY) maxY = T + SCARTO_Y;
-      }
+    // un ciuffo di fili a triangolo come il prato di oggi (nucleo/erba.js),
+    // con la luce del cielo della cella sopra.
+    if (def.cappello && erba > 0 && !mondo.tipo(x, y + 1, z)) {
+      const [ce15] = luceDi(x, y + 1, z);
+      ce.ciuffo(x, y, z, ox, oz, pal.cima, ce15, erba / 2);
+      if (y + 2 + SCARTO_Y > maxY) maxY = y + 2 + SCARTO_Y;
     }
   });
   if (minY > maxY) { minY = 0; maxY = 0; }
   const d = c.dati();
-  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, acqua: ca.dati() };
+  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, acqua: ca.dati(), erba: ce.dati() };
 }
 
 function scurisci(c, k) {

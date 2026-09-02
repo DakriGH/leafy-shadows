@@ -132,10 +132,11 @@ flat out float vPelo;
 void main() {
   vec3 p = uChunk + vec3(float(aA.x), float(aA.z), float(aA.y));
   uint normale = aA.w & 7u;
+  bool cima = ((aA.w >> 3u) & 1u) == 1u;   // vertice in cima alla cella: il pelo, o l'orlo di una parete
   float prof = float(aB.x >> 4u);
   float liv = float(aB.x & 15u);
   // il pelo: peloDi() di world/pelo.js, e un'onda piccola (moto 0,018 del lago)
-  if (normale == 2u) p.y -= (1.0 + 2.0 * liv) / 16.0;
+  if (cima) p.y -= (1.0 + 2.0 * liv) / 16.0;
   p.y += 0.035 * sin(uTempo * 1.3 + p.x * 0.7 + p.z * 0.9) + 0.02 * sin(uTempo * 2.1 - p.z * 1.7);
   vPos = p;
   vCol = pow(vec3(aB.yzw) / 255.0, vec3(2.2));
@@ -172,7 +173,9 @@ void main() {
   // il cielo capovolto: fresnel verso il colore del cielo (la nebbia È il cielo all'orizzonte)
   float fres = pow(1.0 - max(dot(n, vista), 0.0), 3.0);
   vec3 cielo = pow(uNebbiaCol, vec3(2.2));
-  acqua = mix(acqua, cielo, fres * 0.85 * vPelo);
+  // ⚠ IL CIELO CAPOVOLTO SOLO RADENTE: a 45° il fresnel cubico vale il 2%, e
+  // moltiplicare per 0,85 lo faceva pesare più del colore dell'acqua stessa
+  acqua = mix(acqua, cielo, fres * 0.55 * vPelo);
   alfa = mix(alfa, 0.95, fres * vPelo);
   // il sole: la luce sul pelo, a gradino; il brillio è uno step verso il riflesso
   float sole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
@@ -181,6 +184,45 @@ void main() {
   acqua += vec3(0.9) * brillio;
   vec3 c = pow(mix(acqua, cielo, vNebbia), vec3(1.0 / 2.2));
   colore = vec4(c, mix(alfa, 1.0, vNebbia));
+}`;
+
+// ── L'ERBA: fili a triangolo, un disegno per chunk, due facce, opaca ────────
+const VS_ERBA = `#version 300 es
+precision highp float;
+layout(location = 0) in uvec4 aA;   // x8 z8 y8 seme
+layout(location = 1) in uvec4 aB;   // r g b (punta | cielo<<1)
+uniform mat4 uVP;
+uniform vec3 uChunk;                // x0, yBase, z0
+uniform float uTempo;
+uniform vec3 uSoleVerso;
+uniform vec3 uSoleCol;
+uniform float uSoleForza;
+uniform vec3 uCieloCol;
+uniform vec2 uNebbia;
+uniform vec3 uCam;
+uniform vec2 uVento;                // direzione del vento in pianta
+flat out vec3 vColOmbra;
+flat out vec3 vColSole;
+out float vNebbia;
+out vec3 vPos;
+void main() {
+  vec3 p = uChunk + vec3(float(aA.x), float(aA.z), float(aA.y)) / 8.0;
+  float seme = float(aA.w) / 255.0;
+  bool punta = (aB.w & 1u) == 1u;
+  float cielo = float(aB.w >> 1u) / 15.0;
+  if (punta) {   // la punta ondeggia col vento, la base no: come il prato
+    float f = sin(uTempo * 1.9 + seme * 6.28 + p.x * 0.35 + p.z * 0.5) * 0.5 + 0.5;
+    p.xz += uVento * (0.06 + 0.16 * f) + vec2(sin(uTempo * 3.1 + seme * 9.0), cos(uTempo * 2.3 + seme * 7.0)) * 0.03;
+  }
+  vec3 base = pow(vec3(aB.xyz) / 255.0, vec3(2.2));
+  // l'erba è tinta piatta: vede il sole se ha il cielo, senza normale
+  float sole = floor(step(0.99, cielo) * uSoleForza * 3.0 + 0.5) / 3.0;
+  float cieloBande = floor(cielo * 4.0 + 0.5) / 4.0;
+  vColOmbra = base * uCieloCol * (0.12 + 0.48 * cieloBande);
+  vColSole = base * uSoleCol * sole * 0.85;
+  vNebbia = clamp((distance(p, uCam) - uNebbia.x) / (uNebbia.y - uNebbia.x), 0.0, 1.0);
+  vPos = p;
+  gl_Position = uVP * vec4(p, 1.0);
 }`;
 
 export class Resa {
@@ -195,13 +237,17 @@ export class Resa {
     this.ebo = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ebo);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indiciCondivisi(QUAD_MAX), gl.STATIC_DRAW);
+    this.programmaErba = compila(gl, VS_ERBA, FS);   // stesso fragment dei solidi (horizon mapping, nebbia)
+    this.ue = {};
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
     this.programmaAcqua = compila(gl, VS_ACQUA, FS_ACQUA);
     this.ua = {};
     for (const n of ['uVP', 'uChunk', 'uTempo', 'uCam', 'uNebbia', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbiaCol']) this.ua[n] = gl.getUniformLocation(this.programmaAcqua, n);
     this.chunks = new Map();
     this.altezze = null;
-    this.statistiche = { disegni: 0, triangoli: 0, chunkVisti: 0, chunkTotali: 0, disegniAcqua: 0, triangoliAcqua: 0 };
+    this.statistiche = { disegni: 0, triangoli: 0, chunkVisti: 0, chunkTotali: 0, disegniAcqua: 0, triangoliAcqua: 0, disegniErba: 0, triangoliErba: 0 };
     this._visibili = [];
+    this._visibiliErba = [];
     this._camera = null;
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
@@ -234,6 +280,22 @@ export class Resa {
     gl.bindBuffer(gl.ARRAY_BUFFER, c.vbo);
     gl.bufferData(gl.ARRAY_BUFFER, dati.byte, gl.STATIC_DRAW);
     c.quad = dati.quad;
+    // l'erba del chunk, se c'è: fili a triangolo, un VAO suo
+    const e = dati.erba;
+    c.verticiErba = e ? e.vertici : 0;
+    c.yBaseErba = e ? e.yBase : 0;
+    if (c.verticiErba > 0) {
+      if (!c.vaoErba) {
+        c.vaoErba = gl.createVertexArray(); c.vboErba = gl.createBuffer();
+        gl.bindVertexArray(c.vaoErba);
+        gl.bindBuffer(gl.ARRAY_BUFFER, c.vboErba);
+        gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 4, gl.UNSIGNED_BYTE, 8, 0);
+        gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_BYTE, 8, 4);
+        gl.bindVertexArray(null);
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, c.vboErba);
+      gl.bufferData(gl.ARRAY_BUFFER, e.byte, gl.STATIC_DRAW);
+    }
     // l'acqua del chunk, se c'è: stesso formato, un VAO suo
     const a = dati.acqua;
     c.quadAcqua = a ? a.quad : 0;
@@ -259,6 +321,7 @@ export class Resa {
     const c = this.chunks.get(kc); if (!c) return;
     this.gl.deleteVertexArray(c.vao); this.gl.deleteBuffer(c.vbo);
     if (c.vaoAcqua) { this.gl.deleteVertexArray(c.vaoAcqua); this.gl.deleteBuffer(c.vboAcqua); }
+    if (c.vaoErba) { this.gl.deleteVertexArray(c.vaoErba); this.gl.deleteBuffer(c.vboErba); }
     this.chunks.delete(kc);
   }
 
@@ -315,11 +378,13 @@ export class Resa {
     }
     let disegni = 0, tri = 0, visti = 0;
     this._visibili.length = 0;
+    this._visibiliErba.length = 0;
     for (const c of this.chunks.values()) {
       if (c.quad === 0 && c.quadAcqua === 0) continue;
       if (!this.tutto && !scatolaNelFrustum(this.piani, c.x0, c.y0 + c.minY, c.z0, c.x0 + 16, c.y0 + c.maxY + 1, c.z0 + 16)) continue;
       visti++;
       if (c.quadAcqua > 0) this._visibili.push(c);
+      if (c.verticiErba > 0) this._visibiliErba.push(c);
       if (c.quad === 0) continue;
       gl.uniform3f(u.uChunk, c.chunk[0], c.chunk[1], c.chunk[2]);
       gl.bindVertexArray(c.vao);
@@ -328,7 +393,37 @@ export class Resa {
     }
     gl.bindVertexArray(null);
     this._camera = camera;
+    // ── l'erba dei chunk visti: opaca, a due facce, stesso frustum ────────────
+    let disegniErba = 0, triErba = 0;
+    if (this._visibiliErba.length) {
+      const ue = this.ue;
+      gl.useProgram(this.programmaErba);
+      gl.uniformMatrix4fv(ue.uVP, false, this.vp);
+      gl.uniform1f(ue.uTempo, this.tempo);
+      gl.uniform3f(ue.uSoleVerso, s.verso[0], s.verso[1], s.verso[2]);
+      gl.uniform3f(ue.uSoleCol, s.colore[0], s.colore[1], s.colore[2]);
+      gl.uniform1f(ue.uSoleForza, s.forza);
+      gl.uniform3f(ue.uCieloCol, s.cielo[0], s.cielo[1], s.cielo[2]);
+      gl.uniform2f(ue.uNebbia, this.nebbia.da, this.nebbia.a);
+      gl.uniform3f(ue.uNebbiaCol, this.nebbia.colore[0], this.nebbia.colore[1], this.nebbia.colore[2]);
+      gl.uniform3f(ue.uCam, camera.occhio[0], camera.occhio[1], camera.occhio[2]);
+      gl.uniform2f(ue.uVento, Math.cos(this.tempo * 0.045), Math.sin(this.tempo * 0.045));
+      gl.uniform1f(ue.uOmbra, this.ombra && this.altezze ? 1 : 0);
+      if (this.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(ue.uAltezze, 0); gl.uniform4f(ue.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]); }
+      gl.disable(gl.CULL_FACE);
+      for (const c of this._visibiliErba) {
+        // ⚠ LA BASE DELL'ERBA È GIÀ IN QUOTA DI MONDO (yLo del chunk): NON si somma
+        // lo scarto del chunk, o i fili finiscono 64 celle sotto, nel lago.
+        gl.uniform3f(ue.uChunk, c.chunk[0], c.yBaseErba, c.chunk[2]);
+        gl.bindVertexArray(c.vaoErba);
+        gl.drawArrays(gl.TRIANGLES, 0, c.verticiErba);
+        disegniErba++; triErba += c.verticiErba / 3;
+      }
+      gl.enable(gl.CULL_FACE);
+      gl.bindVertexArray(null);
+    }
     st.disegni = disegni; st.triangoli = tri; st.chunkVisti = visti; st.chunkTotali = this.chunks.size;
+    st.disegniErba = disegniErba; st.triangoliErba = triErba;
   }
 
   /**
