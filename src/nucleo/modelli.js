@@ -51,10 +51,10 @@ void main() {
   vec4 mat = uMaterie[materia];
   float faccia = step(0.12, dot(n, -uSoleVerso));
   float sole = floor(faccia * uSoleForza * 3.0 + 0.5) / 3.0;
-  vec3 ombra = base * uCieloCol * 0.60;
-  vec3 pieno = base * uSoleCol * sole * 0.85;
-  if (mat.x > 0.0) { ombra = mix(ombra, base * 1.15, mat.x); pieno *= (1.0 - mat.x); }
-  vColOmbra = ombra; vColSole = pieno;
+  vec3 ombra = base * uCieloCol;
+  vec3 pieno = base * uSoleCol;
+  if (mat.x > 0.0) { ombra = mix(ombra, base * 1.15, mat.x); pieno = mix(pieno, base * 1.15, mat.x); }
+  vColOmbra = ombra; vColSole = (pieno - ombra) * sole;
   vNebbia = clamp((distance(p, uCam) - uNebbia.x) / (uNebbia.y - uNebbia.x), 0.0, 1.0);
   vPos = p;
   gl_Position = uVP * vec4(p, 1.0);
