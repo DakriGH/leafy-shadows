@@ -19,7 +19,10 @@
   #dock { display: none; }
   body.con-officina #dock { display: block; width: 400px; height: 100%; background: #151c18; color: #dfe8e2; overflow: auto; position: relative; }
   #chiudiDock { position: absolute; right: 8px; top: 6px; z-index: 50; background: transparent; color: #dfe8e2; border: 1px solid rgba(223,232,226,.3); border-radius: 6px; font: 12px ui-monospace, monospace; padding: 2px 8px; }
-  body.con-officina #fps, body.con-officina #azioni { right: 408px; }
+  /* ⚠ NIENTE INTERFACCIA DEL GIOCO SOPRA L'OFFICINA: a lato si spostano gli elementi fissi di destra, a foglio si nascondono */
+  body.con-officina #fps, body.con-officina #azioni, body.con-officina #versione { right: 408px; }
+  body.con-officina #comandi .btn { right: 418px; }
+  body.con-officina #diagPanel { right: 408px; }
   body.con-officina #barra { left: calc((100vw - 400px) / 2); max-width: calc(100vw - 420px); }
   body.con-officina #mira { left: calc((100vw - 400px) / 2); }
   body.con-officina .off-tasto { display: none; }
@@ -36,7 +39,8 @@
     body.con-officina #dock { position: fixed; left: 0; right: 0; bottom: 0; width: auto; height: 58vh; z-index: 30; border-top: 1px solid rgba(223,232,226,.2); }
     body.con-officina #fps, body.con-officina #azioni { right: 8px; }
     body.con-officina #barra, body.con-officina #mira, body.con-officina #azione { left: 50%; max-width: 96vw; }
-    body.con-officina #barra, body.con-officina #azione { display: none; }
+    body.con-officina #barra, body.con-officina #azione, body.con-officina #comandi, body.con-officina #modoGui, body.con-officina #diag,
+    body.con-officina #fps, body.con-officina #azioni, body.con-officina #versione, body.con-officina #mira { display: none !important; }
   }
   #barra { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 12; display: flex; gap: 4px; max-width: 96vw;
            overflow-x: auto; padding: 4px; background: rgba(255,255,255,.55); border-radius: 8px; scrollbar-width: none; }
@@ -62,7 +66,7 @@
     <button id="volo" title="Vola (F)">🪶</button>
     <button id="terza" title="Terza persona (V)">🎥</button>
     <button id="cubi" title="Lancia venti cubi (C)">🎲</button>
-    <button id="officina" title="Officina">🛠</button>
+    <button id="apriOfficina" title="Officina (apre e chiude)">🛠</button>
   </div>
   <div id="barra"></div>
   <div id="dock"><button id="chiudiDock" title="Chiudi l'Officina">✕</button></div>
