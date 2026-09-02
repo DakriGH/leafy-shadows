@@ -60,7 +60,9 @@ export class CostruttoreErba {
       const apri = Math.min(0.98, 0.66 + f.apri);
       const cx = x + 0.5 + (q - 0.5) * apri, cz = z + 0.5 + (r - 0.5) * apri;
       const ang = a * Math.PI;
-      const alto = Math.min(3.5, f.alto * (0.62 + 0.8 * hash(x, z, k * 17 + 71)) * (0.52 + 1.15 * Math.pow(g, 1.5)));
+      // ⚠ CIUFFI BASSI, come nelle concept art del committente (un terzo di
+      // blocco, non uno intero): a un blocco l'erba copriva il gatto e le terrazze.
+      const alto = Math.min(0.8, f.alto * (0.62 + 0.8 * hash(x, z, k * 17 + 71)) * (0.5 + 0.6 * Math.pow(g, 1.5)));
       const largo = f.largo * (0.8 + 0.4 * j) * 0.5;
       const dx = Math.cos(ang) * largo, dz = Math.sin(ang) * largo;
       const base = chiarisci(colCima, 0.94 + 0.12 * j);

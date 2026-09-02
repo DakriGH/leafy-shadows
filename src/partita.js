@@ -30,7 +30,9 @@ import { Streaming } from './partita/streaming.js';
 import { Sguardo } from './partita/sguardo.js';
 import { Corpi } from './partita/corpi.js';
 import { RegistroModelli } from './partita/registro-modelli.js';
+import { creaLavoro } from './nucleo/lavoro.js';
 import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore } from './partita/registri.js';
+import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
 
 const params = new URLSearchParams(location.search);
 const opz = {
@@ -59,8 +61,17 @@ registraDecorazioni();
 const mondo = new Mondo();
 const registro = new RegistroModelli();
 mondo.onEvento = (e) => registro.evento(e);
-const streaming = new Streaming(mondo, resa, (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme), { erba: opz.erba, raggioResa: opz.raggio });
+const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
+const streaming = new Streaming(mondo, resa, (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme), { erba: opz.erba, raggioResa: opz.raggio, lavoro });
 resa.apriFinestraAltezze(0.5, 0.5, 512);
+// ⚠ IL SALVATAGGIO SI RIMETTE PRIMA DI GENERARE: sono le modifiche del
+// giocatore (partita/salvataggio.js), e la frontiera le riapplica a ogni
+// chunk che nasce. `?nuovo` riparte da zero.
+const CHIAVE_SALVATAGGIO = `leafy-partita-${opz.seme}`;
+let salvate = 0;
+try { if (params.has('nuovo')) localStorage.removeItem(CHIAVE_SALVATAGGIO); else salvate = spacchetta(mondo, localStorage.getItem(CHIAVE_SALVATAGGIO)); } catch { salvate = 0; }
+let salvaFra = 0;   // ms: si salva un secondo dopo l'ultima modifica, non a ogni blocco
+function salva() { try { localStorage.setItem(CHIAVE_SALVATAGGIO, impacchetta(mondo, { seme: opz.seme, quando: Date.now() })); } catch { /* memoria piena o privata: pazienza */ } }
 const tAvvio = performance.now();
 streaming.avvio(0.5, 0.5);
 const tCostruzione = performance.now() - tAvvio;
@@ -168,6 +179,7 @@ let tienePremuto = false;
 function cambiaBlocco(x, y, z, tipo) {
   if (tipo) mondo.metti(x, y, z, tipo); else mondo.togli(x, y, z);
   streaming.tocca(x, z);
+  salvaFra = 1000;
 }
 function posa() {
   if (!bersaglio) return;
@@ -264,6 +276,7 @@ function giro(adesso) {
   jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
   fotogrammi++;
   if (passoOfficina) passoOfficina();
+  if (salvaFra > 0) { salvaFra -= dt * 1000; if (salvaFra <= 0) salva(); }
   if (adesso - ultimaStampa > 500) { ultimaStampa = adesso; stampa(); }
   requestAnimationFrame(giro);
 }
@@ -275,8 +288,8 @@ function stampa() {
   const st = resa.statistiche, sm = streaming.statistiche;
   document.getElementById('stato').textContent =
     `PARTITA sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
-    + `disegni ${st.disegni + modelli.statistiche.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio} · triangoli ${(st.triangoli + modelli.statistiche.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio).toLocaleString('it')} · chunk ${st.chunkVisti}/${st.chunkTotali} (coda ${sm.inCoda}, ${sm.ultimaMs.toFixed(1)} ms) · corpi ${corpi.statistiche.corpi} (${corpi.statistiche.svegli} svegli)\n`
-    + `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)} · ${volo ? 'volo' : passeggero.aTerra ? 'a terra' : 'in aria'} · in mano: ${bottoni[scelto].textContent}${bersaglio ? ` · miri ${mondo.tipo(...bersaglio.cella)}` : ''}\n`
+    + `disegni ${st.disegni + modelli.statistiche.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio} · triangoli ${(st.triangoli + modelli.statistiche.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio).toLocaleString('it')} · chunk ${st.chunkVisti}/${st.chunkTotali} (coda ${sm.inCoda}${lavoro ? `, in volo ${sm.inVolo} su ${lavoro.operai.length} worker` : ''}, ${sm.ultimaMs.toFixed(1)} ms) · corpi ${corpi.statistiche.corpi} (${corpi.statistiche.svegli} svegli)\n`
+    + `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)} · ${volo ? 'volo' : passeggero.aTerra ? 'a terra' : 'in aria'} · modifiche ${contaModifiche(mondo)}${salvate > 0 ? ` (${salvate} ricaricate)` : ''} · in mano: ${bottoni[scelto].textContent}${bersaglio ? ` · miri ${mondo.tipo(...bersaglio.cella)}` : ''}\n`
     + `WASD/joystick cammina · trascina guarda · doppio clic/L cattura il mouse · sinistro tieni = scava · destro/tocco = posa · ⛏ col dito scava · F vola · V terza · C cubi · 1-9 cassetta`;
 }
 requestAnimationFrame(giro);
@@ -290,6 +303,8 @@ async function apriOfficinaPartita() {
     get volo() { return volo; }, get terza() { return terza; }, impostaVolo, impostaTerza,
     dove: () => `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)}`,
     aCasa: () => { passeggero.x = 0.5; passeggero.z = 0.5; passeggero.y = cimaIn(0, 0) + 0.5; passeggero.vy = 0; },
+    modifiche: () => contaModifiche(mondo),
+    nuovo: () => { try { localStorage.removeItem(CHIAVE_SALVATAGGIO); } catch { /* niente */ } location.search = `?seme=${opz.seme}&nuovo`; },
   };
   officina = apriOfficina({
     registri: [registroGiornoPartita(giorno), registroResa(resa), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore)],

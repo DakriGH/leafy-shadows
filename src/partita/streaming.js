@@ -27,11 +27,17 @@ export class Streaming {
    * @param resa     chi ha `carica(kc, dati)`, `rimuovi(kc)`, `chunks` (Map)
    * @param genera   (mondo, cx, cz) → decorazioni, come vuole la frontiera
    */
-  constructor(mondo, resa, genera, { erba = 8, raggioResa = 96, budgetMs = 5 } = {}) {
+  constructor(mondo, resa, genera, { erba = 8, raggioResa = 96, budgetMs = 5, lavoro = null } = {}) {
     this.mondo = mondo; this.resa = resa; this.erba = erba; this.raggioResa = raggioResa; this.budgetMs = budgetMs;
+    // ⚠ LA SQUADRA DI WORKER (nucleo/lavoro.js), se c'è: i chunk si costruiscono
+    // fuori dal filo principale e arrivano al giro dopo. Un chunk cambiato
+    // mentre è in volo (`marca` diversa) si rimanda: il risultato vecchio si
+    // butta, non si disegna un chunk già stantio.
+    this.lavoro = lavoro;
+    this._marca = new Map();
     this.frontiera = new Frontiera(mondo, genera, { margineGenera: 2 * CHUNK, margineTieni: 5 * CHUNK });
     this.coda = new Set();
-    this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0 };
+    this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0, inVolo: 0 };
     this._ordine = [];
   }
 
@@ -64,15 +70,33 @@ export class Streaming {
       let fatti = 0;
       this._vicini = ordine.length;
       for (const [, kc] of ordine) {
-        if (fatti > 0 && performance.now() - t0 > budgetMs) break;
+        if (!this.lavoro && fatti > 0 && performance.now() - t0 > budgetMs) break;
+        if (this.lavoro && this.lavoro.vivo && this.lavoro.liberi === 0) break;   // si aspetta un operaio: la coda resta
+        if (this.lavoro && this.lavoro.vivo && this.lavoro.inVolo.has(kc)) continue;   // già in volo: si rimanda al ritorno
         this.coda.delete(kc);
         if (!m.generati.has(kc)) continue;
         if (!m.chunks.has(kc)) { if (r.chunks.has(kc)) r.rimuovi(kc); continue; }   // svuotato del tutto
+        if (this.lavoro && this.lavoro.vivo && budgetMs !== Infinity) {
+          const marca = (this._marca.get(kc) || 0) + 1; this._marca.set(kc, marca);
+          if (this.lavoro.manda(m, kc, this.erba, marca) === null) { if (r.chunks.has(kc)) r.rimuovi(kc); }
+          fatti++;
+          continue;
+        }
         r.carica(kc, costruisciChunkNucleo(m, kc, { erba: this.erba }));
         fatti++; this.statistiche.costruiti++;
       }
       this._vicini -= fatti;
     } else this._vicini = 0;
+    // ── i chunk tornati dai Worker ───────────────────────────────────────────
+    if (this.lavoro && this.lavoro.vivo) {
+      for (const { kc, dati, marca } of this.lavoro.raccogli()) {
+        if (!m.generati.has(kc)) continue;                       // scaricato nel frattempo
+        if (this._marca.get(kc) !== marca) { this.coda.add(kc); continue; }   // cambiato in volo: si rifà
+        if (this.coda.has(kc)) continue;                          // segnato di nuovo: arriva la versione nuova
+        r.carica(kc, dati); this.statistiche.costruiti++;
+      }
+      this.statistiche.inVolo = this.lavoro.inVolo.size;
+    }
     // ⚠ IN CODA = quelli ENTRO la resa ancora da costruire: i chunk oltre restano
     // in coda apposta (si costruiranno avvicinandosi) e non sono lavoro arretrato.
     this.statistiche.inCoda = this._vicini;

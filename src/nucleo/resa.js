@@ -13,8 +13,8 @@ import { prospettiva, guarda, moltiplica, pianiFrustum, scatolaNelFrustum } from
 
 const VS = `#version 300 es
 precision highp float;
-layout(location = 0) in uvec4 aA;   // x z y (normale|vento|materia)
-layout(location = 1) in uvec4 aB;   // luci r g b
+layout(location = 0) in uvec2 aAB;  // A: x z normale vento materia · B: y cielo blocco (nucleo/formato.js)
+layout(location = 1) in uvec4 aC;   // r g b 0
 uniform mat4 uVP;
 uniform vec3 uChunk;
 uniform float uTempo;
@@ -29,22 +29,23 @@ flat out vec3 vColOmbra;      // quello che si vede anche all'ombra del sole
 flat out vec3 vColSole;       // quello che il sole aggiunge (l'horizon map lo può togliere)
 out float vNebbia;
 out vec3 vPos;
-const vec3 N[6] = vec3[6](vec3(1,0,0), vec3(-1,0,0), vec3(0,1,0), vec3(0,-1,0), vec3(0,0,1), vec3(0,0,-1));
 void main() {
-  vec3 p = uChunk + vec3(float(aA.x), float(aA.z), float(aA.y));
-  uint b3 = aA.w;
-  uint normale = b3 & 7u;
-  uint vento = (b3 >> 3u) & 1u;
-  uint materia = b3 >> 4u;
+  // ⚠ POSIZIONI IN SEDICESIMI (nucleo/formato.js): x e z con un blocco di margine, y dallo scarto del chunk
+  uint A = aAB.x, B = aAB.y;
+  vec3 p = uChunk + vec3(float(A & 511u) - 16.0, float(B & 65535u), float((A >> 9u) & 511u) - 16.0) / 16.0;
+  uint ni = (A >> 18u) & 31u;
+  uint vento = (A >> 23u) & 1u;
+  uint materia = (A >> 24u) & 15u;
   if (vento == 1u) {   // la cima di un filo d'erba ondeggia
     float f = sin(uTempo * 1.7 + p.x * 0.9 + p.z * 1.3);
     p.x += f * 0.18; p.z += cos(uTempo * 1.1 + p.z * 0.7 + p.x * 0.4) * 0.12;
   }
-  vec3 n = N[normale];
-  float cielo = float(aB.x >> 4u) / 15.0;
-  float blocco = float(aB.x & 15u) / 15.0;
+  // la normale a 27: facce, smussi e angoli del supercubo
+  vec3 n = normalize(vec3(float(ni / 9u) - 1.0, float((ni / 3u) % 3u) - 1.0, float(ni % 3u) - 1.0));
+  float cielo = float((B >> 16u) & 15u) / 15.0;
+  float blocco = float((B >> 20u) & 15u) / 15.0;
   // ⚠ IL COLORE È QUELLO COTTO DAL MESHER (la palette di Leafy), in spazio lineare
-  vec3 base = pow(vec3(aB.yzw) / 255.0, vec3(2.2));
+  vec3 base = pow(vec3(aC.xyz) / 255.0, vec3(2.2));
   vec4 mat = uMaterie[materia];
   // ⚠ LA FACCIA VEDE IL SOLE O NO: la soglia a 0,12 è la cura dell'acne di Leafy.
   // L'erba (vento) è tinta piatta: vede sempre il sole.
@@ -136,8 +137,8 @@ void main() {
 // sott'acqua. È «la stessa telecamera specchiata» che chiedeva il committente.
 const VS_ACQUA = `#version 300 es
 precision highp float;
-layout(location = 0) in uvec4 aA;   // x z y (normale)
-layout(location = 1) in uvec4 aB;   // (prof<<4|livello) r g b
+layout(location = 0) in uvec2 aAB;  // A: x z normale cima · B: y prof livello
+layout(location = 1) in uvec4 aC;   // r g b 0
 uniform mat4 uVP;
 uniform vec3 uChunk;
 uniform float uTempo;
@@ -149,18 +150,19 @@ out float vProf;
 out float vNebbia;
 flat out float vPelo;
 void main() {
-  vec3 p = uChunk + vec3(float(aA.x), float(aA.z), float(aA.y));
-  uint normale = aA.w & 7u;
-  bool cima = ((aA.w >> 3u) & 1u) == 1u;   // vertice in cima alla cella: il pelo, o l'orlo di una parete
-  float prof = float(aB.x >> 4u);
-  float liv = float(aB.x & 15u);
+  uint A = aAB.x, B = aAB.y;
+  vec3 p = uChunk + vec3(float(A & 511u) - 16.0, float(B & 65535u), float((A >> 9u) & 511u) - 16.0) / 16.0;
+  uint normale = (A >> 18u) & 31u;
+  bool cima = ((A >> 23u) & 1u) == 1u;   // vertice in cima alla cella: il pelo, o l'orlo di una parete
+  float prof = float((B >> 16u) & 15u);
+  float liv = float((B >> 20u) & 15u);
   // il pelo: peloDi() di world/pelo.js, e un'onda piccola (moto 0,018 del lago)
   if (cima) p.y -= (1.0 + 2.0 * liv) / 16.0;
   p.y += 0.035 * sin(uTempo * 1.3 + p.x * 0.7 + p.z * 0.9) + 0.02 * sin(uTempo * 2.1 - p.z * 1.7);
   vPos = p;
-  vCol = pow(vec3(aB.yzw) / 255.0, vec3(2.2));
+  vCol = pow(vec3(aC.xyz) / 255.0, vec3(2.2));
   vProf = prof;
-  vPelo = normale == 2u ? 1.0 : 0.0;
+  vPelo = normale == 16u ? 1.0 : 0.0;   // 16 = (0, +1, 0) nell'indice a 27
   vNebbia = clamp((distance(p, uCam) - uNebbia.x) / (uNebbia.y - uNebbia.x), 0.0, 1.0);
   gl_Position = uVP * vec4(p, 1.0);
 }`;
@@ -317,8 +319,8 @@ export class Resa {
       c = { vao: gl.createVertexArray(), vbo: gl.createBuffer(), quad: 0 };
       gl.bindVertexArray(c.vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, c.vbo);
-      gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 4, gl.UNSIGNED_BYTE, BYTE_VERTICE, 0);
-      gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_BYTE, BYTE_VERTICE, 4);
+      gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 2, gl.UNSIGNED_INT, BYTE_VERTICE, 0);
+      gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_BYTE, BYTE_VERTICE, 8);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ebo);
       gl.bindVertexArray(null);
       this.chunks.set(kc, c);
@@ -351,8 +353,8 @@ export class Resa {
         c.vaoAcqua = gl.createVertexArray(); c.vboAcqua = gl.createBuffer();
         gl.bindVertexArray(c.vaoAcqua);
         gl.bindBuffer(gl.ARRAY_BUFFER, c.vboAcqua);
-        gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 4, gl.UNSIGNED_BYTE, BYTE_VERTICE, 0);
-        gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_BYTE, BYTE_VERTICE, 4);
+        gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 2, gl.UNSIGNED_INT, BYTE_VERTICE, 0);
+        gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_BYTE, BYTE_VERTICE, 8);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ebo);
         gl.bindVertexArray(null);
       }

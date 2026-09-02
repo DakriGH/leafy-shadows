@@ -73,6 +73,8 @@ export function registroGiocatore(stato) {
       { chiave: 'terza', nome: 'terza persona', tipo: 'interruttore', leggi: () => !!stato.terza, scrivi: (v) => stato.impostaTerza(!!v) },
       { chiave: 'dove', nome: 'dove', tipo: 'lettura', leggi: () => stato.dove() },
       { chiave: 'casa', nome: '🏠 torna all\'origine', tipo: 'azione', fai: () => stato.aCasa() },
+      { chiave: 'modifiche', nome: 'modifiche salvate', tipo: 'lettura', leggi: () => stato.modifiche ? stato.modifiche() : 0 },
+      { chiave: 'nuovo', nome: '🗑 mondo nuovo (butta le modifiche)', tipo: 'azione', fai: () => stato.nuovo && stato.nuovo() },
     ],
   };
 }

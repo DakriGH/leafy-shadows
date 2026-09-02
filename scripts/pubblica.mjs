@@ -61,7 +61,9 @@ const esito = await build({
   // torna in linea in silenzio (il ripiego c'è, ma non è quello che si vuole).
   entryPoints: [join(radice, 'src/main.js'), join(radice, 'src/zoo.js'), join(radice, 'src/banco-acqua.js'), join(radice, 'src/world/mesher-worker.js'),
     // ⚠ IL QUINTO È IL BANCO DEL NUCLEO (rifondazione, F0): senza Babylon, 30 KB.
-    join(radice, 'src/banco-nucleo.js'), join(radice, 'src/partita.js')],
+    join(radice, 'src/banco-nucleo.js'), join(radice, 'src/partita.js'),
+    // ⚠ E IL WORKER DEL NUCLEO, per la stessa ragione del quarto: `nucleo/lavoro.js` lo carica per nome.
+    join(radice, 'src/nucleo/mesher-nucleo-worker.js')],
 
   bundle: true,
   format: 'esm',
@@ -139,7 +141,7 @@ if (!existsSync(join(lavoro, '.git'))) {
 } else {
   esegui('git fetch -q origin && git reset -q --hard origin/main', lavoro);
 }
-for (const n of ['index.html', 'zoo.html', 'water.html', 'nucleo.html', 'main.js', 'zoo.js', 'banco-acqua.js', 'mesher-worker.js', 'banco-nucleo.js', 'partita.html', 'partita.js', '.nojekyll']) {
+for (const n of ['index.html', 'zoo.html', 'water.html', 'nucleo.html', 'main.js', 'zoo.js', 'banco-acqua.js', 'mesher-worker.js', 'banco-nucleo.js', 'partita.html', 'partita.js', 'mesher-nucleo-worker.js', '.nojekyll']) {
   cpSync(join(www, n), join(lavoro, n));
 }
 // i modelli: sono dati, non codice, e vanno accanto alla pagina

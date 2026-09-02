@@ -49,3 +49,27 @@ test('un blocco cambiato ricostruisce il suo chunk, e tocca i vicini entro il ma
   assert.ok(resa.caricati - prima >= 2, `ricostruiti almeno il chunk e il vicino: ${resa.caricati - prima}`);
   assert.equal(s.statistiche.inCoda, 0);
 });
+
+test('con una squadra di lavoro i chunk partono in volo e tornano al giro dopo; chi cambia in volo si rifà', async () => {
+  const { costruisciChunkNucleo } = await import('../src/nucleo/mesher-nucleo.js');
+  const { fotografa, MondoFoto } = await import('../src/world/mesher-foto.js');
+  // una squadra finta: un operaio, costruisce subito ma consegna alla raccolta successiva
+  // (consegna alla raccolta SUCCESSIVA, come un Worker vero: il risultato non c'è mai nello stesso giro)
+  const lavoro = { vivo: true, inVolo: new Map(), pronti: [], prossimi: [], get liberi() { return 1 - this.inVolo.size; },
+    manda(m, kc, erba, marca) { if (this.inVolo.size) return false; const f = fotografa(m, kc, 0, false, null, 6); if (!f) return null; this.inVolo.set(kc, marca); this.prossimi.push({ kc, dati: costruisciChunkNucleo(new MondoFoto(f), kc, { erba }), marca }); return true; },
+    raccogli() { const r = this.pronti; this.pronti = this.prossimi; this.prossimi = []; for (const x of r) this.inVolo.delete(x.kc); return r; } };
+  const mondo = new Mondo(), resa = new ResaFinta();
+  const s = new Streaming(mondo, resa, (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, 4242), { erba: 0, raggioResa: 32, lavoro });
+  s.avvio(0.5, 0.5);                       // l'avvio è in linea (budget infinito): tutto subito
+  const n0 = resa.chunks.size; assert.ok(n0 > 0);
+  mondo.metti(3, 30, 3, 'pietra'); s.tocca(3, 3);
+  s.aggiorna(0.5, 0.5);                    // parte in volo
+  assert.equal(lavoro.inVolo.size, 1);
+  mondo.metti(3, 31, 3, 'pietra'); s.tocca(3, 3);   // cambia mentre è in volo
+  s.aggiorna(0.5, 0.5);                    // torna: marca vecchia → si rimanda
+  const dopo = resa.caricati;
+  for (let i = 0; i < 14; i++) s.aggiorna(0.5, 0.5);
+  assert.ok(resa.caricati > dopo, 'la versione nuova è arrivata');
+  assert.equal(s.statistiche.inCoda, 0);
+  assert.equal(lavoro.inVolo.size, 0);
+});

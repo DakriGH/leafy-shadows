@@ -25,14 +25,17 @@ export const MARGINE_SU = 26;
  * Fotografa la zona attorno a `kc`. `null` se il chunk è vuoto (chi chiama lo rimuove).
  * @param stagione  {corrente, mescolanza} — di fabbrica quella del modulo stagioni
  */
-export function fotografa(mondo, kc, livello = 0, soloAcqua = false, stagione = null) {
+export function fotografa(mondo, kc, livello = 0, soloAcqua = false, stagione = null, margineXZ = MARGINE_XZ) {
   const v = kc.indexOf(',');
   const cx = +kc.slice(0, v), cz = +kc.slice(v + 1);
   let minY = Infinity, maxY = -Infinity;
   mondo.perOgniDelChunk(kc, (x, y) => { if (y < minY) minY = y; if (y > maxY) maxY = y; });
   if (minY === Infinity) return null;
-  const x0 = cx * CHUNK - MARGINE_XZ, z0 = cz * CHUNK - MARGINE_XZ, y0 = minY - MARGINE_GIU;
-  const nx = CHUNK + 2 * MARGINE_XZ, nz = nx, ny = maxY + MARGINE_SU - y0 + 1;
+  // ⚠ IL MARGINE IN PIANTA È UN PARAMETRO: il mesher del nucleo cuoce la luce a
+  // sei celle dal chunk (nucleo/luce-cotta.js) e con quattro la pozza di un
+  // lampione del vicino si fermava al confine.
+  const x0 = cx * CHUNK - margineXZ, z0 = cz * CHUNK - margineXZ, y0 = minY - MARGINE_GIU;
+  const nx = CHUNK + 2 * margineXZ, nz = nx, ny = maxY + MARGINE_SU - y0 + 1;
   const celle = new Uint16Array(nx * ny * nz);
   const tipi = [];
   const indice = new Map();

@@ -5,7 +5,7 @@ import { Mondo } from '../src/world/world.js';
 import { registraDecorazioni } from '../src/world/decorazioni.js';
 import { cuociLuce, CADUTA_LAMPADA } from '../src/nucleo/luce-cotta.js';
 import { costruisciChunkNucleo } from '../src/nucleo/mesher-nucleo.js';
-import { leggiVertice } from '../src/nucleo/formato.js';
+import { leggiVertice, N_SU, N_GIU, N_XP, N_XM, N_ZP, N_ZM } from '../src/nucleo/formato.js';
 
 registraDecorazioni();
 
@@ -43,7 +43,8 @@ test('il mesher scrive nel vertice la luce della cella davanti alla faccia', () 
   for (let i = 0; i < d.vertici; i++) {
     const v = leggiVertice(d.byte, i);
     if (v.blocco > 0) conBlocco++;
-    if (v.normale === 3) { fondi++; if (v.cielo < 15) fondiBui++; continue; }   // i fondi stanno sotto la lastra: il cielo entra solo dai lati
+    if (v.normale === N_GIU) { fondi++; if (v.cielo < 15) fondiBui++; continue; }   // i fondi stanno sotto la lastra: il cielo entra solo dai lati
+    if (v.normale !== N_SU && v.normale !== N_XP && v.normale !== N_XM && v.normale !== N_ZP && v.normale !== N_ZM) continue;   // smussi e angoli: luce del massimo fra i versi
     sopra++; if (v.cielo === 15) cieloPieno++;
   }
   assert.ok(conBlocco > 0, 'le cime attorno al lampione hanno luce di blocco');
