@@ -80,12 +80,22 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
 
   mondo.perOgniDelChunk(kc, (x, y, z, tipo) => {
     const def = defDi(tipo);
+    if (def.forma === 'modello' && def.modello === 'albero') {
+      // ⚠ L'ALBERO STA NELLA MAPPA DELLE ALTEZZE con la sua chioma (una croce
+      // di celle a quota +3): è così che fa ombra col sole, senza mappa d'ombra.
+      for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const lx = x + dx - ox, lz = z + dz - oz;
+        if (lx < 0 || lx >= CHUNK || lz < 0 || lz >= CHUNK) continue;
+        const i = lx * CHUNK + lz;
+        if (y + 3 > altezze[i]) altezze[i] = y + 3;
+      }
+    }
     if (FORME_VUOTE.has(def.forma)) return;          // piante, lastre, modelli: F3
     const acqua = eAcqua(tipo);
     const ly = y + SCARTO_Y;
     if (ly < 0 || ly > 254) return;
     const i = (x - ox) * CHUNK + (z - oz);
-    if (!acqua && y > altezze[i]) altezze[i] = y;
+    if (!acqua && y > altezze[i]) altezze[i] = y;   // (la chioma di un albero, se c'è, è già più alta)
 
     let pal = paletteBlocco(tipoBase(tipo), y);
     if (def.motivo) pal = tintaPalette(pal, def.motivo, def.motivoForza ?? 1, x, y, z);

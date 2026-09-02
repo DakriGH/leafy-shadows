@@ -17,12 +17,15 @@ import { fileURLToPath } from 'node:url';
 
 const radice = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MODELLI = ['albero', 'lampione', 'ciuffo', 'panchina'];
-/** Lo stesso schiarimento del gioco (`modelli.js`, `schiarisci: 1.6`). */
+/** Lo stesso schiarimento del gioco (`modelli.js`, `schiarisci: 1.6`): è una
+ *  POTENZA (`pow(c, 1/1.6)` in stile.js, «toglie l'ombreggiatura cotta nelle
+ *  texture»), non una moltiplicazione — moltiplicando gli alberi uscivano
+ *  menta chiara invece del verde del gioco (confronto affiancato). */
 const SCHIARISCI = 1.6;
 /** I triangoli più chiari del lampione sono la testa accesa: materia 1 = emissiva,
  *  e prendono il colore della LUCE del lampione (decorazioni.js: 0xffd889), non
  *  il verde della texture — di notte è la lampada che si vede, non il vetro. */
-const SOGLIA_EMISSIVA = 0.6;
+const SOGLIA_EMISSIVA = 0.4;   // sul colore GREZZO della texture: la testa verde chiara vale 0,44, il palo blu 0,19-0,30
 const COLORE_LAMPADA = [0xff / 255, 0xd8 / 255, 0x89 / 255];
 
 // ── PNG (solo quello che serve: 8 bit, RGB/RGBA, non interlacciato) ─────────
@@ -115,8 +118,10 @@ function converti(nome) {
             if (tex.dati[o + 3] < 40) continue;   // ritaglio alfa: il triangolo non c'è
             col = [col[0] * tex.dati[o] / 255, col[1] * tex.dati[o + 1] / 255, col[2] * tex.dati[o + 2] / 255];
           }
-          col = col.map((c) => Math.min(1, c * SCHIARISCI));
+          // ⚠ la luminanza per «è la testa accesa» si legge PRIMA dello schiarimento:
+          // dopo la potenza anche il blu del palo supera la soglia
           const lum = 0.3 * col[0] + 0.59 * col[1] + 0.11 * col[2];
+          col = col.map((c) => Math.pow(Math.max(0, c), 1 / SCHIARISCI));
           const materia = (nome === 'lampione' && lum > SOGLIA_EMISSIVA) ? 1 : 0;
           if (materia === 1) col = COLORE_LAMPADA;
           const vs = idx.map((i) => {

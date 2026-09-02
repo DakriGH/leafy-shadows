@@ -55,12 +55,20 @@ void main() {
   float cieloBande = floor(cielo * 4.0 + 0.5) / 4.0;
   float sole = floor(step(0.99, cielo) * faccia * uSoleForza * 3.0 + 0.5) / 3.0;   // tre bande: l'ombra è un gradino
   float lampada = floor(blocco * 4.0 + 0.5) / 4.0;                                  // quattro bande, come le lampade di Leafy
-  // ⚠ L'OMBRA NON È NERA, È DEL COLORE DEL CIELO: moltiplica, non sottrae
-  vec3 ombra = base * uCieloCol * (0.12 + 0.48 * cieloBande) + base * vec3(1.0, 0.80, 0.50) * lampada * 0.9;
-  vec3 pieno = base * uSoleCol * sole * 0.85;
-  if (mat.x > 0.0) { ombra = mix(ombra, base * 1.15, mat.x); pieno *= (1.0 - mat.x); }   // emissiva: scavalca ombra e notte
+  // ⚠ AL SOLE PIENO IL COLORE È QUELLO DELLA PALETTE, esatto: il sole non
+  // «aggiunge», SOSTITUISCE l'ombra (confronto affiancato col gioco: sommando
+  // sole e cielo il nucleo usciva più chiaro del gioco di un quarto).
+  // ⚠ L'OMBRA NON È NERA, È DEL COLORE DEL CIELO: moltiplica, non sottrae; in
+  // grotta (cielo cotto basso) scende a gradini.
+  vec3 ombra = base * uCieloCol * (0.25 + 0.75 * cieloBande);
+  vec3 lume = base * vec3(1.0, 0.80, 0.50) * lampada;
+  vec3 pieno = base * uSoleCol;
+  if (mat.x > 0.0) { ombra = mix(ombra, base * 1.15, mat.x); pieno = mix(pieno, base * 1.15, mat.x); }   // emissiva: scavalca ombra e notte
+  // vColOmbra + vColSole*luce nel fragment: con luce = 1 (sole) da' pieno, con 0 da' ombra
+  vec3 colSole = (pieno - ombra) * sole;
+  ombra += lume;
   vColOmbra = ombra;
-  vColSole = pieno;
+  vColSole = colSole;
   float d = distance(p, uCam);
   vNebbia = clamp((d - uNebbia.x) / (uNebbia.y - uNebbia.x), 0.0, 1.0);
   vPos = p;
@@ -218,8 +226,9 @@ void main() {
   // l'erba è tinta piatta: vede il sole se ha il cielo, senza normale
   float sole = floor(step(0.99, cielo) * uSoleForza * 3.0 + 0.5) / 3.0;
   float cieloBande = floor(cielo * 4.0 + 0.5) / 4.0;
-  vColOmbra = base * uCieloCol * (0.12 + 0.48 * cieloBande);
-  vColSole = base * uSoleCol * sole * 0.85;
+  vec3 ombraE = base * uCieloCol * (0.25 + 0.75 * cieloBande);
+  vColOmbra = ombraE;
+  vColSole = (base * uSoleCol - ombraE) * sole;
   vNebbia = clamp((distance(p, uCam) - uNebbia.x) / (uNebbia.y - uNebbia.x), 0.0, 1.0);
   vPos = p;
   gl_Position = uVP * vec4(p, 1.0);
