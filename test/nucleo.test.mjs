@@ -8,19 +8,19 @@ import { prospettiva, guarda, moltiplica, pianiFrustum, scatolaNelFrustum } from
 
 test('un vertice sono otto byte, e si rileggono uguali', () => {
   const c = new CostruttoreNucleo(1);
-  c.quadDa([0, 10, 0, 2, 15, 3, 1, 200, 1], [0, 10, 16, 2, 15, 3, 1, 200, 3], [16, 10, 16, 2, 15, 3, 1, 200, 3], [16, 10, 0, 2, 15, 3, 1, 200, 1]);
+  c.quadDa([0, 10, 0, 2, 15, 3, 0x5ca83d], [0, 10, 16, 2, 15, 3, 0x5ca83d, 1, 9], [16, 10, 16, 2, 15, 3, 0x5ca83d, 1], [16, 10, 0, 2, 15, 3, 0x5ca83d]);
   const d = c.dati();
   assert.equal(d.byte.length, 4 * BYTE_VERTICE);
   assert.equal(d.quad, 1); assert.equal(d.triangoli, 2);
   const v = leggiVertice(d.byte, 1);
-  assert.deepEqual(v, { x: 0, z: 16, y: 10, normale: 2, cielo: 15, blocco: 3, materia: 1, tinta: 200, segnali: 3 });
+  assert.deepEqual(v, { x: 0, z: 16, y: 10, normale: 2, vento: 1, materia: 9, cielo: 15, blocco: 3, colore: 0x5ca83d });
   assert.throws(() => c.vertice(17, 0, 0, 0, 0, 0, 0), RangeError, 'x oltre il bordo del chunk');
   assert.throws(() => c.vertice(0, 256, 0, 0, 0, 0, 0), RangeError, 'y oltre il byte');
 });
 
 test('il costruttore cresce da sé e non supera il tetto dei quad', () => {
   const c = new CostruttoreNucleo(2);
-  for (let i = 0; i < 100; i++) c.quadDa([0, 1, 0, 2, 15, 0, 1], [0, 1, 1, 2, 15, 0, 1], [1, 1, 1, 2, 15, 0, 1], [1, 1, 0, 2, 15, 0, 1]);
+  for (let i = 0; i < 100; i++) c.quadDa([0, 1, 0, 2, 15, 0, 0xffffff], [0, 1, 1, 2, 15, 0, 0xffffff], [1, 1, 1, 2, 15, 0, 0xffffff], [1, 1, 0, 2, 15, 0, 0xffffff]);
   assert.equal(c.dati().quad, 100);
   assert.ok(c.byte.length >= 100 * 4 * BYTE_VERTICE);
 });

@@ -1348,7 +1348,17 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - ⚠ Un uniform usato in tutti e due gli shader deve avere la STESSA precisione
   (`highp` dichiarato nel fragment), o il link fallisce con «precisions differ».
 - Il banco `nucleo.html` ha il 🩺 del gioco: la porta di ogni fase si legge da
-  lì, sul Mali, non da SwiftShader.
+  lì, sul Mali, non da SwiftShader. **F0 misurata: 89-90 fps fino a 964k
+  triangoli e 256 disegni, JS 0,6 ms** (rampa del 02/09).
+- **Il colore è RGB cotto nel vertice** (tre byte), non un indice di palette:
+  il mesher del nucleo (`nucleo/mesher-nucleo.js`) riusa `paletteBlocco`,
+  `tintaPalette`, `tingiMateria` e `coloreFaccia` del mondo, quindi i colori
+  sono ESATTAMENTE quelli del gioco. La materia (emissione ecc.) sta in 4 bit.
+- ⚠ Il fragment lavora in spazio lineare e RICODIFICA in sRGB alla fine
+  (`pow(1/2.2)`): senza, tutto esce scuro e saturo. ⚠ La mappa delle altezze
+  per l'horizon mapping è in QUOTA DI MONDO (lo scarto del chunk è dentro
+  `uChunk`): con lo scarto anche lì il mondo stava sotto la mappa, tutto in
+  ombra a mezzogiorno.
 
 ## «Desktop» non vuol dire «GPU da desktop»
 

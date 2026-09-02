@@ -119,8 +119,8 @@ costruzione**.
 
 | fase | cosa | porta (sul Mali-G68, ULTRA, notte con lampade) |
 |---|---|---|
-| F0 | il banco vuoto: nucleo WebGL2, 50 chunk finti nel formato nuovo, luce cotta finta | ≥ 90 fps con 300k triangoli, ≤ 60 disegni, JS < 2 ms |
-| F1 | mondo in array tipizzati + mesher greedy + atlante; il gioco di oggi disegnato dal nucleo (senza luce) | la scena dell'open world a ≥ 90 fps di giorno |
+| F0 ✅ | il banco vuoto: nucleo WebGL2, chunk finti nel formato nuovo, luce cotta finta | ≥ 90 fps con 300k triangoli, ≤ 60 disegni, JS < 2 ms — **misurato: 89 fps a 964k triangoli e 256 disegni, JS 0,6 ms** |
+| F1 ⏳ | mondo in array tipizzati + mesher greedy; il gioco di oggi disegnato dal nucleo (senza luce) — **primo passo fatto: `?mondo=48`, l'open world vero con la palette di Leafy** | la scena dell'open world a ≥ 90 fps di giorno |
 | F2 | luce cotta (cielo + lampade) + ciclo del giorno + horizon mapping del sole | la notte costa come il giorno; ombre senza acne né scatti |
 | F3 | erba nel mesh, acqua a una passata, modelli a istanze con impostor | parità visiva col gioco di oggi, verdetto del committente |
 | F4 | fisica a passo fisso, centinaia di corpi; camera AR (WebXR) | 200 corpi attivi a ≥ 90 fps |
@@ -146,6 +146,13 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   margine. Da qui la RAMPA (`?rampa`): cinque gradini di scena da sei secondi
   (fino a 256 chunk senza frustum, 700k+ triangoli), e la tabella viaggia nel
   🩺. Il gradino in cui il vsync cede È il tetto del nucleo su questo telefono.
+- **La rampa dal Mali (02/09, 14:21): 89-90 fps a TUTTI i gradini.** Fino a
+  **256 disegni e 964k triangoli** senza frustum, p50 11,2 ms, p99 11,3 ms,
+  JS 0,6 ms. Il vsync del pannello non ha ceduto: il tetto del nucleo su
+  questo telefono sta OLTRE il milione di triangoli e i 256 disegni. **La porta
+  di F0 è passata con un margine di dieci volte** rispetto alla scena del gioco
+  di oggi (36 disegni, 129k triangoli, 22,8 ms). È la prova che la tesi della
+  rifondazione regge: il costo era il motore, non la scena.
 - ⚠ **Il look del banco NON è il look di Leafy**, e il committente l'ha detto
   subito («spero non sia la grafica definitiva o il sistema di luci»). Giusto:
   il banco misura il formato e il costo. Lo stile resta quello scritto in
@@ -156,6 +163,15 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   banda della lampada — esattamente come oggi lo dà la cascata; cambia da dove
   arriva il numero, non come si dipinge. Il verdetto sul look resta del
   committente, a scatti affiancati col gioco di oggi.
+- **02/09, F1 primo passo pubblicato**: `?mondo=48` sul banco disegna l'OPEN
+  WORLD VERO di Leafy (stesso seme del gioco) col mesher del nucleo
+  (`nucleo/mesher-nucleo.js`): stessi blocchi, stessa palette (stagione,
+  rampa per quota, motivi, tinta delle materie) cotta nel vertice. Il formato
+  è passato al colore RGB (tre byte) con la materia a 4 bit: fedeltà prima
+  di tutto. 49 chunk, 67k blocchi, generazione 57 ms + mesh 174 ms in
+  Chromium software. Ancora fuori: alberi e lampioni (modelli, F3), l'acqua
+  vera (F3), la luce cotta di grotte e lampade (F2), il greedy meshing e gli
+  array tipizzati del mondo (seconda metà di F1).
 - Decisioni prese dal committente («vai con i consigli»): pannello di
   riferimento il Mali a 90 Hz finché non se ne misura un altro; ombre del sole
   direzionali via horizon mapping; Babylon solo attrezzo offline.

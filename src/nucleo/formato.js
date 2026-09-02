@@ -12,12 +12,20 @@
 //
 //   byte 0  x   0..16   posizione nel chunk (16 = il bordo lontano)
 //   byte 1  z   0..16
-//   byte 2  y   0..255  quota assoluta (il mondo è alto meno di 256)
-//   byte 3  normale 0..5  (+X −X +Y −Y +Z −Z), i 5 bit alti liberi
+//   byte 2  y   0..255  quota nel chunk (il chunk porta il suo scarto in Y)
+//   byte 3  normale (3 bit) | vento (1 bit) | materia (4 bit)
 //   byte 4  cielo << 4 | blocco     le due luci, 0..15 l'una
-//   byte 5  materia 0..255          riga della tavolozza (colore + effetti)
-//   byte 6  tinta 0..255            variazione di tono (hash della cella)
-//   byte 7  segnali: bit0 vento (l'erba ondeggia), bit1 cima del filo
+//   byte 5-7  r g b                 IL COLORE COTTO, come nel mesher di oggi
+//
+// ⚠ IL COLORE È RGB, NON UN INDICE, ed è una scelta di fedeltà: la palette di
+// Leafy (stagione, rampa a ping-pong per quota, motivi, tinta delle materie) è
+// già tutta in `world/stagioni.js` + `motivi.js` + `materie.js` e produce un
+// colore per faccia. Cuocerlo tale e quale nel vertice vuol dire che il nucleo
+// disegna ESATTAMENTE i colori del gioco di oggi, senza reinventare niente. Il
+// prezzo sono tre byte invece di uno, e un cambio di stagione che rifà i chunk
+// (come oggi: «i colori sono cotti nella mesh»).
+//   materia 0..15: la riga di `world/materie.js` (emissione, brillio, riflesso)
+//   vento: il vertice ondeggia (la cima di un filo d'erba)
 
 export const BYTE_VERTICE = 8;
 export const LATO_CHUNK = 16;
@@ -30,8 +38,10 @@ export const QUAD_MAX = 16384;
 export const NORMALI = [
   [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
 ];
-export const SEGNALE_VENTO = 1;
-export const SEGNALE_CIMA = 2;
+/** Impacchetta il terzo byte: normale 0..5, vento 0/1, materia 0..15. */
+export function byteNormale(normale, vento = 0, materia = 0) {
+  return (normale & 7) | ((vento & 1) << 3) | ((materia & 15) << 4);
+}
 
 /** Costruisce il vettore di byte di un chunk, quad per quad. Cresce da sé. */
 export class CostruttoreNucleo {
@@ -49,14 +59,15 @@ export class CostruttoreNucleo {
     const b = new Uint8Array(nuovo); b.set(this.byte); this.byte = b;
   }
 
-  /** Un vertice. Tutti i campi interi; chi passa fuori scala lo scopre subito. */
-  vertice(x, y, z, normale, cielo, blocco, materia, tinta = 0, segnali = 0) {
+  /** Un vertice. Tutti i campi interi; chi passa fuori scala lo scopre subito.
+   *  `colore` è un intero 0xRRGGBB, come lo danno `paletteBlocco` e `coloreFaccia`. */
+  vertice(x, y, z, normale, cielo, blocco, colore, vento = 0, materia = 0) {
     if (x < 0 || x > LATO_CHUNK || z < 0 || z > LATO_CHUNK || y < 0 || y > 255) throw new RangeError(`vertice fuori dal chunk: ${x},${y},${z}`);
     this._spazio(1);
     const o = this.n * BYTE_VERTICE, b = this.byte;
-    b[o] = x; b[o + 1] = z; b[o + 2] = y; b[o + 3] = normale & 7;
+    b[o] = x; b[o + 1] = z; b[o + 2] = y; b[o + 3] = byteNormale(normale, vento, materia);
     b[o + 4] = ((cielo & 15) << 4) | (blocco & 15);
-    b[o + 5] = materia & 255; b[o + 6] = tinta & 255; b[o + 7] = segnali & 255;
+    b[o + 5] = (colore >> 16) & 255; b[o + 6] = (colore >> 8) & 255; b[o + 7] = colore & 255;
     this.n++;
   }
 
@@ -76,8 +87,8 @@ export class CostruttoreNucleo {
 /** Legge un vertice dai byte: serve alle prove e agli strumenti, non alla resa. */
 export function leggiVertice(byte, i) {
   const o = i * BYTE_VERTICE;
-  return { x: byte[o], z: byte[o + 1], y: byte[o + 2], normale: byte[o + 3] & 7,
-    cielo: byte[o + 4] >> 4, blocco: byte[o + 4] & 15, materia: byte[o + 5], tinta: byte[o + 6], segnali: byte[o + 7] };
+  return { x: byte[o], z: byte[o + 1], y: byte[o + 2], normale: byte[o + 3] & 7, vento: (byte[o + 3] >> 3) & 1, materia: byte[o + 3] >> 4,
+    cielo: byte[o + 4] >> 4, blocco: byte[o + 4] & 15, colore: (byte[o + 5] << 16) | (byte[o + 6] << 8) | byte[o + 7] };
 }
 
 /**

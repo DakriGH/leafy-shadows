@@ -6,7 +6,11 @@
 // ≤ 60 disegni, JS sotto i 2 ms. Il 🩺 manda i numeri.
 import { creaContesto, nomeScheda } from './nucleo/gl.js';
 import { Resa } from './nucleo/resa.js';
-import { costruisciChunkFinto, altezza, TAVOLOZZA } from './nucleo/terreno-finto.js';
+import { costruisciChunkFinto, altezza } from './nucleo/terreno-finto.js';
+import { costruisciChunkNucleo, mappaAltezze, SCARTO_Y } from './nucleo/mesher-nucleo.js';
+import { Mondo } from './world/world.js';
+import { generaOpenWorld } from './world/worldgen.js';
+import { registraDecorazioni } from './world/decorazioni.js';
 import { Diagnostica } from './ui/diagnostica.js';
 
 const tela = document.getElementById('tela');
@@ -24,11 +28,14 @@ const opz = {
   // scena a gradini di sei secondi e il 🩺 porta la tabella.
   rampa: params.has('rampa'),
   tutto: params.has('tutto'),        // niente frustum: si disegnano TUTTI i chunk
+  // ⚠ FASE F1: `?mondo` disegna l'OPEN WORLD VERO di Leafy (stesso seme del
+  // gioco, 4242) col mesher del nucleo: stessi blocchi, stessa palette. Il
+  // numero è il semilato in blocchi (48 come il gioco; 96 = quattro volte l'area).
+  mondo: params.has('mondo') ? Math.max(16, Math.min(400, +params.get('mondo') || 48)) : 0,
 };
 
 const { gl, dpr, ridimensiona } = creaContesto(tela, { antialias: true, dprMax: opz.dprMax });
 const resa = new Resa(gl);
-resa.impostaTavolozza(TAVOLOZZA);
 resa.ombra = opz.ombra;
 
 // ── il mondo finto ──────────────────────────────────────────────────────────
@@ -49,11 +56,39 @@ function costruisciMondo(raggio, erba) {
   resa.impostaAltezze(alt, -raggio * 16, -raggio * 16, lato, lato);
   tCostruzione = performance.now() - t0;
 }
-costruisciMondo(opz.raggio, opz.erba);
+let mondoVero = null, blocchiVeri = 0, chunkVeri = 0;
+function costruisciMondoVero(semilato, erba) {
+  const t0 = performance.now();
+  for (const kc of [...resa.chunks.keys()]) resa.rimuovi(kc);
+  registraDecorazioni();
+  mondoVero = new Mondo();
+  generaOpenWorld(mondoVero, 4242, semilato);
+  const tGen = performance.now() - t0;
+  const chunks = [];
+  let cxMin = 1e9, czMin = 1e9, cxMax = -1e9, czMax = -1e9;
+  for (const kc of mondoVero.chunks.keys()) {
+    const d = costruisciChunkNucleo(mondoVero, kc, { erba });
+    resa.carica(kc, d); chunks.push(d);
+    cxMin = Math.min(cxMin, d.cx); cxMax = Math.max(cxMax, d.cx); czMin = Math.min(czMin, d.cz); czMax = Math.max(czMax, d.cz);
+  }
+  const alt = mappaAltezze(chunks, cxMin, czMin, cxMax, czMax);
+  resa.impostaAltezze(alt.byte, alt.x0, alt.z0, alt.larghezza, alt.profondita);
+  blocchi = blocchiVeri = mondoVero.contaBlocchi; chunkVeri = chunks.length;
+  tCostruzione = performance.now() - t0;
+  return { tGen, tMesh: tCostruzione - tGen };
+}
+let tempiMondo = null;
+if (opz.mondo) tempiMondo = costruisciMondoVero(opz.mondo, opz.erba);
+else costruisciMondo(opz.raggio, opz.erba);
 resa.tutto = opz.tutto;
 
 // ── la camera: orbita, come nel gioco ───────────────────────────────────────
-const cam = { alpha: -0.8, beta: 1.05, raggio: 46, centro: [0, altezza(0, 0) + 2, 0], fov: 0.9 };
+const quotaCentro = () => {
+  if (!mondoVero) return altezza(0, 0) + 2;
+  for (let y = 120; y > -SCARTO_Y; y--) if (mondoVero.tipo(0, y, 0)) return y + 2;
+  return 8;
+};
+const cam = { alpha: -0.8, beta: 1.05, raggio: 46, centro: [0, quotaCentro(), 0], fov: 0.9 };
 function occhio() {
   const sb = Math.sin(cam.beta), cb = Math.cos(cam.beta);
   return [cam.centro[0] + cam.raggio * sb * Math.cos(cam.alpha), cam.centro[1] + cam.raggio * cb, cam.centro[2] + cam.raggio * sb * Math.sin(cam.alpha)];
@@ -106,7 +141,7 @@ function giro(adesso) {
   jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
   fotogrammi++;
   if (adesso - ultimaStampa > 500) { ultimaStampa = adesso; stampa(); }
-  if (opz.rampa) rampa(adesso);
+  if (opz.rampa && !opz.mondo) rampa(adesso);
   requestAnimationFrame(giro);
 }
 
@@ -139,11 +174,11 @@ function stampa() {
   storiaFps.push(Math.round(fps)); if (storiaFps.length > 120) storiaFps.shift();
   const st = resa.statistiche;
   fpsBox.textContent = `${fps.toFixed(0)} fps\n${p50.toFixed(1)} / ${p99.toFixed(1)} ms\nJS ${q(jsMs, 0.5).toFixed(2)} ms`;
-  stato.textContent = `NUCLEO F0 · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
+  stato.textContent = `NUCLEO ${opz.mondo ? `F1 · open world vero (semilato ${opz.mondo}, ${chunkVeri} chunk, ${blocchiVeri.toLocaleString('it')} blocchi, gen ${tempiMondo.tGen.toFixed(0)} ms + mesh ${tempiMondo.tMesh.toFixed(0)} ms)` : 'F0'} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
     + `disegni ${st.disegni}  triangoli ${st.triangoli.toLocaleString('it')}  chunk ${st.chunkVisti}/${st.chunkTotali}\n`
     + `ombra del sole: ${resa.ombra ? 'horizon mapping' : 'spenta'} · erba ${opz.erba} · costruzione ${tCostruzione.toFixed(0)} ms\n`
     + `${nomeScheda(gl)}\n`
-    + `?raggio=${opz.raggio} ?erba=${opz.erba} ?ombra=${opz.ombra ? 'sì' : 'no'} ?dpr=${opz.dprMax} ?rampa ?tutto  ·  tocca lo schermo per girare`
+    + `?mondo=48 ?raggio=${opz.raggio} ?erba=${opz.erba} ?ombra=${opz.ombra ? 'sì' : 'no'} ?dpr=${opz.dprMax} ?rampa ?tutto  ·  tocca lo schermo per girare`
     + (esitiRampa.length ? '\nRAMPA  fps  p50   p99   dis  triangoli\n' + esitiRampa.map((e) => `r${e.raggio} e${e.erba}${e.tutto ? ' tutto' : ''}  ${String(e.fps).padStart(3)}  ${String(e.p50).padStart(5)}  ${String(e.p99).padStart(5)}  ${String(e.disegni).padStart(3)}  ${e.triangoli.toLocaleString('it')}`).join('\n') : '')
     + (opz.rampa ? `\nrampa: gradino ${gradinoRampa + 1}/${GRADINI_RAMPA.length}…` : '');
 }
@@ -156,7 +191,7 @@ const diagnostica = new Diagnostica(() => ({
   ua: navigator.userAgent, cpu: navigator.hardwareConcurrency || null, memoriaGB: navigator.deviceMemory || null,
   css: [tela.clientWidth, tela.clientHeight], reso: [tela.width, tela.height], dpr: devicePixelRatio,
   livello: 0, quantiLivelli: 1, manuale: true,
-  profilo: { banco: 'nucleo F0', raggio: opz.raggio, erba: opz.erba, ombra: resa.ombra, tutto: !!resa.tutto, dprMax: opz.dprMax, jsMs: +q(jsMs, 0.5).toFixed(2), jsP99: +q(jsMs, 0.99).toFixed(2), rampa: esitiRampa },
+  profilo: { banco: opz.mondo ? 'nucleo F1 mondo vero' : 'nucleo F0', mondo: opz.mondo, raggio: opz.raggio, erba: opz.erba, ombra: resa.ombra, tutto: !!resa.tutto, dprMax: opz.dprMax, jsMs: +q(jsMs, 0.5).toFixed(2), jsP99: +q(jsMs, 0.99).toFixed(2), rampa: esitiRampa },
   ombreLampade: false, antialias: true,
   fps: q(tempi, 0.5) ? 1000 / q(tempi, 0.5) : null, p50: q(tempi, 0.5), p99: q(tempi, 0.99),
   disegni: resa.statistiche.disegni, triangoli: resa.statistiche.triangoli, ombreMs: 0,
