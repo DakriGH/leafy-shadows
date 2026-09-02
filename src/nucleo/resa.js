@@ -77,11 +77,21 @@ uniform highp float uTaglio;     // sotto questa quota non si disegna (la passat
 // ⚠ STESSA PRECISIONE DEL VERTEX: un uniform condiviso fra i due shader deve
 // avere la stessa precisione, o il link fallisce («precisions differ»).
 uniform highp vec3 uSoleVerso;
-uniform sampler2D uAltezze;      // R8: quota della cima / 255, un texel per colonna (filtro lineare)
+uniform sampler2D uAltezze;      // R8: quota della cima / 255, un texel per colonna
 uniform vec4 uAltRett;           // x0, z0, 1/larghezza, 1/profondita
+uniform highp vec4 uBuco;        // il buco di visuale della terza persona: il giocatore (xyz) e il raggio (0 = spento)
+uniform highp vec3 uOcchio;      // da dove guarda la camera
 out vec4 colore;
 void main() {
   if (vPos.y < uTaglio) discard;   // lo specchio non guarda sott'acqua
+  // ⚠ IL BUCO DI VISUALE («occhio di bue»): fra la camera e il giocatore non si
+  // disegna niente entro il raggio, così il gatto si vede sempre e la camera
+  // non deve tirarsi dentro quando c'è un albero in mezzo.
+  if (uBuco.w > 0.0) {
+    vec3 seg = uBuco.xyz - uOcchio; float lung = length(seg); vec3 dir = seg / lung;
+    float t = dot(vPos - uOcchio, dir);
+    if (t > 0.0 && t < lung - 0.35 && length(vPos - uOcchio - dir * t) < uBuco.w) discard;
+  }
   float luce = 1.0;
   if (uOmbra > 0.5) {
     // ⚠ HORIZON MAPPING: si cammina verso il sole sulla mappa delle altezze
@@ -280,7 +290,7 @@ export class Resa {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio']) {
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio']) {
       this.u[n] = gl.getUniformLocation(this.programma, n);
     }
     // ⚠ UN SOLO BUFFER DI INDICI PER TUTTI I CHUNK (formato.js)
@@ -290,7 +300,7 @@ export class Resa {
     // stesso fragment dei solidi (horizon mapping, nebbia), ma con i colori INTERPOLATI: la lamella sfuma dalla base alla punta
     this.programmaErba = compila(gl, VS_ERBA, FS.replace(/flat in /g, 'in '));
     this.ue = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uErbaFinoA']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
     this.programmaAcqua = compila(gl, VS_ACQUA, FS_ACQUA);
     this.ua = {};
     for (const n of ['uVP', 'uChunk', 'uTempo', 'uCam', 'uNebbia', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbiaCol', 'uSpecchio', 'uSchermo']) this.ua[n] = gl.getUniformLocation(this.programmaAcqua, n);
@@ -316,6 +326,7 @@ export class Resa {
     this.finestra = null;
     this._tegolaVuota = new Uint8Array(256);
     this.taglio = -1e9;         // la quota sotto cui la passata in corso non disegna
+    this.buco = [0, 0, 0, 0];   // il buco di visuale della terza persona (xyz del giocatore, raggio; 0 = spento)
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
@@ -552,6 +563,7 @@ precision mediump float; uniform vec3 uColore; out vec4 colore; void main() { co
       gl.uniform1f(ue.uOmbra, this.ombra && this.altezze ? 1 : 0);
       gl.uniform1f(ue.uTaglio, -1e9);
       gl.uniform1f(ue.uErbaFinoA, this.erbaFinoA);
+      gl.uniform4f(ue.uBuco, this.buco[0], this.buco[1], this.buco[2], this.buco[3]); gl.uniform3f(ue.uOcchio, camera.occhio[0], camera.occhio[1], camera.occhio[2]);
       if (this.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(ue.uAltezze, 0); gl.uniform4f(ue.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]); }
       gl.disable(gl.CULL_FACE);
       for (const c of this._visibiliErba) {
@@ -590,6 +602,8 @@ precision mediump float; uniform vec3 uColore; out vec4 colore; void main() { co
     gl.uniform3f(u.uCam, occhio[0], occhio[1], occhio[2]);
     gl.uniform1f(u.uOmbra, this.ombra && this.altezze ? 1 : 0);
     gl.uniform1f(u.uTaglio, this.taglio);
+    const b = specchiato ? [0, 0, 0, 0] : this.buco;   // lo specchio non ha il buco
+    gl.uniform4f(u.uBuco, b[0], b[1], b[2], b[3]); gl.uniform3f(u.uOcchio, occhio[0], occhio[1], occhio[2]);
     if (this.altezze) {
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.altezze);
       gl.uniform1i(u.uAltezze, 0);

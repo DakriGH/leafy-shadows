@@ -72,6 +72,8 @@ flat in vec3 vColOmbra;
 flat in vec3 vColSole;
 in float vNebbia;
 in vec3 vPos;
+uniform highp vec4 uBuco;        // il buco di visuale (vedi resa.js); zero per il giocatore stesso
+uniform highp vec3 uOcchio;
 uniform vec3 uNebbiaCol;
 uniform float uOmbra;
 uniform highp float uTaglio;     // la passata dello specchio non disegna sotto il pelo
@@ -81,6 +83,11 @@ uniform vec4 uAltRett;
 out vec4 colore;
 void main() {
   if (vPos.y < uTaglio) discard;
+  if (uBuco.w > 0.0) {
+    vec3 seg = uBuco.xyz - uOcchio; float lung = length(seg); vec3 dir = seg / lung;
+    float t = dot(vPos - uOcchio, dir);
+    if (t > 0.0 && t < lung - 0.35 && length(vPos - uOcchio - dir * t) < uBuco.w) discard;
+  }
   float luce = 1.0;
   if (uOmbra > 0.5) {
     vec3 dir = -uSoleVerso;
@@ -140,7 +147,7 @@ export class Modelli {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio']) this.u[n] = gl.getUniformLocation(this.programma, n);
     this.tipi = new Map();   // nome → { vao, vbo, ibo, vertici, istanze: Float32Array, n }
     this.statistiche = { disegni: 0, triangoli: 0, istanze: 0 };
   }
@@ -180,6 +187,8 @@ export class Modelli {
     gl.useProgram(this.programma);
     gl.uniformMatrix4fv(u.uVP, false, resa.vpCorrente || resa.vp);
     gl.uniform1f(u.uTaglio, resa.taglio ?? -1e9);
+    const buco = resa.vpCorrente === resa.vpSpecchio ? [0, 0, 0, 0] : (resa.buco || [0, 0, 0, 0]);
+    gl.uniform3f(u.uOcchio, camera.occhio[0], camera.occhio[1], camera.occhio[2]);
     gl.uniform1f(u.uTempo, resa.tempo);
     gl.uniform3f(u.uSoleVerso, s.verso[0], s.verso[1], s.verso[2]);
     gl.uniform3f(u.uSoleCol, s.colore[0], s.colore[1], s.colore[2]);
@@ -192,8 +201,10 @@ export class Modelli {
     gl.uniform1f(u.uOmbra, resa.ombra && resa.altezze ? 1 : 0);
     if (resa.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, resa.altezze); gl.uniform1i(u.uAltezze, 0); gl.uniform4f(u.uAltRett, resa.altRett[0], resa.altRett[1], resa.altRett[2], resa.altRett[3]); }
     let disegni = 0, tri = 0, ist = 0;
-    for (const t of this.tipi.values()) {
+    for (const [nome, t] of this.tipi) {
       if (t.n === 0) continue;
+      // ⚠ IL GIOCATORE NON SI BUCA: il buco serve a vederlo, non a cancellarlo
+      gl.uniform4f(u.uBuco, buco[0], buco[1], buco[2], nome === 'omino' ? 0 : buco[3]);
       gl.bindVertexArray(t.vao);
       if (t.sporco) { gl.bindBuffer(gl.ARRAY_BUFFER, t.ibo); gl.bufferData(gl.ARRAY_BUFFER, t.istanze, gl.DYNAMIC_DRAW); t.sporco = false; }
       gl.drawArraysInstanced(gl.TRIANGLES, 0, t.vertici, t.n);
