@@ -1128,6 +1128,62 @@ quattro livelli manuali (pillola ⚙, tasto K), massimo di default ovunque.
 L'acqua di partenza è `ghibli`. Le prestazioni si guadagnano in architettura
 (passate, istanze, LOD, streaming), mai spegnendo grafica.
 
+## ⚠ R3 DAL CLOUD (02/09/2026): chunk a tre livelli, Worker, materie al pixel, Officina
+
+Quattro pezzi entrati insieme sul ramo `claude/rework-architettura`, tutti
+provati in Node (257 prove) e a schermo. Le trappole già pagate:
+
+- **I chunk hanno tre livelli** (`world/mesher.js`): PIENO entro `raggi.pieno`,
+  PELLE fino a `raggi.resa`, NIENTE oltre. La pelle è per colonna: la cima del
+  blocco più alto e le pareti verso le colonne più basse (`costruisciPelle`),
+  stessi colori e stessa marcatura dell'erba — misurato 15× più leggera del
+  pieno sul terreno mosso, 2,6× su una pianura (lì il pieno è già solo cime).
+  I raggi li dà `fabbrica.raggi()` dal profilo (`dist` e il campo `pieno`,
+  se manca metà distanza). ⚠ Il riesame scatta solo quando chi guarda cambia
+  chunk, con ISTERESI di un chunk: senza, camminando lungo il confine i chunk
+  si rifacevano a ogni passo. ⚠ Senza raggi (prove, zoo) tutto resta pieno.
+  ⚠ La pelle NON sa di grotte e sporgenze: sta oltre `pieno`, dove la nebbia
+  ha già cominciato — è un LOD da orizzonte, dichiarato.
+- **Il mesher costruisce in un Worker** (`world/mesher-worker.js`) STATELESS:
+  ogni lavoro porta la FOTOGRAFIA della zona (`world/mesher-foto.js`, un
+  Uint16Array ±4 in pianta, 33 in giù, 26 in su) più stagione e definizioni
+  dei blocchi che nomina. ⚠ La prima idea — una copia del mondo tenuta in pari
+  dagli eventi — sarebbe divergita al primo ruscello: la simulazione
+  dell'acqua scrive SILENZIOSA. ⚠ La stagione di là si mette con
+  `impostaMescolanza`, non `impostaStagione` (che ritinge il fogliame dalla
+  fabbrica, che nel Worker non c'è). ⚠ `test/mesher-foto.test.mjs` pretende gli
+  stessi triangoli in linea e dal Worker: se si allunga qualcosa che il mesher
+  legge (una cascata più alta, una riva più larga) si allargano i margini LÌ.
+  Il Worker è il quarto ingresso di `pubblica.mjs`: se manca accanto a main.js
+  si torna in linea in silenzio. `costruisciChunkDati` è la funzione pura
+  condivisa; `_applica` è l'unico posto che tocca la fabbrica.
+- **Le materie arrivano al pixel** (`world/materie.js`, `motore/stile.js`): il
+  mesher scrive `aMateria` per vertice (0 = nessuna, n = riga + 1) in OGNI
+  Costruttore — anche pelle, anteprima, schegge e flora a zero — e il vertex
+  shader del mondo pesca la riga in `uMaterie[16]` (emiss, curva, glintR,
+  riflette). ⚠ NEL VERTEX, non nel fragment: GLSL ES 1.00 garantisce l'indice
+  dinamico sugli array di uniform solo lì; la varying è costante sul triangolo.
+  ⚠ Ogni mesh che usa `matMondo` DEVE avere il buffer `aMateria` (anche tutto
+  a zero): senza, l'attributo è spento e si legge di traverso in silenzio.
+  ⚠ `Vertex_Definitions` e `Vertex_After_WorldPosComputed` sono SETTORI come
+  `Fragment_Definitions`: si passa da `aggiungiDefinizioniVertex` /
+  `aggiungiDopoWorldPos` (stile.js), o la risacca cancella le materie.
+  Per pixel: emissione (scavalca ombra e notte), brillio a step verso il sole,
+  cielo dello specchio simulato (la tinta dell'ombra, che È il cielo), curva
+  della banda delle lampade — tutto piatto, tutto binario. Il §13 è completo.
+- **Le uniform delle lampade si scrivono una volta per fotogramma per
+  PROGRAMMA** (stile.js): `onBindObservable` scatta per ogni mesh in ogni
+  passata, e riscriveva tre array da 24 sempre uguali. Il programma si timbra
+  col `frameId`; uno ricompilato è un oggetto nuovo e si riempie da sé. La
+  tavolozza delle materie si scrive quando `materie.versione` sale (l'Officina).
+- **L'Officina** (`src/officina/`, `officina.html`): la cornice scura attorno
+  alla tela e il pannello generato dai REGISTRI (`registri.js`); ogni modifica
+  è un COMANDO annullabile e serializzabile (`comandi.js`). ⚠ Non importa
+  `motore/`: è un ingresso del bundle e una seconda copia di Babylon non deve
+  entrarci — le tabelle dell'acqua le dà `fabbrica.tabelleAcqua()`. main.js non
+  la conosce: l'Officina guarda `LEAFY`, non viceversa. È il seme della
+  modalità creativa (docs del repo pubblicato: ARCHITETTURA.md).
+
 ## «Desktop» non vuol dire «GPU da desktop»
 
 ⚠ **Il Chromebook del committente ha una Intel HD 400 del 2015, che è più debole
