@@ -1411,6 +1411,13 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - ⚠ **Le istanze dei modelli sono OTTO float** (x y z scala | r g b giro):
   `istanze(nome, lista)` accetta anche la forma corta a quattro e la allunga.
   I corpi passano la lunga (`perIstanza = 8`) e la riusano ogni fotogramma.
+- **L'Officina c'è anche qui** (🛠, `?officina`): `partita/registri.js` +
+  `officina/index.js` (NON `officina/apri.js`, che importa il motore vecchio).
+  Un registro nuovo si scrive accanto a quello che governa e si aggiunge alla
+  lista in `partita.js`; si prova in Node con `normalizzaRegistro`.
+- ⚠ **Niente `const` omonimi dentro le funzioni del modulo**: un `const giorno`
+  dentro `sole()` oscurava l'oggetto `giorno` del modulo prima di nascere
+  (TDZ) e la pagina moriva bianca al primo fotogramma.
 
 ## «Desktop» non vuol dire «GPU da desktop»
 
