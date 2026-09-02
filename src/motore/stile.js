@@ -219,10 +219,26 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     aggiungiDopoWorldPos(m, '\n  vMateria = uMaterie[int(aMateria + 0.5)];\n');
     aggiungiDefinizioniFragment(m, '\n  varying vec4 vMateria;\n');
   }
+  // ⚠ UNA VOLTA PER FOTOGRAMMA PER PROGRAMMA, NON A OGNI MESH. Questo osservabile
+  // scatta a ogni `bind` del materiale, cioè per ogni mesh che lo usa in ogni
+  // passata: col mondo a chunk sono centinaia di volte a fotogramma, e ogni
+  // volta ricaricava tre array da ventiquattro più i parametri della griglia —
+  // sempre gli stessi numeri, perché le lampade e la camera non cambiano fra
+  // una mesh e l'altra. Le uniform vivono nel PROGRAMMA, non nella mesh: basta
+  // scriverle la prima volta che quel programma si lega nel fotogramma. Ogni
+  // variante compilata (con/senza istanze, nebbia…) è un programma suo e si
+  // porta il suo timbro; un programma ricompilato è un oggetto nuovo, senza
+  // timbro, e si riempie da sé. Misura attesa sul telefono: migliaia di
+  // chiamate GL in meno a fotogramma, a immagine identica.
+  // ⚠ La tavolozza delle materie non cambia mai: si scrive una volta per programma.
   m.onBindObservable.add(() => {
     const e = m.getEffect();
     if (!e) return;
-    if (materie) e.setArray4('uMaterie', materie);
+    // (`materie.versione` lo alza chi ritocca la tavolozza dal vivo — l'Officina)
+    if (materie && e._leafyMaterie !== (materie.versione || 0)) { e._leafyMaterie = materie.versione || 0; e.setArray4('uMaterie', materie); }
+    const giro = rig.motore.frameId;
+    if (e._leafyGiroLuci === giro) return;
+    e._leafyGiroLuci = giro;
     if (conVoxel) {
       const v = rig.voxel;
       // ⚠ IL FLAG STA NELLA «w», non in un uniform a parte: così lo shader fa un
