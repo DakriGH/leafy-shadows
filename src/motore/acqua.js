@@ -1732,10 +1732,22 @@ export const RICETTE = {
     // incredibilmente opaca e fastidiosa». Restano come VELO (la nota della
     // ricetta dice «un velo di caustiche»), non come disegno.
     regole: { alfa: [0.34, 0.16, 0.88], moto: 0.018, rilievo: 0.16,
-              riflPeso: 0.85, riflTetto: 0.65, riflForza: 0.026,
+              riflPeso: 0.85, riflTetto: 0.65, riflForza: 0.013,
               fondo: 0.10, viraFondo: 78, satura: 0.32, schiuma: 0.80,
               tagli: [0.12, 0.18, 0.52, 0.035], sfumaVia: [60, 130],
-              vera: [0.42, 0.22, 0.06, 0.11], caustiche: 0.18, assorbi: 0.44 },
+              // ⚠ RITARATA SUL VERDETTO «il fondale non si distingue già a 3
+              // blocchi, quando dovrei perderlo a +10». Il fondo moriva per DUE
+              // moltiplicazioni in fila, non una: l'assorbimento di
+              // Beer-Lambert (`exp(-assorbi·spessore)`: con 0,44 a tre blocchi
+              // restava il 27% della luce) e la tintura violacea pesata dal
+              // fondale (`1 - acquaFondale`, che con scala 0,22 valeva già il
+              // 48% a tre blocchi). Due tende tirate sulla stessa finestra.
+              // Adesso i tre numeri lavorano sulla scala DICHIARATA dal
+              // committente — leggibile fino a ~10, violaceo e denso oltre:
+              //   assorbimento 0,16 → a 3 blocchi resta il 62% della luce, a 10 il 20%
+              //   scala del fondale 0,12 → tintura 30% a 3 blocchi, 70% a 10
+              //   corpo 0,075 → la tinta copre il 20% a 3 blocchi, il 53% a 10
+              vera: [0.42, 0.12, 0.06, 0.075], caustiche: 0.05, assorbi: 0.16 },
   },
   // ── le complesse: ogni ricetta qui accende almeno un talento ──────────────
   abisso: {
@@ -2486,10 +2498,31 @@ export function misuraPassate(rig, p) {
     // un'immagine sfocata di una scena che si muove piano; rifarla ogni due o
     // tre giri non si vede, e vale una resa completa della scena in meno ogni
     // volta che si salta. `refreshRate` in Babylon è «ogni quanti fotogrammi».
-    const ogni = Math.max(1, p.ogni | 0);
-    if (sp.refreshRate !== ogni) { sp.refreshRate = ogni; sp.resetRefreshCounter(); }
+    // ⚠ MA SOLO DA FERMI, e questa riga è la cura a un verdetto preciso: «il
+    // riflesso sembra in ritardo rispetto alla telecamera… glitcha quando la
+    // sposto, come se sfarfallasse». Saltare due giri su tre è invisibile su
+    // una scena che non si muove — ed è esattamente quello che il commento qui
+    // sopra dice. Ma mentre la camera GIRA il riflesso è un'immagine vecchia
+    // di due fotogrammi incollata su un pelo che si è già spostato: l'occhio
+    // non vede «un riflesso un po' in ritardo», vede uno strappo. Il ritmo si
+    // decide quindi come il congelamento delle ombre — dal movimento, non da
+    // una costante: fermi si risparmia, in moto si paga per non sfarfallare.
+    rig._specchioOgni = Math.max(1, p.ogni | 0);
+    ritmoSpecchio(rig, rig._cameraMossa !== false);
   }
   misuraSottAcqua(rig, p.prof);
+}
+
+/**
+ * IL RITMO DELLO SPECCHIO: ogni fotogramma se la camera si muove, altrimenti
+ * il passo del profilo. Chiamata da `fabbrica.animaAcqua`, che sa se la camera
+ * si è mossa (lo stesso numero della quiete delle ombre).
+ */
+export function ritmoSpecchio(rig, inMovimento) {
+  const sp = rig._specchioAcqua;
+  if (!sp) return;
+  const voluto = inMovimento ? 1 : Math.max(1, rig._specchioOgni || 1);
+  if (sp.refreshRate !== voluto) { sp.refreshRate = voluto; sp.resetRefreshCounter(); }
 }
 
 /** La passata sott'acqua come frazione dello schermo VERO (scala hardware compresa). */
@@ -3024,6 +3057,31 @@ export class Acqua {
     // sottoterra. La forza vera la sa il ciclo del giorno.
     const sole = this.rig.soleLuce ?? 1;
     this.uBrillio.x = this.R.brillio[0] * sole;
+    // ⚠ E DI NOTTE IL RIFLESSO PESA MENO, per verdetto: «di notte il riflesso e
+    // l'acqua sono super opachi, non si vede nulla, e la schiuma di sopra fa
+    // sembrare l'acqua sporca». Sondato a interruttori (schiuma di riva,
+    // schiuma di contatto, brillio spenti uno alla volta): le bave chiare NON
+    // erano schiuma — erano il RIFLESSO stesso. Di notte lo specchio raccoglie
+    // sabbia e terreno bui e li spalma deformati su tutto il pelo: mescolarne
+    // il 65% trasforma il lago in una lastra grigia. Di giorno quel riflesso è
+    // il piatto della ricetta (cielo, alberi) e resta pieno; col sole giù
+    // scende al 30%, e quello che di notte si DEVE vedere — i lampioni, che
+    // sono additivi — passa lo stesso, anzi risalta perché non annega più nel
+    // grigio. È la stessa grammatica del brillio qui sopra: la forza la decide
+    // il ciclo del giorno, non una costante.
+    if (this.riflesso) {
+      // ⚠ E IL CALO NOTTURNO È LEGGERO (0,78 → 1,0), non un dimezzamento: la
+      // prima stesura scendeva al 30% perché credevo che le bave chiare sul
+      // pelo fossero il riflesso — erano le CAUSTICHE (trovate dopo, a
+      // interruttori: spegnendo schiuma, contatto e riflesso restavano; con
+      // `uAcquaCau` a zero sparivano). Tolta la causa vera, il riflesso
+      // notturno non va punito: uno specchio d'acqua di notte è proprio la
+      // cosa che riflette i lampioni e la sagoma degli alberi contro il cielo,
+      // ed è il verdetto del committente («di notte non riflette bene nulla»).
+      // Resta un filo sotto il giorno perché di notte la scena riflessa è
+      // quasi tutta buia e mescolarla piena spegnerebbe la tinta dell'acqua.
+      this.materiale._newUniformInstances['float-uRiflPeso'] = this.R.riflPeso * (0.78 + 0.22 * sole);
+    }
     this.uLuna.copyFrom(this.rig.lunaVerso);
     // ⚠ E LA LUNA SI SPEGNE DI GIORNO, che è una correzione trovata leggendo i
     // numeri e non guardando: a mezzogiorno `lunaLuce` valeva 0,44 — cioè la

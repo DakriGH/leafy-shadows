@@ -471,6 +471,46 @@ guadagnato qualcosa.
   spostano un numero, e dire il contrario sarebbe la stessa comoda bugia di
   `skipPointerMovePicking`.
 
+## 02/09 — l'acqua che «non rifletteva nulla»: quattro cause, non una
+
+Verdetti del committente in fila: «totalmente opaca», «non riflette proprio
+nulla», «il fondale non si distingue già a 3 blocchi quando dovrei perderlo a
++10», «la schiuma di sopra fa sembrare l'acqua sporca», «il riflesso sembra in
+ritardo, glitcha quando muovo la camera», «di notte non riflette bene nulla».
+Sei sintomi, quattro cause distinte — tutte trovate misurando, nessuna
+indovinata:
+
+1. **Il piano dello specchio non era agganciato nel gioco** (restava al 9,5 del
+   banco mentre il mare sta a 5,94: specchiava una scena spostata di sette
+   blocchi). Ora `world/pelo.js` lo fa SEGUIRE l'acqua più vicina, a scatti da
+   mezzo blocco — grotte e pozze sopraelevate comprese (6 prove in Node,
+   verificato scavando una pozza in collina: il piano salta da 5,94 a 12,94).
+2. **Il fondale moriva per DUE moltiplicazioni in fila**: l'assorbimento
+   (`exp(-0,44·s)` → a 3 blocchi restava il 27% della luce) e la tintura
+   violacea pesata dal fondale (48% a 3 blocchi). Due tende sulla stessa
+   finestra. Riequilibrati sulla scala dichiarata: **assorbimento 0,16 (62%
+   della luce a 3 blocchi, 20% a 10), scala fondale 0,12, corpo 0,075**.
+3. **Le chiazze «sporche» erano le CAUSTICHE, non schiuma.** Sondato a
+   interruttori uno alla volta (schiuma di riva, schiuma di contatto, brillio,
+   riflesso, scie e tocchi): le bave restavano sempre; con `uAcquaCau` a zero
+   sparivano. Da 0,18 a **0,05**: un velo, come dice la nota della ricetta.
+4. **Il riflesso «in ritardo» era il `refreshRate` a 3.** Fermi non si nota (è
+   il risparmio voluto), ma girando la camera l'immagine riflessa è vecchia di
+   due fotogrammi incollata su un pelo già spostato: si legge come strappo.
+   Ora `ritmoSpecchio` lo lega al MOVIMENTO — 1 in moto, il passo del profilo
+   da fermi (verificato: fermo 2, mosso 1).
+
+⚠ **E una mia taratura sbagliata, corretta:** avevo abbassato il riflesso
+notturno al 30% credendo che le bave fossero il riflesso. Trovata la causa
+vera (le caustiche), il calo notturno è tornato leggero (**0,78 → 1,0**): di
+notte lo specchio è proprio la cosa che deve riflettere i lampioni. Verificato
+a schermo — la riva alberata e le pozze di luce si specchiano.
+
+⚠ Nota di metodo che vale oltre l'acqua: **la texture dello specchio si legge**
+(`readPixels`: media 34, max 204, 13% di pixel chiari) — è così che si separa
+«il riflesso non c'è» da «il riflesso c'è ma l'inquadratura non lo mostra». La
+seconda volta era la mia inquadratura.
+
 ## Da raccogliere
 - [ ] Il quadro `?misura` dal **telefono** (posa standard, percentili veri):
       `https://dakrigh.github.io/leafy-shadows/?misura`, aspettare il riquadro

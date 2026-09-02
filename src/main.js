@@ -978,7 +978,15 @@ let _acquaScritta = '', _acquaFinoA = 0;
 // profilo decide da sé quante passate concedere, e chi ha la macchina per lo
 // specchio se lo tiene. La pillola 💧 intanto lo raggiunge in un tocco, e il
 // banco dell'acqua parte da `lago` come prima — lì si guarda, non si gioca.
-const ACQUA_DI_PARTENZA = 'ghibli';
+//
+// ⚠ 02/09: LA CONDIZIONE È CADUTA, QUINDI SI TORNA A `lago`. Il passo 3 è
+// chiuso — rifrazione e profondità sono una passata sola, le liste sono
+// cullate, lo specchio è 256², e i profili governano l'acqua (cinque colonne
+// nuove). Misurato a fine sessione: `lago` a q0 costa 361 disegni e 2,8 ms
+// contro i 547/6,1 di partenza, e a q5 scende a 61/0,6. Il committente l'ha
+// chiesto due volte («mi raccomando metti questa nuova acqua come base»), e
+// adesso è una scelta sostenibile invece che un debito.
+const ACQUA_DI_PARTENZA = 'lago';
 const sceltaAcqua = new SceltaAcqua(
   Object.entries(RICETTE).map(([chiave, r]) => ({ chiave, nome: r.nome, nota: r.nota })),
   (chiave, voce, i) => {

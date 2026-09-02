@@ -16,7 +16,7 @@ import { RawTexture3D } from '@babylonjs/core/Materials/Textures/rawTexture3D.js
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Prato } from './prato.js';
-import { Acqua, governaPassate, misuraPassate, misuraSottAcqua } from './acqua.js';
+import { Acqua, governaPassate, misuraPassate, misuraSottAcqua, ritmoSpecchio } from './acqua.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { Mesh as MeshCostanti } from '@babylonjs/core/Meshes/mesh.js';
 import '@babylonjs/core/Meshes/Builders/capsuleBuilder.js';
@@ -914,6 +914,18 @@ export class Fabbrica {
     }
     const piani = this.scena.frustumPlanes;
     const visibile = !piani || this._mesheAcqua.some((m) => m.isEnabled() && m.isInFrustum(piani));
+    // ⚠ IL RITMO DELLO SPECCHIO SEGUE LA CAMERA: fermi si salta due giri su tre
+    // (il profilo), in movimento si rifà ogni fotogramma — se no il riflesso
+    // resta indietro e «sfarfalla» mentre si gira (verdetto del committente).
+    // La firma è la stessa idea della quiete delle ombre, quantizzata perché
+    // il rumore dell'ultimo decimale non tenga la camera «sempre in moto».
+    const c = this.rig.camera;
+    const q = (v, k) => Math.round(v * k);
+    const firmaCam = `${q(c.alpha, 500)},${q(c.beta, 500)},${q(c.radius, 50)},`
+      + `${q(c.target.x, 50)},${q(c.target.y, 50)},${q(c.target.z, 50)}`;
+    this.rig._cameraMossa = firmaCam !== this._firmaCam;
+    this._firmaCam = firmaCam;
+    ritmoSpecchio(this.rig, this.rig._cameraMossa);
     governaPassate(this.rig, {
       specchio: !!this.acqua.riflesso,
       // ⚠ UNA SOLA CONDIZIONE PER DUE LETTURE: dal 02/09 rifrazione e
