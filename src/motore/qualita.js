@@ -177,64 +177,13 @@ export const LIVELLI = {
   // bottiglia è altrove, e le prime due cose che stanno «altrove» sono i
   // VERTICI e la CPU. Cinquantaduemila lamelle sono l'unica cosa in scena che
   // ne conta a decine di migliaia — e le semina la CPU.
-  mobile: [
-    // ⚠ E L'ACQUA RICEVE LE OMBRE SOLO IN ALTO. Misurato (RTX 4060, 33 Mpx,
-    // notte): l'acqua che riceve costa 1,1 ms su 26 — il 4,2% del fotogramma —
-    // per l'ombra di un albero che cade sull'acqua. Si vede, quindi non si
-    // toglie a chi può permettersela; ma è fra le prime cose da lasciare andare
-    // quando il margine finisce, perché è un dettaglio su una superficie che di
-    // suo è già tutta movimento.
-    // ⚠ E NON È UN FISSO: si accende e si spegne a caldo, quindi sta nella scala
-    // e non in `fissiDiAvvio`.
-    //
-    // ⚠ LE OMBRE OGNI TRE GIRI SU MOBILE, e il numero viene da una misura sul
-    // telefono del committente (Mali-G68): la mappa d'ombra costava 5,22 ms
-    // spalmati su un fotogramma da 25,6 — il venti per cento del tempo. A tre
-    // giri erano 3,5. Ho provato due giri sui primi gradini (l'ombra del
-    // giocatore a tre giri su trenta fotogrammi avanza a scatti): rapporto 🩺
-    // del 02/09 alle 10:53, 30 fps piatti a q0 con 109 disegni. Su questa GPU
-    // il costo è il NUMERO DI DISEGNI, non i pixel, e da quando il sole
-    // quantizzato fine tiene la mappa viva col ciclo del giorno (main.js,
-    // firmaQuiete) ogni giro in più di cascate sono ~25 disegni. Tre giri.
-    // ⚠ E NON È «abbassare la qualità»: la mappa resta 1024 a due cascate, cioè
-    // l'ombra è LA STESSA. Cambia solo ogni quanto la si ridisegna.
-    //
-    // ⚠ E L'ACQUA SUL TELEFONO È PITTURA A OGNI GRADINO (`acquaVera` 0, niente
-    // specchio), dallo stesso rapporto: con `lago` di partenza il profilo
-    // concedeva specchio e passata di rifrazione/profondità, cioè due liste di
-    // disegno intere in più per fotogramma — misurate su una RTX, dove sono
-    // gratis, mai sul Mali, dove sono 30 fps piatti (109 disegni contro i 47
-    // della build da 87 fps del 31/08). La ricetta chiede, il profilo concede:
-    // qui non concede, e `lago` resta `lago` nel colore e nel moto.
-    //
-    // ⚠ IL PRIMO GRADINO È IL TETTO, E DEVE ESSERE GENEROSO. Questo l'ho
-    // sbagliato una volta: avevo abbassato l'erba QUI, sul gradino zero, per
-    // curare un telefono lento — e siccome l'adattatore da q0 può solo
-    // SCENDERE, avevo messo un tetto basso permanente anche sui dispositivi che
-    // reggevano benissimo. Committente: «noto un'enorme diminuzione dell'erba,
-    // è normale?». Sì, ed era troppo.
-    // La forma giusta è: tetto ricco, e la scala trova il livello da sola in
-    // due secondi e mezzo (sotto i 24 fps le basta UNA misura, vedi
-    // `gioco/adatta.js`). Tarare il tetto è indovinare; far scendere la scala è
-    // misurare.
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, ombraOgni: 3, ombraAcqua: true , fxaa: false, particelle: true,
-      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: true,
-      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
-    { scala: 0.85, cascate: 2, mappa:  768, ombraZ: 34, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false,
-      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.40 },
-    { scala: 0.72, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: true,  dist:  70, erba: 0.6, erbaR: 1, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false,
-      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
-    // ⚠ GLI ULTIMI TRE SONO LA CORSIA D'EMERGENZA: brutti, ma GIOCABILI. In
-    // Lantern esistono per la stessa ragione — senza, le GPU più deboli
-    // restavano incollate sotto i trenta senza via d'uscita.
-    { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  60, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false,
-      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
-    { scala: 0.50, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  50, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false,
-      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
-    { scala: 0.42, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  40, erba: 0.0, erbaR: 1, ombraOgni: 4, ombraAcqua: false, fxaa: false, particelle: false,
-      acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
-  ],
+  // ⚠ UNA GRAFICA SOLA, OVUNQUE (mandato del 02/09): «in ogni dispositivo la
+  // grafica deve essere uguale, non diversa: si crea inconsistenza». La tabella
+  // mobile che stava qui (2 cascate a 1024, dist 110, acqua in pittura) è stata
+  // tolta: `mobile` è un ALIAS della tabella desktop, assegnato in fondo al
+  // file. Quello che il telefono non regge non si cura con una tabella sua ma
+  // con la RIFONDAZIONE del motore (docs/RIFONDAZIONE.md): finché non c'è, sul
+  // telefono i fotogrammi saranno quelli che sono, e si misurano col 🩺.
   desktop: [
     // ⚠ TRE CASCATE E NON QUATTRO SUL GRADINO PIÙ ALTO, e non è un risparmio
     // travestito: ogni cascata è un RENDER della scena in una mappa di
@@ -268,6 +217,7 @@ export const LIVELLI = {
       acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.50 },
   ],
 };
+LIVELLI.mobile = LIVELLI.desktop;   // una grafica sola, ovunque (vedi sopra)
 
 /**
  * LE COSE CHE SI DECIDONO ALL'AVVIO E NON SI CAMBIANO PIÙ.
@@ -369,9 +319,12 @@ function spentiDaIndirizzo() {
 }
 
 export function fissiDiAvvio(dispositivo) {
-  // ⚠ UN TELEFONO PARTE DALL'ULTIMO GRADINO: lì la misura c'è già, da Lantern, e
-  // non serve farla scoprire a ogni telefono del mondo un ricaricamento per volta.
-  const g = GRADINI_FATICA[dispositivo.mobile ? GRADINI_FATICA.length - 1 : faticaRicordata()];
+  // ⚠ IL TELEFONO PARTIVA DALL'ULTIMO GRADINO DI FATICA (niente cammino nei
+  // voxel, niente MSAA, acqua povera): dal 02/09 no — una grafica sola, ovunque
+  // (mandato del committente, vedi LIVELLI). Parte come il desktop, da quello
+  // che ricorda di aver retto. Il costo sul Mali è noto (~30% per il cammino
+  // nei voxel, da Lantern) ed è accettato in cambio della coerenza.
+  const g = GRADINI_FATICA[faticaRicordata()];
   const senza = spentiDaIndirizzo();
   const acceso = (nome) => g[nome] && !senza.has(nome) && !senza.has('tutto');
   return {

@@ -937,6 +937,34 @@ sia caricato. Stessa famiglia della trappola degli shader.
   `@babylonjs/core` **esterno** (se no l'ispettore guarda una scena che non è la
   nostra). Il gioco resta zero-build.
 
+## ⚠ UNA GRAFICA SOLA, OVUNQUE (mandato del 02/09/2026) — e la RIFONDAZIONE
+
+Il committente, dopo il secondo rapporto 🩺 dal Mali (44 fps a q0, 36 disegni):
+«da telefono la grafica scende automaticamente e quindi non va a ultra: cosa
+sbagliata per i test. In ogni dispositivo la grafica deve essere uguale, non
+diversa, si crea inconsistenza. Gli fps sono disastrosi: dobbiamo puntare
+all'AR e alla grafica al massimo al massimo degli fps. Serve rifare tutto da
+zero con le tecnologie storiche di ottimizzazione».
+
+Da quel momento, e ribalta tre cose scritte più sotto in questo file:
+- **`LIVELLI.mobile` è un ALIAS di `LIVELLI.desktop`** (`motore/qualita.js`):
+  la tabella mobile non esiste più. `fissiDiAvvio` non parte più dall'ultimo
+  gradino di fatica sul telefono; l'erba ha lo stesso tetto; i nomi dei
+  gradini sono gli stessi. Resta solo `DPR_MAX` (è risoluzione, non grafica).
+- **La scala NON scende da sola**: `scala.adatta.manuale = true` all'avvio
+  (`main.js`), ovunque. `?scala=auto` per vedere cosa sceglierebbe. Il
+  contratto «automatico finché non lo tocchi» resta scritto sotto perché
+  spiega le cure dell'oscillazione, che valgono ancora in `?scala=auto`.
+- **Il telefono che non regge NON si cura con una tabella sua**: si cura con
+  il motore. Il piano è `docs/RIFONDAZIONE.md` — luce cotta nei vertici, un
+  disegno per chunk, erba nel mesh, acqua a una passata, mondo in array
+  tipizzati, fisica a passo fisso, nucleo WebGL2 in casa — con la porta di
+  ogni fase misurata sul Mali col 🩺. Le sezioni «MOBILE» qui sotto restano
+  come STORIA delle misure (sono tutte vere), non come regole in vigore.
+
+⚠ Il prezzo, detto prima e accettato: sul Mali a ULTRA desktop i fotogrammi
+saranno pochi finché la rifondazione non arriva. È il numero vero di partenza.
+
 ## ⚠ MOBILE: perché faceva 6 fps, e cosa lo decide adesso
 
 Il committente, sul suo telefono: **6–7 fps**, mentre sul PC andava meglio di
