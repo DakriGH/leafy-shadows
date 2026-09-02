@@ -1360,7 +1360,16 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   chiamarsi `mesher-nucleo-worker.js` (entry di pubblica.mjs): stesso nome, o
   in rete si torna in linea in silenzio.
 - **La luce è cotta** nel vertice (cielo 4 bit, blocco 4 bit); il sole
-  direzionale è horizon mapping sulla mappa delle altezze, nel fragment.
+  direzionale è una **mappa delle ombre per colonna** (`resa._calcolaOmbre`):
+  la GPU marcia sulla mappa delle altezze (48 passi da mezzo blocco verso il
+  sole) e scrive per ogni colonna la quota sotto cui si è in ombra, in R16F
+  (o R8 a quarti di blocco); si rifà solo quando il sole si sposta di mezzo
+  grado o cambia una tegola (rettangolo sporco ±26). Il fragment fa UNA
+  lettura, mezzo blocco verso il sole, e una soglia netta: cel shading.
+  ⚠ NIENTE PIÙ MARCIA NEL FRAGMENT (8 passi crescenti): saltava colonne e
+  faceva puntini («acne strana») e una penombra sbavata («ombre smussate»).
+  ⚠ L'ombra DEVE VEDERSI: `sole.cielo` a mezzogiorno vale ~0,32 lineare (60 %
+  in sRGB); a 0,64 (80 %) le ombre c'erano ma non si vedevano.
 - ⚠ Un uniform usato in tutti e due gli shader deve avere la STESSA precisione
   (`highp` dichiarato nel fragment), o il link fallisce con «precisions differ».
 - Il banco `nucleo.html` ha il 🩺 del gioco: la porta di ogni fase si legge da
@@ -1413,6 +1422,20 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - ⚠ **Le modifiche passano da `streaming.tocca(x, z)`**: il mondo segna i
   chunk di bordo, ma la luce cotta arriva a SEI celle — un lampione a tre
   celle dal confine illumina il chunk accanto, che il mondo non segna.
+- ⚠ **Si mira con le SCATOLE dei modelli** (`miraCompleta` + `scatoleDaMirare`):
+  lampioni, funghi e attrezzi non sono solidi e il raggio di `mira` li
+  attraversava («i lampioni non si possono spegnere»). La scatola del lampione
+  è alta 3 e larga 0,9 (`world/decorazioni.js`), gli arredi una cella; presa
+  una scatola, `bersaglio.cella` è la SUA. Provato a mano in `prova-gioco.mjs`.
+- ⚠ **Le pillole «col mouse» e «diagnosi» a dito stanno in alto a sinistra**
+  (`html.gui-tocco #diag`): a metà schermo (46 %) su un telefono di traverso
+  coprivano la parte alta del joystick e spingendo «avanti» il dito partiva
+  sulla pillola: «il movimento si blocca in avanti».
+- ⚠ **Il pizzico conta solo le dita sulla tela** (`targetTouches`): con
+  `e.touches.length === 2` il dito sul joystick impediva lo zoom mentre si
+  cammina. Durante il pizzico `sguardo.fermo` blocca la rotazione. Provato
+  con tre dita via CDP (`prova-tocco.mjs`): ⚠ in CDP `touchEnd` elenca le
+  dita che SI STACCANO, non quelle che restano.
 - ⚠ **`inCoda` conta solo i chunk ENTRO la resa**: quelli oltre restano in
   coda apposta (la frontiera genera 32 blocchi più in là della resa) e non
   sono arretrato. Un test che pretende zero coda «totale» sbaglia.

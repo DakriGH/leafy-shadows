@@ -15,11 +15,11 @@ import { Resa } from './nucleo/resa.js';
 import { Modelli, leggiModello, modelloCubo } from './nucleo/modelli.js';
 import { Mondo, CHUNK } from './world/world.js';
 import { generaChunkOpenWorld } from './world/worldgen.js';
-import { registraDecorazioni } from './world/decorazioni.js';
+import { registraDecorazioni, DECORAZIONI } from './world/decorazioni.js';
 import { defDi, tipoBase, registraBlocco, BLOCCHI } from './world/blocks.js';
 import { paletteBlocco } from './world/stagioni.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
-import { mira, PORTATA } from './gioco/mira.js';
+import { miraCompleta, PORTATA } from './gioco/mira.js';
 import { CASSETTA, ATTREZZI } from './gioco/cantiere.js';
 import { Scavo, durataPer } from './gioco/scavo.js';
 import { ascoltaClic, ascoltaPressione } from './gioco/puntatore.js';
@@ -142,14 +142,20 @@ window.addEventListener('blur', () => giu.clear());
 // ⚠ LA ROTELLA È LO ZOOM DELLA TERZA PERSONA (il committente non poteva allontanarsi); la cassetta va coi numeri
 let distanzaTerza = 6;
 window.addEventListener('wheel', (e) => { if (terza) distanzaTerza = Math.max(1.5, Math.min(40, distanzaTerza * (e.deltaY > 0 ? 1.12 : 0.89))); }, { passive: true });
+// ⚠ IL PIZZICO CONTA SOLO LE DITA SULLA TELA (`targetTouches`): il dito sul
+// joystick sta in `e.touches` e con «length === 2» impediva di zoomare mentre
+// si cammina. Con due dita sulla tela lo sguardo si ferma (se no la pinza gira
+// anche la camera) e riparte da dove sono le dita quando se ne stacca una.
 let pizzico = 0;
-tela.addEventListener('touchmove', (e) => {
-  if (e.touches.length !== 2) return;
-  const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-  if (pizzico > 0 && terza) distanzaTerza = Math.max(1.5, Math.min(40, distanzaTerza * pizzico / d));
+const pizzica = (e) => {
+  const t = e.targetTouches;
+  if (t.length < 2) { pizzico = 0; sguardo.fermo = false; return; }
+  sguardo.fermo = true;
+  const d = Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  if (pizzico > 0 && terza && d > 1) distanzaTerza = Math.max(1.5, Math.min(40, distanzaTerza * pizzico / d));
   pizzico = d;
-}, { passive: true });
-tela.addEventListener('touchend', () => { pizzico = 0; }, { passive: true });
+};
+for (const n of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) tela.addEventListener(n, pizzica, { passive: true });
 function impostaVolo(v) { volo = v; document.getElementById('volo').classList.toggle('acceso', volo); if (volo) passeggero.vy = 0; }
 function impostaTerza(v) { terza = v; document.getElementById('terza').classList.toggle('acceso', terza); }
 function cambiaVolo() { impostaVolo(!volo); }
@@ -250,6 +256,26 @@ const puntatore = { x: 0, y: 0, visto: false };
 let miraCentro = false;
 tela.addEventListener('pointermove', (e) => { puntatore.x = e.clientX; puntatore.y = e.clientY; puntatore.visto = true; });
 tela.addEventListener('pointerdown', (e) => { puntatore.x = e.clientX; puntatore.y = e.clientY; puntatore.visto = true; });
+// ⚠ I MODELLI NON SONO SOLIDI (lampioni, funghi, attrezzi: il passo li attraversa),
+// e il raggio della mira li attraversava pure: «i lampioni non si possono
+// spegnere». Si mira con le loro SCATOLE (`miraCompleta`): quella del lampione
+// è alta tre e larga 0,9 (vedi `world/decorazioni.js`), gli arredi una cella.
+const _scatole = [];
+function scatoleDaMirare(occhio) {
+  _scatole.length = 0;
+  const lim = (PORTATA + 3) * (PORTATA + 3);
+  for (const [nome, celle] of registro.tipi) {
+    if (nome === 'omino' || nome === 'cubo') continue;
+    const d = DECORAZIONI[nome] || (nome === 'lampioneSpento' ? DECORAZIONI.lampione : null);
+    const altezza = d ? d.altezza : 1, mezza = d ? d.mezza : 0.5;
+    for (const [x, y, z] of celle.values()) {
+      const dx = x - occhio.x, dz = z - occhio.z;
+      if (dx * dx + dz * dz > lim) continue;
+      _scatole.push({ min: { x: x - mezza, y, z: z - mezza }, max: { x: x + mezza, y: y + altezza, z: z + mezza }, dato: { cella: [Math.floor(x), y, Math.floor(z)] } });
+    }
+  }
+  return _scatole;
+}
 /** Il raggio dalla camera attraverso il punto della tela (o il centro). */
 function raggioDiMira(cam) {
   const f = [cam.centro[0] - cam.occhio[0], cam.centro[1] - cam.occhio[1], cam.centro[2] - cam.occhio[2]];
@@ -346,7 +372,9 @@ function sole(dt) {
   // (vivace, come le concept); il caldo entra solo col sole basso.
   const caldo = Math.min(1, Math.max(0, (alt - 0.24) / 0.4));
   resa.sole.colore = [1.0, 0.78 + 0.22 * caldo, 0.55 + 0.45 * caldo];
-  resa.sole.cielo = [0.10 + 0.54 * luce, 0.12 + 0.56 * luce, 0.24 + 0.50 * luce];   // l'ombra: scura ma non blu
+  // ⚠ L'OMBRA DEL CEL SHADING SI DEVE VEDERE: a mezzogiorno vale circa il 60 % del
+  // sole (in sRGB), appena fredda. Con lo 0,54 di prima era all'80 %: invisibile.
+  resa.sole.cielo = [0.10 + 0.24 * luce, 0.12 + 0.26 * luce, 0.24 + 0.24 * luce];
   resa.nebbia.colore = [0.25 + 0.47 * luce, 0.35 + 0.5 * luce, 0.5 + 0.42 * luce];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }
@@ -370,7 +398,10 @@ function giro(adesso) {
   // la mira, dall'occhio
   const v = sguardo.verso();
   const rm = raggioDiMira(cam);
-  bersaglio = mira(mondo, { x: cam.occhio[0], y: cam.occhio[1], z: cam.occhio[2] }, rm, PORTATA + (terza ? distanzaTerza : 0));
+  const occhio = { x: cam.occhio[0], y: cam.occhio[1], z: cam.occhio[2] };
+  bersaglio = miraCompleta(mondo, occhio, rm, scatoleDaMirare(occhio), PORTATA + (terza ? distanzaTerza : 0));
+  // una scatola presa (lampione, fungo…): la cella mirata è la SUA, non il blocco dietro
+  if (bersaglio && bersaglio.scatola) bersaglio.cella = bersaglio.dato.cella;
   // ⚠ ENTRO LA PORTATA DEL GATTO, non della camera: in terza persona a 40 blocchi non si scava la collina di fronte
   if (bersaglio && Math.hypot(bersaglio.cella[0] + 0.5 - passeggero.x, bersaglio.cella[1] + 0.5 - passeggero.y - 0.5, bersaglio.cella[2] + 0.5 - passeggero.z) > PORTATA + 1.5) bersaglio = null;
   void v;
@@ -478,4 +509,4 @@ const diagnostica = new Diagnostica(() => ({
   worldgenMs: tCostruzione, meshMs: tCostruzione,
 }), () => { resa.disegna(camera(), 0, modelli); modelli.disegna(resa, camera()); resa.disegnaAcqua(); return Promise.resolve(tela.toDataURL('image/webp', 0.6)); });
 
-globalThis.PARTITA = { resa, modelli, mondo, passeggero, sguardo, corpi, streaming, registro, opz, lanciaCubi, statistiche: () => ({ fps: 1000 / (q(tempi, 0.5) || 1), p50: q(tempi, 0.5), p99: q(tempi, 0.99), js: q(jsMs, 0.5), ...resa.statistiche, modelli: { ...modelli.statistiche }, streaming: { ...streaming.statistiche }, corpi: { ...corpi.statistiche }, fotogrammi }), diagnostica };
+globalThis.PARTITA = { resa, modelli, mondo, passeggero, sguardo, corpi, streaming, registro, opz, lanciaCubi, intento, zoom: () => distanzaTerza, mirato: () => bersaglio, statistiche: () => ({ fps: 1000 / (q(tempi, 0.5) || 1), p50: q(tempi, 0.5), p99: q(tempi, 0.99), js: q(jsMs, 0.5), ...resa.statistiche, modelli: { ...modelli.statistiche }, streaming: { ...streaming.statistiche }, corpi: { ...corpi.statistiche }, fotogrammi }), diagnostica };

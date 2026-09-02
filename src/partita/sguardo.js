@@ -12,22 +12,24 @@ export class Sguardo {
   constructor(tela, { alpha = 0, beta = -0.25, sensibilita = 0.0042 } = {}) {
     this.alpha = alpha; this.beta = beta; this.sensibilita = sensibilita;
     this.trascinato = 0;   // pixel trascinati dal pointerdown: chi ascolta i clic guarda qui
-    let attivo = null;
+    this.fermo = false;    // vero durante un pizzico a due dita: il trascinamento non gira lo sguardo
+    this.attivo = null;   // il puntatore che trascina (null = nessuno); pubblico per le prove
     tela.addEventListener('pointerdown', (e) => {
-      if (attivo !== null) return;
-      attivo = e.pointerId; this.trascinato = 0;
+      if (this.attivo !== null) return;
+      this.attivo = e.pointerId; this.trascinato = 0;
       this._x = e.clientX; this._y = e.clientY;
       try { tela.setPointerCapture(e.pointerId); } catch { /* niente */ }
     });
     tela.addEventListener('pointermove', (e) => {
       if (document.pointerLockElement === tela) { this._gira(e.movementX, e.movementY); return; }
-      if (e.pointerId !== attivo) return;
+      if (e.pointerId !== this.attivo) return;
       const dx = e.clientX - this._x, dy = e.clientY - this._y;
       this._x = e.clientX; this._y = e.clientY;
+      if (this.fermo) return;   // si pizzica: si segue il dito senza girare, per non saltare dopo
       this.trascinato += Math.hypot(dx, dy);
       this._gira(dx, dy);
     });
-    const fine = (e) => { if (e.pointerId === attivo) attivo = null; };
+    const fine = (e) => { if (e.pointerId === this.attivo) this.attivo = null; };
     tela.addEventListener('pointerup', fine);
     tela.addEventListener('pointercancel', fine);
     tela.addEventListener('dblclick', () => { if (tela.requestPointerLock) tela.requestPointerLock(); });

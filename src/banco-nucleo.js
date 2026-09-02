@@ -162,7 +162,9 @@ function sole(dt) {
   resa.sole.colore = [1.0, 0.78 + 0.22 * caldo, 0.55 + 0.45 * caldo];
   // ⚠ IL CIELO DI NOTTE È BLU SCURO, ed è lui il colore dell'ombra: senza
   // questa riga la notte era un giorno spento, e le lampade non risaltavano.
-  resa.sole.cielo = [0.10 + 0.54 * giorno, 0.12 + 0.56 * giorno, 0.24 + 0.50 * giorno];   // l'ombra: scura ma non blu
+  // ⚠ L'OMBRA DEL CEL SHADING SI DEVE VEDERE: a mezzogiorno vale circa il 60 % del
+  // sole (in sRGB), appena fredda. Con lo 0,54 di prima era all'80 %: invisibile.
+  resa.sole.cielo = [0.10 + 0.24 * giorno, 0.12 + 0.26 * giorno, 0.24 + 0.24 * giorno];
   resa.nebbia.colore = [0.25 + 0.47 * giorno, 0.35 + 0.5 * giorno, 0.5 + 0.42 * giorno];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }
