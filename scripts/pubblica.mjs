@@ -106,6 +106,13 @@ const etichetta = `${versione}.${impronta}`;
 // l'etichetta della versione — cioè indistinguibile fra una pubblicazione e
 // l'altra, che è esattamente il difetto che l'etichetta cura.
 const targa = `<div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">${quando} · ${versione}</div>`;
+// ⚠ LA PAGINA SI ACCORGE DA SOLA DI ESSERE VECCHIA: GitHub Pages fa tenere
+// l'HTML dieci minuti e un telefono lo tiene anche di più, e l'HTML vecchio
+// punta al bundle vecchio — il committente apriva il link e non vedeva
+// niente di nuovo («non hai ancora sistemato nulla»). Al caricamento si legge
+// `versione.txt` SENZA cache: se è diversa dall'etichetta cotta qui dentro,
+// la pagina si ricarica una volta (il reload rivalida il documento col server).
+const autoaggiorna = `<script>(function(){try{fetch('./versione.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text()}).then(function(v){v=v.trim();if(v&&v!=='${etichetta}'&&sessionStorage.getItem('leafy-ricaricata')!==v){sessionStorage.setItem('leafy-ricaricata',v);location.reload()}}).catch(function(){})}catch(e){}})()</script>`;
 
 function preparaPagina(nomeHtml, modulo) {
   const testo = readFileSync(join(radice, nomeHtml), 'utf8')
@@ -119,7 +126,7 @@ function preparaPagina(nomeHtml, modulo) {
     // ⚠ L'ANCORA È `</body>`, NON il pannello di stato: quello ce l'hanno il
     // gioco e lo zoo, il banco dell'acqua no — e un `replace` che non trova
     // niente non si lamenta, lascia la pagina senza targa e non lo sa nessuno.
-    .replace('</body>', `  ${targa}\n</body>`);
+    .replace('</body>', `  ${targa}\n  ${autoaggiorna}\n</body>`);
   if (!testo.includes('id="versione"')) throw new Error(`${nomeHtml}: la targa della versione non è entrata`);
   if (testo.includes('./src/')) throw new Error(`${nomeHtml}: è rimasto un riferimento al sorgente`);
   writeFileSync(join(www, nomeHtml), testo);
@@ -131,6 +138,7 @@ preparaPagina('water.html', 'banco-acqua');
 preparaPagina('nucleo.html', 'banco-nucleo');
 preparaPagina('partita.html', 'partita');
 writeFileSync(join(www, '.nojekyll'), '');
+writeFileSync(join(www, 'versione.txt'), etichetta);
 cpSync(join(radice, 'modelli'), join(www, 'modelli'), { recursive: true });
 
 // ── 3. il clone di pubblicazione ────────────────────────────────────────────
@@ -141,7 +149,7 @@ if (!existsSync(join(lavoro, '.git'))) {
 } else {
   esegui('git fetch -q origin && git reset -q --hard origin/main', lavoro);
 }
-for (const n of ['index.html', 'zoo.html', 'water.html', 'nucleo.html', 'main.js', 'zoo.js', 'banco-acqua.js', 'mesher-worker.js', 'banco-nucleo.js', 'partita.html', 'partita.js', 'mesher-nucleo-worker.js', '.nojekyll']) {
+for (const n of ['index.html', 'zoo.html', 'water.html', 'nucleo.html', 'main.js', 'zoo.js', 'banco-acqua.js', 'mesher-worker.js', 'banco-nucleo.js', 'partita.html', 'partita.js', 'mesher-nucleo-worker.js', 'versione.txt', '.nojekyll']) {
   cpSync(join(www, n), join(lavoro, n));
 }
 // i modelli: sono dati, non codice, e vanno accanto alla pagina
