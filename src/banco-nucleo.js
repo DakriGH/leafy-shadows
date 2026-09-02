@@ -34,6 +34,7 @@ const opz = {
   // gioco, 4242) col mesher del nucleo: stessi blocchi, stessa palette. Il
   // numero è il semilato in blocchi (48 come il gioco; 96 = quattro volte l'area).
   mondo: params.has('mondo') ? Math.max(16, Math.min(400, +params.get('mondo') || 48)) : 0,
+  ora: params.has('ora') ? Math.max(0, Math.min(1, +params.get('ora'))) : null,   // ferma l'ora del giorno (0,95 = notte)
 };
 
 const { gl, dpr, ridimensiona } = creaContesto(tela, { antialias: true, dprMax: opz.dprMax });
@@ -139,9 +140,9 @@ tela.addEventListener('touchmove', (e) => {
 }, { passive: true });
 
 // ── la giornata: il sole gira da solo, come in gioco (giorno di 5 minuti) ───
-let ora = 0.35;
+let ora = opz.ora ?? 0.35;
 function sole(dt) {
-  ora = (ora + dt / 300) % 1;
+  if (opz.ora === null) ora = (ora + dt / 300) % 1;
   const a = ora * Math.PI * 2 - Math.PI / 2;
   const alt = Math.max(0.24, Math.sin(a));     // il pavimento a 14°, come giorno.js
   const az = a * 0.5;
@@ -149,6 +150,9 @@ function sole(dt) {
   const giorno = Math.max(0, Math.min(1, (Math.sin(a) + 0.1) * 2));
   resa.sole.forza = giorno;
   resa.sole.colore = [1.0, 0.86 + 0.1 * giorno, 0.66 + 0.2 * giorno];
+  // ⚠ IL CIELO DI NOTTE È BLU SCURO, ed è lui il colore dell'ombra: senza
+  // questa riga la notte era un giorno spento, e le lampade non risaltavano.
+  resa.sole.cielo = [0.10 + 0.50 * giorno, 0.12 + 0.56 * giorno, 0.24 + 0.58 * giorno];
   resa.nebbia.colore = [0.25 + 0.47 * giorno, 0.35 + 0.5 * giorno, 0.5 + 0.42 * giorno];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }
@@ -209,7 +213,7 @@ function stampa() {
     + `disegni ${st.disegni}  triangoli ${st.triangoli.toLocaleString('it')}  chunk ${st.chunkVisti}/${st.chunkTotali}\n`
     + `ombra del sole: ${resa.ombra ? 'horizon mapping' : 'spenta'} · erba ${opz.erba} · modelli ${modelli.statistiche.istanze} istanze in ${modelli.statistiche.disegni} disegni · acqua ${resa.statistiche.disegniAcqua} disegni · costruzione ${tCostruzione.toFixed(0)} ms\n`
     + `${nomeScheda(gl)}\n`
-    + `?mondo=48 ?raggio=${opz.raggio} ?erba=${opz.erba} ?ombra=${opz.ombra ? 'sì' : 'no'} ?dpr=${opz.dprMax} ?rampa ?tutto  ·  tocca lo schermo per girare`
+    + `?mondo=48 ?ora=0.95 ?raggio=${opz.raggio} ?erba=${opz.erba} ?ombra=${opz.ombra ? 'sì' : 'no'} ?dpr=${opz.dprMax} ?rampa ?tutto  ·  tocca lo schermo per girare`
     + (esitiRampa.length ? '\nRAMPA  fps  p50   p99   dis  triangoli\n' + esitiRampa.map((e) => `r${e.raggio} e${e.erba}${e.tutto ? ' tutto' : ''}  ${String(e.fps).padStart(3)}  ${String(e.p50).padStart(5)}  ${String(e.p99).padStart(5)}  ${String(e.disegni).padStart(3)}  ${e.triangoli.toLocaleString('it')}`).join('\n') : '')
     + (opz.rampa ? `\nrampa: gradino ${gradinoRampa + 1}/${GRADINI_RAMPA.length}…` : '');
 }

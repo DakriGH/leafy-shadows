@@ -49,10 +49,14 @@ void main() {
   // ⚠ LA FACCIA VEDE IL SOLE O NO: la soglia a 0,12 è la cura dell'acne di Leafy.
   // L'erba (vento) è tinta piatta: vede sempre il sole.
   float faccia = (vento == 1u) ? 1.0 : step(0.12, dot(n, -uSoleVerso));
-  float sole = floor(cielo * faccia * uSoleForza * 3.0 + 0.5) / 3.0;   // tre bande: l'ombra è un gradino
-  float lampada = floor(blocco * blocco * 4.0 + 0.5) / 4.0;           // quattro bande, caduta quadratica
+  // ⚠ IL CIELO COTTO È A GRADINI, come tutto il resto: quattro bande. Vede il
+  // sole solo chi ha il cielo pieno (una grotta non prende il sole diretto, e
+  // l'imbocco sfuma a scalini); l'ombra resta del colore del cielo.
+  float cieloBande = floor(cielo * 4.0 + 0.5) / 4.0;
+  float sole = floor(step(0.99, cielo) * faccia * uSoleForza * 3.0 + 0.5) / 3.0;   // tre bande: l'ombra è un gradino
+  float lampada = floor(blocco * 4.0 + 0.5) / 4.0;                                  // quattro bande, come le lampade di Leafy
   // ⚠ L'OMBRA NON È NERA, È DEL COLORE DEL CIELO: moltiplica, non sottrae
-  vec3 ombra = base * uCieloCol * (0.30 + 0.30 * cielo) + base * vec3(1.0, 0.80, 0.50) * lampada * 0.9;
+  vec3 ombra = base * uCieloCol * (0.12 + 0.48 * cieloBande) + base * vec3(1.0, 0.80, 0.50) * lampada * 0.9;
   vec3 pieno = base * uSoleCol * sole * 0.85;
   if (mat.x > 0.0) { ombra = mix(ombra, base * 1.15, mat.x); pieno *= (1.0 - mat.x); }   // emissiva: scavalca ombra e notte
   vColOmbra = ombra;

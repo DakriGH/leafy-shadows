@@ -6,9 +6,10 @@
 // GPU: un chunk è una chiamata di disegno sola.
 //
 // ⚠ NIENTE MOTORE: gira in Node, ed è lì che si prova.
-// ⚠ FASE F1, DICHIARATA: facce per blocco (niente greedy ancora), luce del cielo
-// piena ovunque (la propagazione è F2). L'erba a ciuffi sta già nel mesh; i
-// modelli vanno a istanze (nucleo/modelli.js).
+// ⚠ FASE F1/F2: facce per blocco (niente greedy ancora); la LUCE È COTTA
+// (`luce-cotta.js`): ogni faccia porta il cielo e la luce di blocco della cella
+// d'aria che ha davanti. L'erba a ciuffi sta già nel mesh; i modelli vanno a
+// istanze (nucleo/modelli.js).
 //
 // ⚠ L'ACQUA È UN MESH A PARTE nello stesso formato (tecnica 4): il pelo e le
 // pareti verso l'aria, disegnati DOPO i solidi con la fusione. Nel vertice:
@@ -25,6 +26,7 @@ import { materiaDi, tingiMateria, indiceMateria } from '../world/materie.js';
 import { FORME_VUOTE } from '../world/forme.js';
 import { CostruttoreNucleo } from './formato.js';
 import { livelloAcqua } from '../world/blocks.js';
+import { cuociLuce } from './luce-cotta.js';
 
 /** Lo scarto in Y: il mondo può scendere sotto zero, il byte no. */
 export const SCARTO_Y = 64;
@@ -54,7 +56,7 @@ function hash(x, y, z) {
  *   `altezze` è la cima solida di ogni colonna del chunk (16×16, Int16, -1 se vuota):
  *   serve alla mappa delle altezze per l'ombra del sole.
  */
-export function costruisciChunkNucleo(mondo, kc, { erba = 2 } = {}) {
+export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {}) {
   const v = kc.indexOf(',');
   const cx = +kc.slice(0, v), cz = +kc.slice(v + 1);
   const ox = cx * CHUNK, oz = cz * CHUNK;
@@ -62,7 +64,12 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2 } = {}) {
   const ca = new CostruttoreNucleo(64);          // l'acqua
   const altezze = new Int16Array(CHUNK * CHUNK).fill(-1);
   let minY = 255, maxY = 0;
-  const q = (x, y, z, n, col, vento = 0, mat = 0) => [x - ox, y + SCARTO_Y, z - oz, n, 15, 0, col, vento, mat];
+  // la fascia verticale del chunk, per cuocere la luce solo dove serve
+  let yLo = Infinity, yHi = -Infinity;
+  mondo.perOgniDelChunk(kc, (x, y) => { if (y < yLo) yLo = y; if (y > yHi) yHi = y; });
+  const lc = (luce && yLo <= yHi) ? cuociLuce(mondo, kc, yLo - 2, yHi + 3) : null;
+  const luceDi = (x, y, z) => (lc ? lc.leggi(x, y, z) : [15, 0]);
+  const q = (x, y, z, n, col, vento = 0, mat = 0, cielo = 15, blocco = 0) => [x - ox, y + SCARTO_Y, z - oz, n, cielo, blocco, col, vento, mat];
   const qa = (x, y, z, n, col, prof, liv) => [x - ox, y + SCARTO_Y, z - oz, n, prof, liv, col, 0, 0];
 
   mondo.perOgniDelChunk(kc, (x, y, z, tipo) => {
@@ -100,7 +107,11 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2 } = {}) {
       else if (n === 4) { a = [X + 1, Y, Z + 1]; b = [X + 1, Y + 1, Z + 1]; cc = [X, Y + 1, Z + 1]; d = [X, Y, Z + 1]; }
       else              { a = [X, Y, Z]; b = [X, Y + 1, Z]; cc = [X + 1, Y + 1, Z]; d = [X + 1, Y, Z]; }
       if (acqua) ca.quadDa(qa(...a, n, col, prof, liv), qa(...b, n, col, prof, liv), qa(...cc, n, col, prof, liv), qa(...d, n, col, prof, liv));
-      else c.quadDa(q(...a, n, col, 0, mat), q(...b, n, col, 0, mat), q(...cc, n, col, 0, mat), q(...d, n, col, 0, mat));
+      else {
+        // ⚠ LA LUCE DELLA FACCIA È QUELLA DELLA CELLA CHE HA DAVANTI (la cella d'aria)
+        const [ci, bl] = luceDi(x + dx, y + dy, z + dz);
+        c.quadDa(q(...a, n, col, 0, mat, ci, bl), q(...b, n, col, 0, mat, ci, bl), q(...cc, n, col, 0, mat, ci, bl), q(...d, n, col, 0, mat, ci, bl));
+      }
       if (ly < minY) minY = ly; if (ly + 1 > maxY) maxY = ly + 1;
     }
 
@@ -109,11 +120,12 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2 } = {}) {
     // appena più scuro, come i fili del prato di oggi.
     if (def.cappello && !mondo.tipo(x, y + 1, z)) {
       const cf = scurisci(pal.cima, 0.92);
+      const [ce, be] = luceDi(x, y + 1, z);
       for (let k = 0; k < erba; k++) {
         if (hash(x, z, k) < 0.3) continue;
         const X = x, Z = z, Y = y + 1, T = y + 2;
-        c.quadDa(q(X, Y, Z, 2, cf), q(X, T, Z, 2, cf, 1), q(X + 1, T, Z + 1, 2, cf, 1), q(X + 1, Y, Z + 1, 2, cf));
-        c.quadDa(q(X + 1, Y, Z, 2, cf), q(X + 1, T, Z, 2, cf, 1), q(X, T, Z + 1, 2, cf, 1), q(X, Y, Z + 1, 2, cf));
+        c.quadDa(q(X, Y, Z, 2, cf, 0, 0, ce, be), q(X, T, Z, 2, cf, 1, 0, ce, be), q(X + 1, T, Z + 1, 2, cf, 1, 0, ce, be), q(X + 1, Y, Z + 1, 2, cf, 0, 0, ce, be));
+        c.quadDa(q(X + 1, Y, Z, 2, cf, 0, 0, ce, be), q(X + 1, T, Z, 2, cf, 1, 0, ce, be), q(X, T, Z + 1, 2, cf, 1, 0, ce, be), q(X, Y, Z + 1, 2, cf, 0, 0, ce, be));
         if (T + SCARTO_Y > maxY) maxY = T + SCARTO_Y;
       }
     }
