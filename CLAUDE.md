@@ -1361,6 +1361,13 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   rilancia lui, e `pubblica.mjs` copia `modelli/` intera. ⚠ La materia sta nel
   byte 15 e si legge con `vertexAttribIPointer`: come BYTE normalizzato si
   perderebbe.
+- **La luce è cotta per chunk** (`nucleo/luce-cotta.js`): cielo e lampade
+  propagati a ondate con un margine di 6 celle oltre il chunk (la luce dei
+  vicini entra dai bordi). ⚠ La testa del lampione sta 2,6 celle sopra il
+  suolo: con caduta 3 a terra arrivavano 6 su 15 e la pozza non si vedeva;
+  caduta 2. ⚠ Il colore del cielo (`sole.cielo`) DEVE seguire il giorno: è
+  lui l'ombra, e di notte è blu scuro — senza, la notte era un giorno spento
+  e le lampade non risaltavano.
 - ⚠ Il fragment lavora in spazio lineare e RICODIFICA in sRGB alla fine
   (`pow(1/2.2)`): senza, tutto esce scuro e saturo. ⚠ La mappa delle altezze
   per l'horizon mapping è in QUOTA DI MONDO (lo scarto del chunk è dentro

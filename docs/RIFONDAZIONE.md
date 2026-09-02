@@ -121,7 +121,7 @@ costruzione**.
 |---|---|---|
 | F0 ✅ | il banco vuoto: nucleo WebGL2, chunk finti nel formato nuovo, luce cotta finta | ≥ 90 fps con 300k triangoli, ≤ 60 disegni, JS < 2 ms — **misurato: 89 fps a 964k triangoli e 256 disegni, JS 0,6 ms** |
 | F1 ⏳ | mondo in array tipizzati + mesher greedy; il gioco di oggi disegnato dal nucleo (senza luce) — **primo passo fatto: `?mondo=48`, l'open world vero con la palette di Leafy** | la scena dell'open world a ≥ 90 fps di giorno |
-| F2 | luce cotta (cielo + lampade) + ciclo del giorno + horizon mapping del sole | la notte costa come il giorno; ombre senza acne né scatti |
+| F2 ⏳ | luce cotta (cielo + lampade) + ciclo del giorno + horizon mapping del sole — **prima stesura fatta: propagazione per chunk, lampade a bande, notte blu** | la notte costa come il giorno; ombre senza acne né scatti |
 | F3 | erba nel mesh, acqua a una passata, modelli a istanze con impostor | parità visiva col gioco di oggi, verdetto del committente |
 | F4 | fisica a passo fisso, centinaia di corpi; camera AR (WebXR) | 200 corpi attivi a ≥ 90 fps |
 
@@ -193,6 +193,14 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   dei solidi, e un chunk senza acqua non arriva neanche al disegno. Niente
   specchio, niente rifrazione, niente depth pass: zero passate. Lo specchio
   vero è la prossima porta di F3, da misurare.
+- **02/09, la luce cotta (F2, prima stesura)**: `nucleo/luce-cotta.js` propaga
+  per chunk (con un margine di 6 celle) il CIELO dall'alto e dai lati (−1 per
+  cella: la grotta è buia, l'imbocco sfuma) e le LAMPADE dalla testa del
+  lampione (15, −2 per cella, fermandosi sui solidi: a terra 9, pozza da ~5
+  celle come il lampione di Leafy). Il mesher scrive nel vertice la luce della
+  cella davanti a ogni faccia; lo shader la usa a GRADINI: vede il sole solo
+  chi ha il cielo pieno, l'ombra è del colore del cielo (che di notte è blu
+  scuro), le lampade fanno quattro bande. Costo a fotogramma: zero. Tre prove.
 - Decisioni prese dal committente («vai con i consigli»): pannello di
   riferimento il Mali a 90 Hz finché non se ne misura un altro; ombre del sole
   direzionali via horizon mapping; Babylon solo attrezzo offline.
