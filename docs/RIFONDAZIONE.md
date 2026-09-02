@@ -266,6 +266,26 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   stesso `officina/index.js` del gioco: pannello, bus dei comandi, campionatore.
   Si carica solo se la si chiede. È il primo pezzo dell'Officina del nucleo;
   l'editor dei modelli/blocchi e il linguaggio a nodi vengono dopo.
+- **02/09, le modifiche sopravvivono** (`partita/salvataggio.js`): si salvano
+  le DIFFERENZE per chunk in localStorage un secondo dopo l'ultima modifica e
+  si rimettono prima che la frontiera generi. `?nuovo` riparte da zero.
+- **02/09, i chunk si costruiscono nei Worker** (`nucleo/lavoro.js`,
+  `nucleo/mesher-nucleo-worker.js`): la fotografia di `world/mesher-foto.js`
+  (margine 6 per la luce cotta) parte verso una squadra di 1-3 operai e il
+  chunk torna al giro dopo con i buffer trasferiti; un chunk cambiato in volo
+  si rimanda (marca). In linea resta solo l'avvio e il ripiego senza Worker.
+- **02/09, IL SUPERCUBO NEL NUCLEO — niente più voxel.** Il committente, con le
+  concept art alla mano: «stai usando voxel, devi usare i beveled cuboid, più
+  grandi della griglia a 16×16 così si crea una connessione perfetta». La
+  geometria di Leafy (corpo a ±9/16, brim dell'erba a 10/16, smussi 8→9, cima a
+  filo cella) è uscita da `world/mesher.js` in `world/supercubo.js` e la usano
+  TUTTI E DUE i mesher: il nucleo la scrive con un adattatore (`Pennello`) che
+  ha la firma del costruttore vecchio. Per farlo il formato del vertice è
+  passato a DODICI byte con le posizioni in SEDICESIMI (9 bit x/z, 16 bit y) e
+  la normale a indice 27 (facce, smussi, angoli). Costo misurato in Node: un
+  chunk del mondo 96 passa da 7,5 a 14,5 ms (nei Worker), quad massimo 2.102
+  su 16.384, triangoli a schermo ×2 (127k nella vista della partita). I fili
+  d'erba sono ciuffi bassi (≤ 0,8 blocchi) come nelle reference. ⏳ 🩺 dal Mali.
 
 ## 4c. Il mandato sullo stile (02/09, ripetuto dal committente)
 

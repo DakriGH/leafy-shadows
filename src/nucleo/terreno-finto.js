@@ -4,7 +4,14 @@
 //
 // ⚠ È DETERMINISTICO: stesso seme, stessi byte. Le prove in Node lo pretendono,
 // e il confronto fra due telefoni ha senso solo se disegnano la stessa cosa.
-import { CostruttoreNucleo, LATO_CHUNK } from './formato.js';
+import { CostruttoreNucleo, LATO_CHUNK, NORMALE_ASSE } from './formato.js';
+
+/** Il banco F0 scrive le normali nell'ordine storico 0..5: qui si traducono nell'indice a 27. */
+class CostruttoreAssi extends CostruttoreNucleo {
+  vertice(x, y, z, normale, cielo, blocco, colore, vento = 0, materia = 0) {
+    super.vertice(x, y, z, NORMALE_ASSE[normale], cielo, blocco, colore, vento, materia);
+  }
+}
 
 // le materie del banco: indice → colore lo dà la tavolozza del renderer
 export const MATERIE = {
@@ -75,7 +82,7 @@ function luceBlocco(x, y, z, lamp) {
  * @returns {{ byte, quad, vertici, triangoli, minY, maxY }}
  */
 export function costruisciChunkFinto(cx, cz, { seme = 7, erba = 2, raggioLampade = 2 } = {}) {
-  const c = new CostruttoreNucleo(1600);
+  const c = new CostruttoreAssi(1600);
   const ox = cx * LATO_CHUNK, oz = cz * LATO_CHUNK;
   let minY = 255, maxY = 0;
   // le lampade dei chunk vicini illuminano anche questo

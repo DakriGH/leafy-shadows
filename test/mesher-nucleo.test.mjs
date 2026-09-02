@@ -7,27 +7,43 @@ import { generaOpenWorld } from '../src/world/worldgen.js';
 import { registraDecorazioni } from '../src/world/decorazioni.js';
 import { paletteBlocco } from '../src/world/stagioni.js';
 import { costruisciChunkNucleo, mappaAltezze, SCARTO_Y } from '../src/nucleo/mesher-nucleo.js';
-import { leggiVertice } from '../src/nucleo/formato.js';
+import { leggiVertice, N_SU, N_GIU, versoNormale } from '../src/nucleo/formato.js';
 
 registraDecorazioni();
 
-test('un blocco solo ha sei facce, coi colori cima/lato/fondo della palette', () => {
+test('un blocco solo è un supercubo: sei facce a ±9/16, dodici smussi, otto angoli, coi colori della palette', () => {
   const m = new Mondo(); m.metti(3, 5, 4, 'terra', true);
   const d = costruisciChunkNucleo(m, '0,0', { erba: 0 });
-  assert.equal(d.quad, 6);
+  assert.equal(d.quad, 26, 'ventisei pezzi (gli angoli sono quad degeneri)');
   const pal = paletteBlocco('terra', 5);
-  const colori = new Set();
-  for (let i = 0; i < d.vertici; i++) colori.add(leggiVertice(d.byte, i).colore);
+  const colori = new Set(), normali = new Set();
+  let xMin = 99, xMax = -99, yMin = 999, yMax = -999;
+  for (let i = 0; i < d.vertici; i++) {
+    const v = leggiVertice(d.byte, i); colori.add(v.colore); normali.add(v.normale);
+    xMin = Math.min(xMin, v.x); xMax = Math.max(xMax, v.x); yMin = Math.min(yMin, v.y); yMax = Math.max(yMax, v.y);
+  }
   assert.ok(colori.has(pal.cima) && colori.has(pal.lato) && colori.has(pal.fondo), 'i tre colori della palette');
-  const v0 = leggiVertice(d.byte, 0);
-  assert.equal(v0.y, 5 + SCARTO_Y, 'la quota porta lo scarto');
+  assert.equal(normali.size, 26, 'tutte le normali del supercubo');
+  assert.equal(xMin, 3 + 0.5 - 9 / 16, 'il corpo sborda a 9/16: più grande della cella'); assert.equal(xMax, 3 + 0.5 + 9 / 16);
+  assert.equal(yMin, 5 + SCARTO_Y + 0.5 - 9 / 16); assert.equal(yMax, 5 + SCARTO_Y + 0.5 + 9 / 16);
   assert.equal(d.y0, -SCARTO_Y);
   assert.equal(d.altezze[3 * 16 + 4], 5);
 });
 
-test('due blocchi adiacenti nascondono le facce in mezzo', () => {
+test('due blocchi adiacenti nascondono i pezzi in mezzo, e il vicino non ha cuciture: le pareti si sovrappongono', () => {
   const m = new Mondo(); m.metti(0, 0, 0, 'terra', true); m.metti(1, 0, 0, 'terra', true);
-  assert.equal(costruisciChunkNucleo(m, '0,0', { erba: 0 }).quad, 10);
+  const d = costruisciChunkNucleo(m, '0,0', { erba: 0 });
+  assert.ok(d.quad < 52 && d.quad > 26, `meno di due supercubi interi: ${d.quad}`);
+  for (let i = 0; i < d.vertici; i++) { const v = leggiVertice(d.byte, i); assert.ok(Math.abs(v.x - 1) > 0.01 || versoNormale(v.normale)[0] === 0, 'nessuna faccia sul piano di contatto x = 1'); }
+});
+
+test('il blocco con il cappello ha il brim a 10/16 e la cima a filo cella', () => {
+  const m = new Mondo(); m.metti(2, 0, 2, 'erba', true);
+  const d = costruisciChunkNucleo(m, '0,0', { erba: 0 });
+  let xMax = -99, yCima = -999;
+  for (let i = 0; i < d.vertici; i++) { const v = leggiVertice(d.byte, i); xMax = Math.max(xMax, v.x); if (v.normale === N_SU) yCima = Math.max(yCima, v.y); }
+  assert.equal(xMax, 2.5 + 10 / 16, 'il brim sborda a 10 px');
+  assert.equal(yCima, 0 + SCARTO_Y + 1, 'la cima è a filo cella: le cime si affiancano al pixel');
 });
 
 test('l\'erba col cappello mette i fili nel mesh dell\'erba, non nei solidi', () => {
@@ -43,11 +59,11 @@ test('l\'erba col cappello mette i fili nel mesh dell\'erba, non nei solidi', ()
 test('l\'acqua va nel suo mesh, con profondità e livello nel vertice', () => {
   const m = new Mondo(); m.metti(0, 0, 0, 'terra', true); m.metti(0, 1, 0, 'acqua', true); m.metti(0, 2, 0, 'acqua', true); m.metti(0, 3, 0, 'acqua~1', true);
   const d = costruisciChunkNucleo(m, '0,0', { erba: 0 });
-  assert.equal(d.quad, 6, 'la terra ha le sue sei facce (l\'acqua non è opaca)');
+  assert.equal(d.quad, 26, 'la terra è un supercubo intero (l\'acqua non è opaca)');
   assert.ok(d.acqua.quad > 0, 'l\'acqua ha un mesh suo');
   // il pelo (normale +Y) esiste solo sulla cella più alta, e porta profondità 2 e livello 1
   let peli = 0;
-  for (let i = 0; i < d.acqua.vertici; i++) { const v = leggiVertice(d.acqua.byte, i); if (v.normale === 2) { peli++; assert.equal(v.cielo, 2); assert.equal(v.blocco, 1); } }
+  for (let i = 0; i < d.acqua.vertici; i++) { const v = leggiVertice(d.acqua.byte, i); if (v.normale === N_SU) { peli++; assert.equal(v.cielo, 2); assert.equal(v.blocco, 1); } }
   assert.equal(peli, 4, 'un pelo solo, quattro vertici');
   assert.equal(d.altezze[0], 0, 'l\'acqua non conta come cima solida');
 });

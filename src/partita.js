@@ -30,6 +30,7 @@ import { Streaming } from './partita/streaming.js';
 import { Sguardo } from './partita/sguardo.js';
 import { Corpi } from './partita/corpi.js';
 import { RegistroModelli } from './partita/registro-modelli.js';
+import { creaLavoro } from './nucleo/lavoro.js';
 import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore } from './partita/registri.js';
 import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
 
@@ -60,7 +61,8 @@ registraDecorazioni();
 const mondo = new Mondo();
 const registro = new RegistroModelli();
 mondo.onEvento = (e) => registro.evento(e);
-const streaming = new Streaming(mondo, resa, (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme), { erba: opz.erba, raggioResa: opz.raggio });
+const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
+const streaming = new Streaming(mondo, resa, (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme), { erba: opz.erba, raggioResa: opz.raggio, lavoro });
 resa.apriFinestraAltezze(0.5, 0.5, 512);
 // ⚠ IL SALVATAGGIO SI RIMETTE PRIMA DI GENERARE: sono le modifiche del
 // giocatore (partita/salvataggio.js), e la frontiera le riapplica a ogni
@@ -286,7 +288,7 @@ function stampa() {
   const st = resa.statistiche, sm = streaming.statistiche;
   document.getElementById('stato').textContent =
     `PARTITA sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
-    + `disegni ${st.disegni + modelli.statistiche.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio} · triangoli ${(st.triangoli + modelli.statistiche.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio).toLocaleString('it')} · chunk ${st.chunkVisti}/${st.chunkTotali} (coda ${sm.inCoda}, ${sm.ultimaMs.toFixed(1)} ms) · corpi ${corpi.statistiche.corpi} (${corpi.statistiche.svegli} svegli)\n`
+    + `disegni ${st.disegni + modelli.statistiche.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio} · triangoli ${(st.triangoli + modelli.statistiche.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio).toLocaleString('it')} · chunk ${st.chunkVisti}/${st.chunkTotali} (coda ${sm.inCoda}${lavoro ? `, in volo ${sm.inVolo} su ${lavoro.operai.length} worker` : ''}, ${sm.ultimaMs.toFixed(1)} ms) · corpi ${corpi.statistiche.corpi} (${corpi.statistiche.svegli} svegli)\n`
     + `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)} · ${volo ? 'volo' : passeggero.aTerra ? 'a terra' : 'in aria'} · modifiche ${contaModifiche(mondo)}${salvate > 0 ? ` (${salvate} ricaricate)` : ''} · in mano: ${bottoni[scelto].textContent}${bersaglio ? ` · miri ${mondo.tipo(...bersaglio.cella)}` : ''}\n`
     + `WASD/joystick cammina · trascina guarda · doppio clic/L cattura il mouse · sinistro tieni = scava · destro/tocco = posa · ⛏ col dito scava · F vola · V terza · C cubi · 1-9 cassetta`;
 }

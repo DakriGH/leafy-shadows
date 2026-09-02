@@ -1340,9 +1340,25 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - **Niente Babylon in `nucleo/`**, mai: parla WebGL2 direttamente. La regola
   «fuori da `src/motore/` non si nomina Babylon» vale anche qui, al contrario:
   dentro `nucleo/` non si nomina neanche `motore/`.
-- **Il formato del vertice sono otto byte** (`nucleo/formato.js`) e gli indici
-  sono condivisi: un chunk = un VAO + un VBO + un `drawElements`. Si prova in
-  Node come `world/`.
+- **Il formato del vertice sono dodici byte in SEDICESIMI** (`nucleo/formato.js`:
+  x/z a 9 bit con un blocco di margine, y a 16 bit dallo scarto del chunk,
+  normale a indice 27, luci a 4 bit, RGB) e gli indici sono condivisi: un chunk
+  = un VAO + un VBO + un `drawElements`. Si prova in Node come `world/`.
+  ⚠ Erano otto byte a blocchi interi, e il nucleo disegnava VOXEL: la geometria
+  di Leafy è il supercubo (±9/16, brim 10/16, smussi 8→9) e a byte interi non
+  si scrive. Il committente l'ha visto a schermo.
+- **La forma del blocco sta in `world/supercubo.js`** e la usano tutti e due i
+  mesher (`world/mesher.js` e `nucleo/mesher-nucleo.js` via `Pennello`, che
+  ha la firma quad/tri/materia del costruttore vecchio). Chi cambia il profilo
+  di un blocco lo cambia lì, una volta, per il gioco e per il nucleo. ⚠ Un
+  triangolo nel nucleo è un quad degenere (a b c c): gli indici sono condivisi.
+- **La normale è un indice a 27** (`indiceNormale(sx, sy, sz)`, `N_SU` = 16):
+  lo shader la ricava con tre divisioni. 13 (lo zero) non si emette mai.
+- **I chunk si costruiscono nei Worker** (`nucleo/lavoro.js`): la fotografia di
+  `world/mesher-foto.js` con margine 6 (la luce cotta) e il chunk torna al giro
+  dopo. ⚠ L'URL del worker è relativo a `nucleo/lavoro.js` e nel bundle deve
+  chiamarsi `mesher-nucleo-worker.js` (entry di pubblica.mjs): stesso nome, o
+  in rete si torna in linea in silenzio.
 - **La luce è cotta** nel vertice (cielo 4 bit, blocco 4 bit); il sole
   direzionale è horizon mapping sulla mappa delle altezze, nel fragment.
 - ⚠ Un uniform usato in tutti e due gli shader deve avere la STESSA precisione

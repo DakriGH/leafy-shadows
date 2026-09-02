@@ -2,25 +2,33 @@
 // finto deterministico e le matrici. Niente GPU qui: si prova quello che si può.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CostruttoreNucleo, leggiVertice, indiciCondivisi, BYTE_VERTICE, QUAD_MAX } from '../src/nucleo/formato.js';
+import { CostruttoreNucleo, leggiVertice, indiciCondivisi, BYTE_VERTICE, QUAD_MAX, N_SU, N_GIU, N_XP, indiceNormale, versoNormale } from '../src/nucleo/formato.js';
 import { costruisciChunkFinto, altezza, lampade } from '../src/nucleo/terreno-finto.js';
 import { prospettiva, guarda, moltiplica, pianiFrustum, scatolaNelFrustum } from '../src/nucleo/matrici.js';
 
-test('un vertice sono otto byte, e si rileggono uguali', () => {
+test('un vertice sono dodici byte in sedicesimi, e si rilegge uguale', () => {
   const c = new CostruttoreNucleo(1);
-  c.quadDa([0, 10, 0, 2, 15, 3, 0x5ca83d], [0, 10, 16, 2, 15, 3, 0x5ca83d, 1, 9], [16, 10, 16, 2, 15, 3, 0x5ca83d, 1], [16, 10, 0, 2, 15, 3, 0x5ca83d]);
+  c.quadDa([0, 10, 0, N_SU, 15, 3, 0x5ca83d], [-0.125, 10.5625, 16.125, N_SU, 15, 3, 0x5ca83d, 1, 9], [16, 10, 16, N_SU, 15, 3, 0x5ca83d, 1], [16, 10, 0, N_SU, 15, 3, 0x5ca83d]);
   const d = c.dati();
   assert.equal(d.byte.length, 4 * BYTE_VERTICE);
   assert.equal(d.quad, 1); assert.equal(d.triangoli, 2);
   const v = leggiVertice(d.byte, 1);
-  assert.deepEqual(v, { x: 0, z: 16, y: 10, normale: 2, vento: 1, materia: 9, cielo: 15, blocco: 3, colore: 0x5ca83d });
-  assert.throws(() => c.vertice(17, 0, 0, 0, 0, 0, 0), RangeError, 'x oltre il bordo del chunk');
-  assert.throws(() => c.vertice(0, 256, 0, 0, 0, 0, 0), RangeError, 'y oltre il byte');
+  assert.deepEqual(v, { x: -0.125, z: 16.125, y: 10.5625, normale: N_SU, vento: 1, materia: 9, cielo: 15, blocco: 3, colore: 0x5ca83d });
+  assert.throws(() => c.vertice(31.5, 0, 0, N_SU, 0, 0, 0), RangeError, 'x oltre i nove bit');
+  assert.throws(() => c.vertice(0, 4096, 0, N_SU, 0, 0, 0), RangeError, 'y oltre i sedici bit');
+  assert.throws(() => c.vertice(0, 0, 0, 13, 0, 0, 0), RangeError, 'la normale zero non esiste');
+});
+
+test('la normale a 27 va e torna: facce, smussi, angoli', () => {
+  assert.equal(N_SU, 16); assert.equal(N_GIU, 10); assert.equal(N_XP, 22);
+  assert.deepEqual(versoNormale(indiceNormale(1, 1, 0)), [1, 1, 0]);
+  assert.deepEqual(versoNormale(indiceNormale(-1, 1, -1)), [-1, 1, -1]);
+  assert.deepEqual(versoNormale(N_GIU), [0, -1, 0]);
 });
 
 test('il costruttore cresce da sé e non supera il tetto dei quad', () => {
   const c = new CostruttoreNucleo(2);
-  for (let i = 0; i < 100; i++) c.quadDa([0, 1, 0, 2, 15, 0, 0xffffff], [0, 1, 1, 2, 15, 0, 0xffffff], [1, 1, 1, 2, 15, 0, 0xffffff], [1, 1, 0, 2, 15, 0, 0xffffff]);
+  for (let i = 0; i < 100; i++) c.quadDa([0, 1, 0, N_SU, 15, 0, 0xffffff], [0, 1, 1, N_SU, 15, 0, 0xffffff], [1, 1, 1, N_SU, 15, 0, 0xffffff], [1, 1, 0, N_SU, 15, 0, 0xffffff]);
   assert.equal(c.dati().quad, 100);
   assert.ok(c.byte.length >= 100 * 4 * BYTE_VERTICE);
 });
