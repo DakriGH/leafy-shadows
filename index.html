@@ -64,13 +64,13 @@
     };
     window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
     window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
-    import('./main.js?v=65d6b99.3d8f1d8f').catch(guasto);
+    import('./main.js?v=3b6da57.3d8f1d8f').catch(guasto);
 
     // ⚠ SI APRE TOCCANDOLO. Il gestore sta sul PANNELLO e non sulla tela: se no
     // il tocco che apre il pannello sarebbe anche quello che ruota la camera.
     const _st = document.getElementById('stato');
     _st.addEventListener('click', () => _st.classList.toggle('aperto'));
 </script>
-  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">02/09, 20:23 · 65d6b99</div>
+  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">02/09, 20:28 · 3b6da57</div>
 </body>
 </html>
