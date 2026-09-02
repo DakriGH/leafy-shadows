@@ -21,7 +21,8 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { Mesh as MeshCostanti } from '@babylonjs/core/Meshes/mesh.js';
 import '@babylonjs/core/Meshes/Builders/capsuleBuilder.js';
 import { CustomMaterial } from '@babylonjs/materials/custom/customMaterial.js';
-import { applicaStilePiatto, aggiungiDefinizioniFragment } from './stile.js';
+import { applicaStilePiatto, aggiungiDefinizioniFragment, aggiungiDefinizioniVertex } from './stile.js';
+import { tavolozzaMaterie } from '../world/materie.js';
 
 // ⚠ ANCHE QUI GLI SHADER A MANO: con gli import profondi il sorgente del
 // materiale standard non arriva da solo, e il primo disegno fallisce con
@@ -95,7 +96,9 @@ export class Fabbrica {
     // dentro lo stacco fra le facce (coloreFaccia sceglie cima/lato/fondo dalla
     // palette): è quello il volume, e un N·L sopra lo sporca. `baseColor.rgb`
     // nel fragment è esattamente quel colore.
-    this.matMondo = applicaStilePiatto(new CustomMaterial('mondo', this.scena), rig, 'baseColor.rgb');
+    // ⚠ E CON LE MATERIE: il mondo è l'unico materiale che legge `aMateria`
+    // (world/materie.js): un float per vertice, una riga di tavolozza per pixel.
+    this.matMondo = applicaStilePiatto(new CustomMaterial('mondo', this.scena), rig, 'baseColor.rgb', { materie: tavolozzaMaterie() });
     this.matMondo.backFaceCulling = true;
 
     // ---- LA RISACCA SUL TERRENO ---------------------------------------------
@@ -122,7 +125,7 @@ export class Fabbrica {
       this.matMondo.AddUniform('uRisaccaRett', 'vec4', this._risaccaRett);
       this.matMondo.AddUniform('uTempoMondo', 'float', 0);
       this.matMondo.AddUniform('uFondaleOnda', 'float', 0);
-      this.matMondo.Vertex_Definitions('\n  varying vec3 vMondoPos;\n');
+      aggiungiDefinizioniVertex(this.matMondo, '\n  varying vec3 vMondoPos;\n');   // ⚠ si AGGIUNGE: lo stile ci ha già messo le materie
       // ⚠ LA «RIFRAZIONE» ALLA MARIO GALAXY (docs/STUDIO-RETRO.md): su Wii non
       // si rifrangeva l'acqua — si faceva ONDEGGIARE IL FONDALE sotto di lei, e
       // la superficie restava ferma. Qui: i vertici del mondo che stanno sotto
@@ -311,6 +314,9 @@ export class Fabbrica {
     // canali, e dichiararli vuoti darebbe un buffer di lunghezza zero contro un
     // attributo dichiarato nello shader — cioè il tipo di guasto muto che in
     // questo progetto è già costato tre giornate.
+    // ⚠ E L'IDENTITÀ DELLA MATERIA, un float per vertice (world/materie.js):
+    // il materiale del mondo la dichiara sempre, quindi si carica sempre.
+    if (dati.mat) mesh.setVerticesData('aMateria', dati.mat, false, 1);
     if (dati.acq) mesh.setVerticesData('aAcqua', dati.acq, false, 3);
     if (dati.riv) mesh.setVerticesData('aRiva', dati.riv, false, 2);
     mesh.setEnabled(true);
@@ -799,6 +805,7 @@ export class Fabbrica {
     VertexData.ComputeNormals(vd.positions, vd.indices, nor);
     vd.normals = nor;
     vd.applyToMesh(m, true);
+    m.setVerticesData('aMateria', new Float32Array(vertici), false, 1);   // materiale del mondo: l'attributo va dichiarato, tutto a zero
     m._pos = new Float32Array(vertici * 3);
     m._col = new Float32Array(vertici * 3);
     m._col4 = new Float32Array(vertici * 4);
@@ -854,6 +861,7 @@ export class Fabbrica {
       VertexData.ComputeNormals(vd.positions, vd.indices, nor);
       vd.normals = nor;
       vd.applyToMesh(m, true);
+      if (dati.mat) m.setVerticesData('aMateria', dati.mat, false, 1);   // il colpetto usa il materiale del mondo
     }
     if (!m.isEnabled()) m.setEnabled(true);
     // ⚠ IL SALTO È IL TREMOLIO DEL BLOCCO CHE STA PER CEDERE, e sta qui e non

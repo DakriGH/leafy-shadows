@@ -40,6 +40,7 @@
  * @property {number} emiss   0…1: quanto il blocco si illumina DA SÉ
  * @property {number} bagna   0…1: quanto reagisce al bagnato (pioggia, riva)
  * @property {number} sotto   0…1: quanta luce lo attraversa (ghiaccio, vetro)
+ * @property {number} riflette 0…1: quanto prende il COLORE DEL CIELO (lo specchio simulato)
  */
 
 /** ⚠ IL RAGGIO DEL GLINT HA UN TETTO DURO, e non è una taratura: la faccia
@@ -52,15 +53,15 @@ export const GLINT_RAGGIO_MAX = 0.5;
 export const MATERIE = {
   // il metallo è scuro e desaturato, con l'orlo acceso sugli smussi e la banda
   // stretta: è così che si legge «duro e lucido» senza uno speculare del sole.
-  metallo:  { tinta: 0.82, satura: 0.55, orlo: 0.18, curva: 1.0,  glintR: 0.34, emiss: 0,   bagna: 0.2, sotto: 0 },
+  metallo:  { tinta: 0.82, satura: 0.55, orlo: 0.18, curva: 1.0,  glintR: 0.34, emiss: 0,   bagna: 0.2, sotto: 0,    riflette: 0.15 },
   // il fango è l'opposto esatto: più scuro, PIÙ saturo, nessun orlo, banda larga
   // e smorzata. È l'albedo del bagnato, e non costa niente per pixel.
-  fango:    { tinta: 0.72, satura: 1.35, orlo: 0,    curva: -1.0, glintR: 0.48, emiss: 0,   bagna: 1.0, sotto: 0 },
-  ghiaccio: { tinta: 1.06, satura: 0.62, orlo: 0.12, curva: 0.6,  glintR: 0.30, emiss: 0,   bagna: 0.4, sotto: 0.30 },
+  fango:    { tinta: 0.72, satura: 1.35, orlo: 0,    curva: -1.0, glintR: 0.48, emiss: 0,   bagna: 1.0, sotto: 0,    riflette: 0 },
+  ghiaccio: { tinta: 1.06, satura: 0.62, orlo: 0.12, curva: 0.6,  glintR: 0.30, emiss: 0,   bagna: 0.4, sotto: 0.30, riflette: 0.25 },
   // l'emissiva NON riceve ombra: è il punto. Un blocco acceso dentro l'ombra di
   // un albero, di notte, resta acceso e piatto.
-  accesa:   { tinta: 1.0,  satura: 1.0,  orlo: 0,    curva: 0,    glintR: 0,    emiss: 1.0, bagna: 0,   sotto: 0 },
-  specchio: { tinta: 0.95, satura: 0.35, orlo: 0.10, curva: 1.0,  glintR: 0.30, emiss: 0,   bagna: 0,   sotto: 0 },
+  accesa:   { tinta: 1.0,  satura: 1.0,  orlo: 0,    curva: 0,    glintR: 0,    emiss: 1.0, bagna: 0,   sotto: 0,    riflette: 0 },
+  specchio: { tinta: 0.95, satura: 0.35, orlo: 0.10, curva: 1.0,  glintR: 0.30, emiss: 0,   bagna: 0,   sotto: 0,    riflette: 0.55 },
 };
 
 /** I nomi validi, per l'Officina e per le prove. */
@@ -109,4 +110,45 @@ export function tingiMateria(colore, materia, schiarisci = 0) {
   const k = materia.tinta * (1 + schiarisci);
   const q = (v) => Math.max(0, Math.min(255, Math.round(v * k * 255)));
   return (q(r) << 16) | (q(g) << 8) | q(b);
+}
+
+// ---- IL LIVELLO PER PIXEL: l'identità della materia viaggia nel VERTICE -----
+//
+// Il livello a costo zero (tinta e saturazione cotte nel colore) copre metà
+// del §13. L'altra metà — un blocco che EMETTE, un metallo che BRILLA verso il
+// sole, uno specchio che prende il cielo, una banda di lampada più stretta —
+// vuole che il pixel sappia CHE materia sta dipingendo. Non si manda una
+// texture né un materiale per blocco: si manda un NUMERO per vertice
+// (`aMateria`, 0 = nessuna materia) e il vertex shader lo usa per pescare la
+// riga giusta in una tavolozza di uniform (emiss, curva, glintR, riflette).
+// Una mesh con dieci materie diverse resta UNA chiamata di disegno: è il
+// «multi-materiale» del programma grafico, e costa un float per vertice.
+//
+// ⚠ L'INDICE È LA POSIZIONE NELLA TABELLA + 1, quindi aggiungere una materia in
+// fondo non sposta le altre; inserirla in mezzo sì, e i chunk già costruiti
+// avrebbero l'indice vecchio finché non si rifanno. Si aggiunge in fondo.
+
+/** Quante righe ha la tavolozza (il ciclo dello shader vuole una costante). */
+export const MATERIE_MAX = 16;
+
+/** L'indice per vertice di una materia (0 = nessuna, 1 = la prima della tabella). */
+export function indiceMateria(nome) {
+  const i = NOMI_MATERIE.indexOf(nome);
+  return i < 0 || i + 1 >= MATERIE_MAX ? 0 : i + 1;
+}
+
+/** La tavolozza come la vuole lo shader: MATERIE_MAX righe di (emiss, curva, glintR, riflette).
+ *  La riga 0 è «nessuna materia»: tutto a zero, cioè il blocco di sempre. */
+export function tavolozzaMaterie() {
+  const t = new Float32Array(MATERIE_MAX * 4);
+  NOMI_MATERIE.forEach((nome, k) => {
+    const i = k + 1;
+    if (i >= MATERIE_MAX) return;
+    const m = MATERIE[nome];
+    t[i * 4] = m.emiss || 0;
+    t[i * 4 + 1] = m.curva || 0;
+    t[i * 4 + 2] = Math.min(GLINT_RAGGIO_MAX, m.glintR || 0);
+    t[i * 4 + 3] = m.riflette || 0;
+  });
+  return t;
 }
