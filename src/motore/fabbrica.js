@@ -98,7 +98,8 @@ export class Fabbrica {
     // nel fragment è esattamente quel colore.
     // ⚠ E CON LE MATERIE: il mondo è l'unico materiale che legge `aMateria`
     // (world/materie.js): un float per vertice, una riga di tavolozza per pixel.
-    this.matMondo = applicaStilePiatto(new CustomMaterial('mondo', this.scena), rig, 'baseColor.rgb', { materie: tavolozzaMaterie() });
+    this.tavolozzaMaterie = tavolozzaMaterie();   // VIVA: l'Officina la ritocca e alza `versione`
+    this.matMondo = applicaStilePiatto(new CustomMaterial('mondo', this.scena), rig, 'baseColor.rgb', { materie: this.tavolozzaMaterie });
     this.matMondo.backFaceCulling = true;
 
     // ---- LA RISACCA SUL TERRENO ---------------------------------------------

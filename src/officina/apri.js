@@ -22,13 +22,15 @@ import { registroQualita } from '../motore/qualita.js';
 import { registroOmbre, registroMotore } from '../motore/motore.js';
 import { registroGiorno } from '../motore/giorno.js';
 import { registroErba } from '../vegetazione/erba.js';
+import { registroMesher } from '../world/mesher.js';
+import { registroMaterie } from '../world/materie.js';
 
 /**
  * @param pezzi  { rig, fabbrica, scala, giorno, erba, particelle, versione }
  *               — gli oggetti VERI del gioco, non nomi da indovinare.
  */
 export function apriLOfficina(pezzi, { apertoSubito = true, editor = true } = {}) {
-  const { rig, fabbrica, scala, giorno, erba, particelle } = pezzi;
+  const { rig, fabbrica, scala, giorno, erba, particelle, mesher, mondo, passeggero } = pezzi;
   const bersagli = { erba, fabbrica, particelle };
   let off = null;
   const misure = [];
@@ -106,6 +108,16 @@ export function apriLOfficina(pezzi, { apertoSubito = true, editor = true } = {}
     registri: [
       registroAcqua(rig, fabbrica),
       registroQualita(rig, scala, bersagli),
+      // ⚠ I DUE DEL MONDO ci sono solo se main li passa (mesher e mondo): lo zoo
+      // e il banco non ce li hanno, e un registro su `undefined` esploderebbe.
+      ...(mesher && mondo ? [registroMesher(mesher, mondo, {
+        // «dettaglio pieno fino a» è la colonna `pieno` del profilo: si scrive
+        // dalla stessa porta delle altre colonne, e ferma lo scalatore come loro
+        leggiPieno: () => (Number.isFinite(rig.profilo.pieno) ? rig.profilo.pieno : Math.round(rig.profilo.dist * 0.5)),
+        applicaPieno: (v) => { scala.adatta.manuale = true; rig.applicaProfilo({ ...rig.profilo, pieno: v }, bersagli); },
+        attorno: () => passeggero || null,
+      })] : []),
+      ...(fabbrica.tavolozzaMaterie ? [registroMaterie(fabbrica.tavolozzaMaterie)] : []),
       registroOmbre(rig),
       registroGiorno(giorno),
       registroErba(erba),

@@ -1176,13 +1176,14 @@ provati in Node (257 prove) e a schermo. Le trappole già pagate:
   passata, e riscriveva tre array da 24 sempre uguali. Il programma si timbra
   col `frameId`; uno ricompilato è un oggetto nuovo e si riempie da sé. La
   tavolozza delle materie si scrive quando `materie.versione` sale (l'Officina).
-- **L'Officina** (`src/officina/`, `officina.html`): la cornice scura attorno
-  alla tela e il pannello generato dai REGISTRI (`registri.js`); ogni modifica
-  è un COMANDO annullabile e serializzabile (`comandi.js`). ⚠ Non importa
-  `motore/`: è un ingresso del bundle e una seconda copia di Babylon non deve
-  entrarci — le tabelle dell'acqua le dà `fabbrica.tabelleAcqua()`. main.js non
-  la conosce: l'Officina guarda `LEAFY`, non viceversa. È il seme della
-  modalità creativa (docs del repo pubblicato: ARCHITETTURA.md).
+- **L'Officina** (`src/officina/`, si apre con `?officina`): la cornice scura
+  attorno alla tela e il pannello generato dai REGISTRI che ogni modulo dichiara
+  accanto al suo codice; ogni modifica è un COMANDO annullabile e serializzabile
+  (`comandi.js`). Dal cloud sono entrati i registri del MONDO (`registroMesher`
+  in world/mesher.js: chunk, pelli, coda, Worker, raggi, e la colonna `pieno`
+  del profilo) e delle MATERIE (`registroMaterie` in world/materie.js: la
+  tavolozza per pixel dal vivo, che alza `versione`). ⚠ `world/` resta senza
+  motore anche nei registri: `pieno` lo scrive chi chiama, con `rig.applicaProfilo`.
 
 ## «Desktop» non vuol dire «GPU da desktop»
 

@@ -152,3 +152,30 @@ export function tavolozzaMaterie() {
   });
   return t;
 }
+
+/**
+ * IL REGISTRO DELLE MATERIE PER L'OFFICINA: la tavolozza per pixel dal vivo.
+ *
+ * ⚠ SCRIVE NELLA TAVOLOZZA VIVA (quella che la fabbrica ha passato allo
+ * shader) e alza `versione`: è così che il programma sa di doverla
+ * ricaricare (stile.js). Tinta e saturazione NON stanno qui: sono cotte nei
+ * vertici dal mesher, e cambiarle vuol dire rifare i chunk.
+ */
+export function registroMaterie(tavolozza) {
+  const campo = (nome, k, etichetta, min, max, passo, nota) => {
+    const i = NOMI_MATERIE.indexOf(nome) + 1;
+    return { chiave: `${nome}.${k}`, nome: `${nome}: ${etichetta}`, tipo: 'numero', min, max, passo, nota,
+      leggi: () => tavolozza[i * 4 + k],
+      scrivi: (v) => { tavolozza[i * 4 + k] = v; tavolozza.versione = (tavolozza.versione || 0) + 1; } };
+  };
+  return {
+    chiave: 'materie', nome: 'Materie',
+    nota: 'La riga della tavolozza che il pixel legge per ogni materia (world/materie.js). Quello che si trova buono qui va scritto nella tabella MATERIE.',
+    campi: NOMI_MATERIE.slice(0, MATERIE_MAX - 1).flatMap((nome) => [
+      campo(nome, 0, 'emissione', 0, 1, 0.05, 'scavalca ombra e notte'),
+      campo(nome, 1, 'curva della banda delle lampade', -1, 1, 0.1, '+1 stretta (metallo) · −1 larga (fango)'),
+      campo(nome, 2, 'brillio verso il sole (raggio)', 0, GLINT_RAGGIO_MAX, 0.02, 'un disco a gradino dove il sole riflesso guarda l\'occhio'),
+      campo(nome, 3, 'cielo (specchio simulato)', 0, 1, 0.05, 'quanto prende la tinta del cielo'),
+    ]),
+  };
+}

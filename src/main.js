@@ -1453,7 +1453,7 @@ globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeg
 if (/[?&]officina/.test(location.search)) {
   import('./officina/apri.js')
     .then((m) => m.apriLOfficina({
-      rig, fabbrica, scala, giorno, erba, particelle: null,
+      rig, fabbrica, scala, giorno, erba, particelle: null, mesher, mondo, passeggero,
       versione: (document.getElementById('versione') || {}).textContent || '',
     }))
     .catch((e) => console.error('officina:', e));

@@ -1561,3 +1561,41 @@ export function geometriaSingola(tipo) {
   else supercubo(b, 0, 0, 0, pal, nessuno);
   return b.dati();
 }
+
+/**
+ * IL REGISTRO DEL MESHER PER L'OFFICINA: chunk, livelli, coda, Worker.
+ *
+ * ⚠ QUI NON SI NOMINA IL MOTORE, e il registro non fa eccezione: la manopola
+ * «dettaglio pieno fino a» è un campo del PROFILO (`pieno`), e a scriverlo
+ * nel profilo ci pensa chi chiama, con `applicaPieno(v)` (in apri.js è
+ * `rig.applicaProfilo`, come per tutte le colonne). Il mesher sa solo leggere
+ * i raggi che la fabbrica gli dà.
+ */
+export function registroMesher(mesher, mondo, { applicaPieno = null, leggiPieno = null, attorno = null } = {}) {
+  const st = () => mesher.statistiche;
+  const campi = [
+    { chiave: 'chunk', nome: 'chunk costruiti / nel mondo', tipo: 'lettura', leggi: () => `${mesher.chunks.size} / ${mondo.chunks.size}` },
+    { chiave: 'pelli', nome: 'di cui pelle', tipo: 'lettura', leggi: () => st().pelli ?? 0 },
+    { chiave: 'coda', nome: 'in coda (di cui in volo nel Worker)', tipo: 'lettura', leggi: () => `${st().inCoda} (${st().inVolo ?? 0})` },
+    { chiave: 'worker', nome: 'Worker del mesher', tipo: 'lettura',
+      leggi: () => (mesher.lavoro ? 'attivo' : mesher.lavoro === null ? 'assente: si costruisce in linea' : 'non ancora usato') },
+    { chiave: 'raggi', nome: 'raggi: pieno / resa', tipo: 'lettura', unita: 'blocchi',
+      leggi: () => (mesher.raggi ? `${mesher.raggi.pieno} / ${mesher.raggi.resa}` : 'tutto pieno (nessun raggio)') },
+    { chiave: 'blocchi', nome: 'blocchi nel mondo', tipo: 'lettura', leggi: () => mondo.contaBlocchi.toLocaleString('it') },
+    { chiave: 'luce', nome: 'griglia dei muri (celle · ms)', tipo: 'lettura',
+      leggi: () => `${(st().occCelle || 0).toLocaleString('it')} · ${(st().occMs || 0).toFixed(1)} ms` },
+    { chiave: 'ultima', nome: 'ultimo giro del mesher', tipo: 'lettura', leggi: () => `${(st().ultimaMs || 0).toFixed(2)} ms` },
+  ];
+  if (applicaPieno && leggiPieno) {
+    campi.splice(4, 0, { chiave: 'pieno', nome: 'dettaglio pieno fino a', tipo: 'numero', min: 16, max: 400, passo: 4, unita: 'blocchi',
+      nota: 'oltre, i chunk sono PELLE (cima + pareti, niente smussi). È la colonna `pieno` del profilo; se il profilo tace, metà distanza',
+      leggi: leggiPieno, scrivi: applicaPieno });
+  }
+  campi.push({ chiave: 'rifai', nome: '🔁 ricostruisci tutto (dal giocatore)', tipo: 'azione',
+    fai: () => mesher.ricostruisciTutto(mondo, attorno ? attorno() : null) });
+  return {
+    chiave: 'mondo', nome: 'Mondo',
+    nota: 'I chunk hanno tre livelli: pieno vicino, pelle lontano, niente oltre la resa. Si costruiscono nel Worker; qui si vede quanti, e a che punto è la coda.',
+    campi,
+  };
+}
