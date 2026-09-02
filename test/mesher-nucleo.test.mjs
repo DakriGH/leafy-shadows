@@ -30,15 +30,14 @@ test('due blocchi adiacenti nascondono le facce in mezzo', () => {
   assert.equal(costruisciChunkNucleo(m, '0,0', { erba: 0 }).quad, 10);
 });
 
-test('l\'erba col cappello mette i ciuffi nel mesh, con la cima che ondeggia', () => {
+test('l\'erba col cappello mette i fili nel mesh dell\'erba, non nei solidi', () => {
   const m = new Mondo(); m.metti(2, 0, 2, 'erba', true);
-  const senza = costruisciChunkNucleo(m, '0,0', { erba: 0 }).quad;
+  const senza = costruisciChunkNucleo(m, '0,0', { erba: 0 });
   const d = costruisciChunkNucleo(m, '0,0', { erba: 3 });
-  assert.ok(d.quad > senza, 'ci sono i ciuffi');
-  let vento = 0;
-  for (let i = 0; i < d.vertici; i++) if (leggiVertice(d.byte, i).vento) vento++;
-  assert.ok(vento > 0 && vento % 2 === 0, 'le cime dei fili ondeggiano, i piedi no');
-  assert.equal(d.maxY, 0 + 2 + SCARTO_Y);
+  assert.equal(d.quad, senza.quad, 'i solidi non cambiano');
+  assert.ok(d.erba.fili > 0, 'ci sono i fili');
+  assert.equal(d.erba.vertici, d.erba.fili * 3, 'tre vertici per filo');
+  assert.ok(d.maxY >= 0 + 2 + SCARTO_Y);
 });
 
 test('l\'acqua va nel suo mesh, con profondità e livello nel vertice', () => {

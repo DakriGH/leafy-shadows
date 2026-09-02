@@ -201,6 +201,17 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   cella davanti a ogni faccia; lo shader la usa a GRADINI: vede il sole solo
   chi ha il cielo pieno, l'ombra è del colore del cielo (che di notte è blu
   scuro), le lampade fanno quattro bande. Costo a fotogramma: zero. Tre prove.
+- **02/09, l'erba a fili nel mesh** (tecnica 3): `nucleo/erba.js` cuoce nel
+  chunk i fili a TRIANGOLO del prato di oggi (forme, larghezze, altezze,
+  colore della cima con la punta più chiara, ondeggio per hash), otto byte
+  per vertice in ottavi di cella, un disegno per chunk, culling col chunk,
+  niente risemina. Con `?erba=8` (la densità ULTRA di oggi) l'open world da
+  48 ha ~70k fili. ⚠ La base dell'erba è in quota di mondo: sommarle lo
+  scarto del chunk mandava i fili 64 celle sotto, nel lago. ⚠ Le «punte» sul
+  fondale del lago sono blocchi veri del worldgen (pilastrini da una cella)
+  che l'acqua torbida di prima nascondeva: non è il nucleo.
+- **Il banco apre il mondo vero di default** (`nucleo.html`); `?finto` e
+  `?rampa` danno le colline di misura di F0.
 - Decisioni prese dal committente («vai con i consigli»): pannello di
   riferimento il Mali a 90 Hz finché non se ne misura un altro; ombre del sole
   direzionali via horizon mapping; Babylon solo attrezzo offline.
