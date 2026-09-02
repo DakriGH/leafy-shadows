@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Leafy-Shadows — zoo</title>
+<title>Leafy-Shadows — Officina (editor)</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd0e8; touch-action: none; }
   #tela { width: 100%; height: 100%; display: block; outline: none; }
@@ -28,21 +28,19 @@
      ⚠ E QUI VA RIACCESO «pointer-events», che sul pannello è spento apposta (se
      no ruberebbe i trascinamenti alla camera). Senza questa riga il gestore del
      tocco non riceve NIENTE, e sembra che il tocco non funzioni. */
-  @media (max-width: 700px) {
-    #stato { font-size: 10px; line-height: 1.35; padding: 4px 6px; max-width: 62vw;
-             max-height: 2.55em; overflow: hidden; pointer-events: auto; cursor: pointer; }
-    /* ⚠ APERTO NON DEVE TAGLIARE NIENTE, ed è la ragione per cui esiste questo
-       blocco. Committente: «da cellulare la GUI è tagliata, quindi molte
-       informazioni vengono nascoste — non utile per mandarti gli screenshot dei
-       dati». Ed è vero: il pannello aveva «white-space: pre» e una larghezza
-       del 62%, quindi le righe lunghe (il nome della scheda video, i comandi)
-       finivano oltre il bordo e sparivano. Quel pannello esiste PER essere
-       fotografato e mandato: se taglia, non serve a niente.
-       Aperto prende quasi tutto lo schermo e MANDA A CAPO invece di troncare. */
-    #stato.aperto { max-height: 76vh; max-width: 94vw; overflow: auto;
-                    white-space: pre-wrap; word-break: break-word; }
-    #fps { font-size: 11px; padding: 3px 6px; }
-  }
+  /* ⚠ NON PIÙ LA LARGHEZZA MA LA MODALITÀ (vedi src/ui/modo.js): un Chromebook
+     ha lo schermo largo e il touchscreen, e con la media query si prendeva
+     sempre il vestito da mouse anche tenendolo piegato a tablet. */
+  .gui-tocco #stato { font-size: 10px; line-height: 1.35; padding: 4px 6px; max-width: 62vw;
+           max-height: 2.55em; overflow: hidden; pointer-events: auto; cursor: pointer; }
+  /* ⚠ APERTO NON DEVE TAGLIARE NIENTE, ed è la ragione per cui esiste questa
+     riga. Committente: «da cellulare la GUI è tagliata, quindi molte
+     informazioni vengono nascoste — non utile per mandarti gli screenshot dei
+     dati». Quel pannello esiste PER essere fotografato e mandato: se taglia, non
+     serve a niente. Aperto prende quasi tutto lo schermo e MANDA A CAPO. */
+  .gui-tocco #stato.aperto { max-height: 76vh; max-width: 94vw; overflow: auto;
+                  white-space: pre-wrap; word-break: break-word; }
+  .gui-tocco #fps { font-size: 11px; padding: 3px 6px; }
   #guasto {
     position: fixed; inset: 12px; z-index: 100; display: none;
     font: 13px/1.55 ui-monospace, monospace; color: #fff; background: #8b1d1d;
@@ -66,13 +64,13 @@
     };
     window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
     window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
-    import('./zoo.js?v=0072e29.b9d3d801').catch(guasto);
+    import('./main.js?v=49394de.d7eba82c').then(() => import('./officina/leafy.js')).then((m) => m.officinaLeafy({ editor: !/[?&]flottante\b/.test(location.search) })).catch(guasto);
 
     // ⚠ SI APRE TOCCANDOLO. Il gestore sta sul PANNELLO e non sulla tela: se no
     // il tocco che apre il pannello sarebbe anche quello che ruota la camera.
     const _st = document.getElementById('stato');
     _st.addEventListener('click', () => _st.classList.toggle('aperto'));
 </script>
-  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">02/09, 10:31 · 0072e29</div>
+  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">31/08, 02:20 · 49394de</div>
 </body>
 </html>
