@@ -61,7 +61,10 @@ export class Streaming {
     this.frontiera.assicura(x, z, { resa: this.raggioResa });
     for (const kc of m.sporchi) this.coda.add(kc); m.sporchi.clear();
     for (const kc of m.sporchiAcqua) this.coda.add(kc); m.sporchiAcqua.clear();
-    for (const kc of m.generati) if (!r.chunks.has(kc)) this.coda.add(kc);
+    // ⚠ NON si rimette in coda chi è IN VOLO: rimesso, il suo risultato tornava
+    // «stantio» (la coda lo aveva) e si buttava, per sempre — camminando, il
+    // mondo non cresceva più. Visto nel bundle, 60 blocchi a est dello spawn.
+    for (const kc of m.generati) if (!r.chunks.has(kc) && !(this.lavoro && this.lavoro.inVolo.has(kc))) this.coda.add(kc);
     for (const kc of [...r.chunks.keys()]) if (!m.generati.has(kc)) { r.rimuovi(kc); this.coda.delete(kc); this.statistiche.scaricati++; }
     if (this.coda.size) {
       const ordine = this._ordine; ordine.length = 0;

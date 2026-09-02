@@ -73,3 +73,19 @@ test('con una squadra di lavoro i chunk partono in volo e tornano al giro dopo; 
   assert.equal(s.statistiche.inCoda, 0);
   assert.equal(lavoro.inVolo.size, 0);
 });
+
+test('camminando con la squadra di lavoro il mondo cresce: un chunk in volo non si rimette in coda', async () => {
+  const { costruisciChunkNucleo } = await import('../src/nucleo/mesher-nucleo.js');
+  const { fotografa, MondoFoto } = await import('../src/world/mesher-foto.js');
+  const lavoro = { vivo: true, inVolo: new Map(), pronti: [], prossimi: [], get liberi() { return 2 - this.inVolo.size; },
+    manda(m, kc, erba, marca) { if (this.inVolo.size >= 2) return false; const f = fotografa(m, kc, 0, false, null, 6); if (!f) return null; this.inVolo.set(kc, marca); this.prossimi.push({ kc, dati: costruisciChunkNucleo(new MondoFoto(f), kc, { erba }), marca }); return true; },
+    raccogli() { const r = this.pronti; this.pronti = this.prossimi; this.prossimi = []; for (const x of r) this.inVolo.delete(x.kc); return r; } };
+  const mondo = new Mondo(), resa = new ResaFinta();
+  const s = new Streaming(mondo, resa, (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, 4242), { erba: 0, raggioResa: 32, lavoro });
+  s.avvio(0.5, 0.5);
+  const n0 = s.statistiche.costruiti;
+  for (let i = 0; i < 60; i++) s.aggiorna(48.5, 0.5);   // tre chunk più a est: nuovi chunk da costruire
+  assert.ok(s.statistiche.costruiti > n0 + 5, `il mondo è cresciuto: ${s.statistiche.costruiti - n0} chunk nuovi`);
+  assert.ok(resa.chunks.has('3,0'));
+  assert.equal(s.statistiche.inCoda, 0);
+});
