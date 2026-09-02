@@ -326,7 +326,7 @@ export class Resa {
     this.finestra = null;
     this._tegolaVuota = new Uint8Array(256);
     this.taglio = -1e9;         // la quota sotto cui la passata in corso non disegna
-    this.buco = [0, 0, 0, 0];   // il buco di visuale della terza persona (xyz del giocatore, raggio; 0 = spento)
+    this.buco = [0, 0, 0, 0];   // il buco di visuale (xyz, raggio; 0 = spento: di fabbrica il gatto si vede in SAGOMA attraverso i blocchi, vedi modelli.js)
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
@@ -473,6 +473,35 @@ precision mediump float; uniform vec3 uColore; out vec4 colore; void main() { co
     gl.drawArrays(gl.LINES, 0, 24);
     gl.uniform4f(u.uCella, x, y, z, 0.004); gl.uniform3f(u.uColore, 1.0, 1.0 - 0.45 * progresso, 1.0 - 0.8 * progresso);
     gl.drawArrays(gl.LINES, 0, 24);
+    gl.bindVertexArray(null);
+  }
+
+  /**
+   * UNA CELLA PIENA, TRASLUCIDA: il blocco che si sta per rompere (giallo, poi
+   * arancio con lo scavo) o il fantasma di dove si posa (bianco-azzurro). Con la
+   * fusione, la profondità letta e non scritta; si vede anche dietro l'erba.
+   */
+  scatola(x, y, z, r, g, b, alfa = 0.3, gonfia = 0.02) {
+    const gl = this.gl;
+    if (!this.programmaPieno) {
+      this.programmaPieno = compila(gl, `#version 300 es
+uniform mat4 uVP; uniform vec4 uCella;
+const vec3 V[8] = vec3[8](vec3(0,0,0), vec3(1,0,0), vec3(1,0,1), vec3(0,0,1), vec3(0,1,0), vec3(1,1,0), vec3(1,1,1), vec3(0,1,1));
+const int I[36] = int[36](0,2,1, 0,3,2, 4,5,6, 4,6,7, 0,1,5, 0,5,4, 1,2,6, 1,6,5, 2,3,7, 2,7,6, 3,0,4, 3,4,7);
+void main() { vec3 v = V[I[gl_VertexID]]; v = v * (1.0 + 2.0 * uCella.w) - uCella.w; gl_Position = uVP * vec4(uCella.xyz + v, 1.0); }`,
+      `#version 300 es
+precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { colore = uColore; }`);
+      this.uPieno = { uVP: gl.getUniformLocation(this.programmaPieno, 'uVP'), uCella: gl.getUniformLocation(this.programmaPieno, 'uCella'), uColore: gl.getUniformLocation(this.programmaPieno, 'uColore') };
+      this.vaoPieno = gl.createVertexArray();
+    }
+    const u = this.uPieno;
+    gl.useProgram(this.programmaPieno);
+    gl.uniformMatrix4fv(u.uVP, false, this.vp);
+    gl.uniform4f(u.uCella, x, y, z, gonfia); gl.uniform4f(u.uColore, r * alfa, g * alfa, b * alfa, alfa);
+    gl.bindVertexArray(this.vaoPieno);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); gl.disable(gl.CULL_FACE);
+    gl.drawArrays(gl.TRIANGLES, 0, 36);
+    gl.enable(gl.CULL_FACE); gl.depthMask(true); gl.disable(gl.BLEND);
     gl.bindVertexArray(null);
   }
 

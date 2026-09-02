@@ -351,6 +351,20 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   ⚠ La luce COLORATA non c'è ancora: la luce cotta è un nibble monocromo; per
   le lampade rosse/verdi/blu servirà o un canale colore nella luce cotta (tre
   nibble) o le luci dinamiche per pixel, da misurare.
+- **02/09, il giro delle correzioni del committente sulla partita**: la camera
+  in terza persona zooma fino a 40 e NON si tira mai dentro (di fabbrica); il
+  gatto coperto si vede in SAGOMA attraverso i blocchi (seconda passata dei
+  modelli con la profondità al contrario, `modelli.js`), non più un buco nel
+  mondo (resta come opzione); la MIRA È LIBERA, dove sta il dito o il mouse,
+  in prima e in terza persona, entro la portata del gatto (il mirino al centro
+  è un'opzione); il blocco mirato è pieno e traslucido (giallo, arancio con lo
+  scavo, rosso col piccone), il fantasma azzurro dice dove si posa, e
+  un'etichetta dice il verbo («posa: Mattoni», «accendi il lampione»); i
+  lampioni si accendono e spengono col tocco (blocco `lampioneSpento`: stessa
+  geometria col vetro grigio e senza luce, la luce cotta si rifà); lo scalino
+  è morbido (la quota disegnata insegue in 120 ms, mai più un teletrasporto);
+  la prima persona ha l'occhio a 1,0 e 78° di campo; l'Officina su schermo
+  stretto è un foglio dal basso e il 🛠 la apre e la chiude.
 - **⏳ IL MULTIPLAYER (MMO)**: sarà un modulo a parte, rifatto da zero (quello
   di Leafy c'era e va rifatto meglio). Le basi già poste: passo fisso e
   deterministico (corpi e passeggero), un chunk = seme + differenze

@@ -75,6 +75,7 @@ in vec3 vPos;
 uniform highp vec4 uBuco;        // il buco di visuale (vedi resa.js); zero per il giocatore stesso
 uniform highp vec3 uOcchio;
 uniform vec3 uNebbiaCol;
+uniform float uSagoma;           // 1 = la passata della sagoma: colore scuro pieno, senza luce
 uniform float uOmbra;
 uniform highp float uTaglio;     // la passata dello specchio non disegna sotto il pelo
 uniform highp vec3 uSoleVerso;
@@ -104,6 +105,10 @@ void main() {
   }
   vec3 c = vColOmbra + vColSole * luce;
   c = pow(mix(c, pow(uNebbiaCol, vec3(2.2)), vNebbia), vec3(1.0 / 2.2));
+  // ⚠ LA SAGOMA: quando il gatto è dietro un albero o un muro, si vede la sua
+  // ombra piatta attraverso (il committente: «un cono che mostra il player
+  // anche attraverso i blocchi, magari in nero», non un buco nel mondo)
+  if (uSagoma > 0.5) { colore = vec4(c * 0.18 * 0.55, 0.55); return; }
   colore = vec4(c, 1.0);
 }`;
 
@@ -147,7 +152,8 @@ export class Modelli {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    this.sagoma = 'omino';   // il tipo che si vede in sagoma attraverso i blocchi (null = nessuno)
     this.tipi = new Map();   // nome → { vao, vbo, ibo, vertici, istanze: Float32Array, n }
     this.statistiche = { disegni: 0, triangoli: 0, istanze: 0 };
   }
@@ -201,6 +207,7 @@ export class Modelli {
     gl.uniform1f(u.uOmbra, resa.ombra && resa.altezze ? 1 : 0);
     if (resa.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, resa.altezze); gl.uniform1i(u.uAltezze, 0); gl.uniform4f(u.uAltRett, resa.altRett[0], resa.altRett[1], resa.altRett[2], resa.altRett[3]); }
     let disegni = 0, tri = 0, ist = 0;
+    gl.uniform1f(u.uSagoma, 0);
     for (const [nome, t] of this.tipi) {
       if (t.n === 0) continue;
       // ⚠ IL GIOCATORE NON SI BUCA: il buco serve a vederlo, non a cancellarlo
@@ -209,6 +216,18 @@ export class Modelli {
       if (t.sporco) { gl.bindBuffer(gl.ARRAY_BUFFER, t.ibo); gl.bufferData(gl.ARRAY_BUFFER, t.istanze, gl.DYNAMIC_DRAW); t.sporco = false; }
       gl.drawArraysInstanced(gl.TRIANGLES, 0, t.vertici, t.n);
       disegni++; tri += t.triangoli * t.n; ist += t.n;
+    }
+    // ── la sagoma del giocatore dove è COPERTO: profondità al contrario, fusione, niente scrittura ──
+    const sg = this.sagoma && this.tipi.get(this.sagoma);
+    if (sg && sg.n > 0 && resa.vpCorrente !== resa.vpSpecchio) {
+      gl.uniform1f(u.uSagoma, 1);
+      gl.depthFunc(gl.GREATER); gl.depthMask(false);
+      gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.bindVertexArray(sg.vao);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, sg.vertici, sg.n);
+      gl.disable(gl.BLEND); gl.depthMask(true); gl.depthFunc(gl.LESS);
+      gl.uniform1f(u.uSagoma, 0);
+      disegni++;
     }
     gl.bindVertexArray(null);
     this.statistiche.disegni = disegni; this.statistiche.triangoli = tri; this.statistiche.istanze = ist;
