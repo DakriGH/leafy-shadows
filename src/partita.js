@@ -31,6 +31,7 @@ import { Sguardo } from './partita/sguardo.js';
 import { Corpi } from './partita/corpi.js';
 import { RegistroModelli } from './partita/registro-modelli.js';
 import { creaLavoro } from './nucleo/lavoro.js';
+import { ARREDI, registraArredi, gatto, TAVOLOZZE } from './partita/arredi.js';
 import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore } from './partita/registri.js';
 import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
 
@@ -54,7 +55,12 @@ resa.ombra = opz.ombra;
 resa.specchio.attivo = opz.specchio > 0; resa.specchio.scala = opz.specchio || 0.5;
 const modelli = new Modelli(gl);
 modelli.registra('cubo', modelloCubo());
-modelli.registra('omino', modelloCubo([255, 255, 255], 0.6, 0.9, 0.6));
+// ⚠ IL GIOCATORE È IL GATTO BLU delle concept art (partita/arredi.js), non un
+// cubo arancione; gli arredi (gatto arancione, funghi, scale, attrezzi) sono
+// blocchi «modello» posabili dalla cassetta.
+modelli.registra('omino', gatto(TAVOLOZZE.blu));
+registraArredi();
+for (const [id, a] of Object.entries(ARREDI)) modelli.registra(id, a.costruisci());
 
 // ── il mondo, in streaming ───────────────────────────────────────────────────
 registraDecorazioni();
@@ -77,7 +83,7 @@ streaming.avvio(0.5, 0.5);
 const tCostruzione = performance.now() - tAvvio;
 
 // i modelli veri (alberi, lampioni, panchine), dal disco
-const modelliCaricati = new Set(['cubo', 'omino']);
+const modelliCaricati = new Set(['cubo', 'omino', ...Object.keys(ARREDI)]);
 async function caricaModello(nome) {
   if (modelliCaricati.has(nome)) return; modelliCaricati.add(nome);
   try {
@@ -159,18 +165,19 @@ function camera() {
 // ── la cassetta e il cantiere ────────────────────────────────────────────────
 const barra = document.getElementById('barra');
 let scelto = 1;
-const bottoni = CASSETTA.map((t, i) => {
+const CASSETTA_PARTITA = [...CASSETTA, ...Object.keys(ARREDI)];
+const bottoni = CASSETTA_PARTITA.map((t, i) => {
   const b = document.createElement('button');
   const def = t ? defDi(t) : null;
   const nome = !t ? 'mano' : ATTREZZI[t] ? ATTREZZI[t].nome : (def && def.nome) || t;
   let col = null;
-  if (t) { try { col = ATTREZZI[t] ? ATTREZZI[t].colore : paletteBlocco(tipoBase(t), 8).cima; } catch { col = null; } }
+  if (t) { try { col = ATTREZZI[t] ? ATTREZZI[t].colore : ARREDI[t] ? ARREDI[t].colore : paletteBlocco(tipoBase(t), 8).cima; } catch { col = null; } }
   b.innerHTML = `<span class="q" style="background:${col != null ? '#' + (col >>> 0).toString(16).padStart(6, '0') : 'transparent'}"></span>${nome}`;
   b.addEventListener('click', () => scegli(i));
   barra.appendChild(b);
   return b;
 });
-function scegli(i) { scelto = ((i % CASSETTA.length) + CASSETTA.length) % CASSETTA.length; bottoni.forEach((b, k) => b.classList.toggle('scelto', k === scelto)); bottoni[scelto].scrollIntoView({ inline: 'center', block: 'nearest' }); }
+function scegli(i) { scelto = ((i % CASSETTA_PARTITA.length) + CASSETTA_PARTITA.length) % CASSETTA_PARTITA.length; bottoni.forEach((b, k) => b.classList.toggle('scelto', k === scelto)); bottoni[scelto].scrollIntoView({ inline: 'center', block: 'nearest' }); }
 scegli(1);
 
 const scavo = new Scavo();
@@ -183,7 +190,7 @@ function cambiaBlocco(x, y, z, tipo) {
 }
 function posa() {
   if (!bersaglio) return;
-  const tipo = CASSETTA[scelto];
+  const tipo = CASSETTA_PARTITA[scelto];
   if (!tipo || ATTREZZI[tipo]) return;
   const [x, y, z] = bersaglio.prima;
   if (mondo.pieno(x, y, z)) return;
@@ -266,7 +273,9 @@ function giro(adesso) {
   } else if (!tienePremuto) scavo.molla();
   // i corpi e l'omino
   modelli.istanze('cubo', bufIstanze = corpi.istanze(bufIstanze), 8);
-  if (terza) modelli.istanze('omino', [passeggero.x, passeggero.y, passeggero.z, 1, 0.95, 0.55, 0.25, sguardo.alpha], 8); else modelli.istanze('omino', [], 8);
+  // il gatto guarda dove guarda la camera, e cammina con un passetto
+  const passo = (intento.avanti || intento.destra) && passeggero.aTerra ? Math.abs(Math.sin(adesso / 90)) * 0.06 : 0;
+  if (terza) modelli.istanze('omino', [passeggero.x, passeggero.y + passo, passeggero.z, 1, 1, 1, 1, sguardo.alpha], 8); else modelli.istanze('omino', [], 8);
   resa.disegna(cam, dt, modelli);
   modelli.disegna(resa, cam);
   if (bersaglio) resa.evidenzia(bersaglio.cella[0], bersaglio.cella[1], bersaglio.cella[2], scavo.progresso(adesso));

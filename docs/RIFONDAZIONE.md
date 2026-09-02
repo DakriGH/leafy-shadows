@@ -286,6 +286,15 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   chunk del mondo 96 passa da 7,5 a 14,5 ms (nei Worker), quad massimo 2.102
   su 16.384, triangoli a schermo ×2 (127k nella vista della partita). I fili
   d'erba sono ciuffi bassi (≤ 0,8 blocchi) come nelle reference. ⏳ 🩺 dal Mali.
+- **02/09, gli arredi delle concept art** (`nucleo/cuboidi.js`, `partita/arredi.js`):
+  un costruttore di modelli a scatole e piramidi (lo stampo di Blockbench, in
+  piccolo: sarà il formato dell'editor dell'Officina) e con quello il gatto
+  blu (il giocatore, in terza persona, con un passetto quando cammina), il
+  gatto arancione come PNG, il fungo rosso col fratellino marrone, il gradino
+  e la scala di legno, la canna da pesca, il retino, la cazzuola, il megafono:
+  tutti blocchi «modello» posabili dalla cassetta e disegnati a istanze. Sono
+  asset TEMPORANEI dichiarati («aiutano a dare un feeling vivo»): quando
+  arriveranno i modelli veri si sostituisce la funzione, il nome resta.
 
 ## 4c. Il mandato sullo stile (02/09, ripetuto dal committente)
 
