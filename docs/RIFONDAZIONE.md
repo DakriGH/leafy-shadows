@@ -139,6 +139,23 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   0,4 ms a fotogramma. La porta si misura sul Mali col 🩺 del banco
   (`?raggio=` chunk per lato, `?erba=` croci per cima, `?ombra=no` spegne
   l'horizon mapping, `?dpr=` tetto di risoluzione).
+- **Primo 🩺 dal Mali sul banco (02/09, 14:07): 89 fps PIATTI** (il vsync del
+  pannello a 90 Hz), p50 11,2 ms, p99 33 ms, **23 disegni, 52k triangoli in
+  vista** (il telefono è verticale: inquadra meno chunk), **JS 0,3 ms**. La
+  porta è passata sul primo gradino, ma incollata al pannello: non dice il
+  margine. Da qui la RAMPA (`?rampa`): cinque gradini di scena da sei secondi
+  (fino a 256 chunk senza frustum, 700k+ triangoli), e la tabella viaggia nel
+  🩺. Il gradino in cui il vsync cede È il tetto del nucleo su questo telefono.
+- ⚠ **Il look del banco NON è il look di Leafy**, e il committente l'ha detto
+  subito («spero non sia la grafica definitiva o il sistema di luci»). Giusto:
+  il banco misura il formato e il costo. Lo stile resta quello scritto in
+  CLAUDE.md («LO STILE: piatto, e l'ombra è un gradino»): colori piatti da
+  palette con lo stacco cima/lato/fondo, l'ombra a tre bande, l'ombra del
+  COLORE DEL CIELO che moltiplica, niente luce emisferica, niente sfumatura per
+  normale. La luce cotta (F2) darà al pixel UN numero — sì/no al sole, e la
+  banda della lampada — esattamente come oggi lo dà la cascata; cambia da dove
+  arriva il numero, non come si dipinge. Il verdetto sul look resta del
+  committente, a scatti affiancati col gioco di oggi.
 - Decisioni prese dal committente («vai con i consigli»): pannello di
   riferimento il Mali a 90 Hz finché non se ne misura un altro; ombre del sole
   direzionali via horizon mapping; Babylon solo attrezzo offline.

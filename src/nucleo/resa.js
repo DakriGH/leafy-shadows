@@ -117,6 +117,7 @@ export class Resa {
     this.piani = new Float32Array(24);
     this.tempo = 0;
     this.ombra = true;
+    this.tutto = false;   // il banco: niente frustum, per misurare il tetto dei disegni
     this.sole = { verso: [-0.5, -0.7, -0.3], colore: [1.0, 0.96, 0.86], forza: 1.0, cielo: [0.60, 0.68, 0.82] };
     this.nebbia = { da: 90, a: 150, colore: [0.72, 0.85, 0.92] };
   }
@@ -200,7 +201,7 @@ export class Resa {
     let disegni = 0, tri = 0, visti = 0;
     for (const c of this.chunks.values()) {
       if (c.quad === 0) continue;
-      if (!scatolaNelFrustum(this.piani, c.x0, c.minY, c.z0, c.x0 + 16, c.maxY + 1, c.z0 + 16)) continue;
+      if (!this.tutto && !scatolaNelFrustum(this.piani, c.x0, c.minY, c.z0, c.x0 + 16, c.maxY + 1, c.z0 + 16)) continue;
       visti++;
       gl.uniform3f(u.uChunk, c.chunk[0], c.chunk[1], c.chunk[2]);
       gl.bindVertexArray(c.vao);

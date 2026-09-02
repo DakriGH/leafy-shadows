@@ -18,6 +18,12 @@ const opz = {
   erba: +(params.get('erba') ?? 2),
   ombra: params.get('ombra') !== 'no',
   dprMax: +(params.get('dpr') || 1.5),
+  // ⚠ LA RAMPA: la porta di F0 si trova SALENDO finché il vsync cede. Il primo
+  // rapporto dal Mali (89 fps piatti, 52k triangoli in vista, 23 disegni) era
+  // incollato al pannello: non dice quanto margine c'è. La rampa aumenta la
+  // scena a gradini di sei secondi e il 🩺 porta la tabella.
+  rampa: params.has('rampa'),
+  tutto: params.has('tutto'),        // niente frustum: si disegnano TUTTI i chunk
 };
 
 const { gl, dpr, ridimensiona } = creaContesto(tela, { antialias: true, dprMax: opz.dprMax });
@@ -26,20 +32,25 @@ resa.impostaTavolozza(TAVOLOZZA);
 resa.ombra = opz.ombra;
 
 // ── il mondo finto ──────────────────────────────────────────────────────────
-const t0 = performance.now();
-let blocchi = 0;
-for (let cx = -opz.raggio; cx < opz.raggio; cx++) {
-  for (let cz = -opz.raggio; cz < opz.raggio; cz++) {
-    const d = costruisciChunkFinto(cx, cz, { erba: opz.erba });
-    resa.carica(cx + ',' + cz, d);
-    blocchi += 256;
+let blocchi = 0, tCostruzione = 0;
+function costruisciMondo(raggio, erba) {
+  const t0 = performance.now();
+  for (const kc of [...resa.chunks.keys()]) resa.rimuovi(kc);
+  blocchi = 0;
+  for (let cx = -raggio; cx < raggio; cx++) {
+    for (let cz = -raggio; cz < raggio; cz++) {
+      resa.carica(cx + ',' + cz, costruisciChunkFinto(cx, cz, { erba }));
+      blocchi += 256;
+    }
   }
+  const lato = raggio * 2 * 16;
+  const alt = new Uint8Array(lato * lato);
+  for (let z = 0; z < lato; z++) for (let x = 0; x < lato; x++) alt[z * lato + x] = altezza(x - raggio * 16, z - raggio * 16) + 1;
+  resa.impostaAltezze(alt, -raggio * 16, -raggio * 16, lato, lato);
+  tCostruzione = performance.now() - t0;
 }
-const lato = opz.raggio * 2 * 16;
-const alt = new Uint8Array(lato * lato);
-for (let z = 0; z < lato; z++) for (let x = 0; x < lato; x++) alt[z * lato + x] = altezza(x - opz.raggio * 16, z - opz.raggio * 16) + 1;
-resa.impostaAltezze(alt, -opz.raggio * 16, -opz.raggio * 16, lato, lato);
-const tCostruzione = performance.now() - t0;
+costruisciMondo(opz.raggio, opz.erba);
+resa.tutto = opz.tutto;
 
 // ── la camera: orbita, come nel gioco ───────────────────────────────────────
 const cam = { alpha: -0.8, beta: 1.05, raggio: 46, centro: [0, altezza(0, 0) + 2, 0], fov: 0.9 };
@@ -95,7 +106,32 @@ function giro(adesso) {
   jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
   fotogrammi++;
   if (adesso - ultimaStampa > 500) { ultimaStampa = adesso; stampa(); }
+  if (opz.rampa) rampa(adesso);
   requestAnimationFrame(giro);
+}
+
+// ── la rampa: gradini di scena, sei secondi l'uno, la tabella va nel 🩺 ─────
+const GRADINI_RAMPA = [
+  { raggio: 5, erba: 2, tutto: false }, { raggio: 6, erba: 3, tutto: false }, { raggio: 7, erba: 4, tutto: false },
+  { raggio: 6, erba: 3, tutto: true }, { raggio: 8, erba: 4, tutto: true },
+];
+const esitiRampa = [];
+let gradinoRampa = -1, inizioGradino = 0;
+function rampa(adesso) {
+  if (gradinoRampa >= 0 && adesso - inizioGradino < 6000) return;
+  if (gradinoRampa >= 0) {
+    // si scartano i primi due secondi (il caricamento in GPU) leggendo solo la coda
+    const coda = tempi.slice(-Math.min(tempi.length, 200));
+    const g = GRADINI_RAMPA[gradinoRampa];
+    esitiRampa.push({ ...g, fps: +(1000 / (q(coda, 0.5) || 1)).toFixed(0), p50: +q(coda, 0.5).toFixed(1), p99: +q(coda, 0.99).toFixed(1),
+      js: +q(jsMs, 0.5).toFixed(2), disegni: resa.statistiche.disegni, triangoli: resa.statistiche.triangoli });
+  }
+  gradinoRampa++;
+  if (gradinoRampa >= GRADINI_RAMPA.length) { opz.rampa = false; stampa(); return; }
+  const g = GRADINI_RAMPA[gradinoRampa];
+  costruisciMondo(g.raggio, g.erba); resa.tutto = g.tutto; opz.erba = g.erba; opz.raggio = g.raggio;
+  tempi.length = 0; jsMs.length = 0;
+  inizioGradino = adesso;
 }
 const q = (arr, p) => { if (!arr.length) return 0; const s = arr.slice().sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; };
 function stampa() {
@@ -107,7 +143,9 @@ function stampa() {
     + `disegni ${st.disegni}  triangoli ${st.triangoli.toLocaleString('it')}  chunk ${st.chunkVisti}/${st.chunkTotali}\n`
     + `ombra del sole: ${resa.ombra ? 'horizon mapping' : 'spenta'} · erba ${opz.erba} · costruzione ${tCostruzione.toFixed(0)} ms\n`
     + `${nomeScheda(gl)}\n`
-    + `?raggio=${opz.raggio} ?erba=${opz.erba} ?ombra=${opz.ombra ? 'sì' : 'no'} ?dpr=${opz.dprMax}  ·  tocca lo schermo per girare`;
+    + `?raggio=${opz.raggio} ?erba=${opz.erba} ?ombra=${opz.ombra ? 'sì' : 'no'} ?dpr=${opz.dprMax} ?rampa ?tutto  ·  tocca lo schermo per girare`
+    + (esitiRampa.length ? '\nRAMPA  fps  p50   p99   dis  triangoli\n' + esitiRampa.map((e) => `r${e.raggio} e${e.erba}${e.tutto ? ' tutto' : ''}  ${String(e.fps).padStart(3)}  ${String(e.p50).padStart(5)}  ${String(e.p99).padStart(5)}  ${String(e.disegni).padStart(3)}  ${e.triangoli.toLocaleString('it')}`).join('\n') : '')
+    + (opz.rampa ? `\nrampa: gradino ${gradinoRampa + 1}/${GRADINI_RAMPA.length}…` : '');
 }
 requestAnimationFrame(giro);
 
@@ -118,7 +156,7 @@ const diagnostica = new Diagnostica(() => ({
   ua: navigator.userAgent, cpu: navigator.hardwareConcurrency || null, memoriaGB: navigator.deviceMemory || null,
   css: [tela.clientWidth, tela.clientHeight], reso: [tela.width, tela.height], dpr: devicePixelRatio,
   livello: 0, quantiLivelli: 1, manuale: true,
-  profilo: { banco: 'nucleo F0', raggio: opz.raggio, erba: opz.erba, ombra: resa.ombra, dprMax: opz.dprMax, jsMs: +q(jsMs, 0.5).toFixed(2), jsP99: +q(jsMs, 0.99).toFixed(2) },
+  profilo: { banco: 'nucleo F0', raggio: opz.raggio, erba: opz.erba, ombra: resa.ombra, tutto: !!resa.tutto, dprMax: opz.dprMax, jsMs: +q(jsMs, 0.5).toFixed(2), jsP99: +q(jsMs, 0.99).toFixed(2), rampa: esitiRampa },
   ombreLampade: false, antialias: true,
   fps: q(tempi, 0.5) ? 1000 / q(tempi, 0.5) : null, p50: q(tempi, 0.5), p99: q(tempi, 0.99),
   disegni: resa.statistiche.disegni, triangoli: resa.statistiche.triangoli, ombreMs: 0,
