@@ -181,6 +181,16 @@ export class Rig {
     // `gioco/mira.js`), non perché sposti i numeri.
     this.scena.skipPointerMovePicking = true;
     this.scena.constantlyUpdateMeshUnderPointer = false;
+    // ⚠ E NEMMENO ALLA PRESSIONE E AL RILASCIO, che è dove costava davvero.
+    // Il commento qui sopra («quasi tutte le mesh hanno isPickable = false»)
+    // era vero per tutto TRANNE la cosa più grossa che c'è: i chunk del
+    // terreno, rimasti pescabili. Alla pressione Babylon interseca il raggio
+    // con le migliaia di triangoli di ogni chunk in vista — e la pressione è
+    // esattamente il gesto con cui si scava, cioè il momento in cui uno scatto
+    // si sente. Il bersaglio lo troviamo noi camminando la griglia
+    // (`gioco/mira.js`): il picking di Babylon qui è lavoro doppio.
+    this.scena.skipPointerDownPicking = true;
+    this.scena.skipPointerUpPicking = true;
     // ⚠ E LA CACHE OFFLINE (IndexedDB) non la usiamo: i modelli arrivano da
     // `node_modules` e dal disco, che è già locale.
     this.motore.enableOfflineSupport = false;
@@ -323,14 +333,22 @@ export class Rig {
     // mentre la scaletta a dieci la vedono tutti.
     this.ombre.shadowMaxZ = this.profilo.ombraZ;
     this.ombre.depthClamp = true;
-    // ⚠ SOLO SU DESKTOP: `autoCalcDepthBounds` aderisce le cascate al depth
-    // range VERO della scena — più texel dove servono — ma lo fa con un DEPTH
-    // PASS FULLSCREEN in più (è il «DepthRenderer minmax» che compare
-    // nell'inventario delle passate). Su una GPU a tile una passata fullscreen
-    // è il pattern più caro che esista (store+load dell'intero frame — studio
-    // TBDR, docs/STUDIO-RETRO.md): su mobile si tiene il riparto per lambda,
-    // che con TEXEL_PER_BLOCCO fisso e la soglia anti-acne di casa regge.
-    this.ombre.autoCalcDepthBounds = !this.dispositivo.mobile;
+    // ⚠ `autoCalcDepthBounds` È SPENTO ANCHE SU DESKTOP, e il numero che l'ha
+    // deciso è questo: misurato con la ricetta `ghibli` e la scena FERMA — cioè
+    // con la mappa d'ombra congelata, quando le cascate non stanno disegnando
+    // niente — spegnerlo porta 130 → **70 disegni** e 2,5 → **1,0 ms** per
+    // fotogramma. Non gli importa che le cascate siano ferme: il riduttore
+    // min/max si tira dietro un `DepthRenderer` suo, a piena risoluzione,
+    // sull'intera scena, a ogni giro.
+    //
+    // ⚠ E QUELLO CHE SI PERDE È MENO DI QUELLO CHE SEMBRA, perché qui il range
+    // di profondità utile lo sappiamo già: `shadowMaxZ` è la portata del
+    // profilo (90 blocchi su desktop) e il mondo è alto una trentina di
+    // blocchi, non un canyon. La densità dei texel resta quella di
+    // TEXEL_PER_BLOCCO, il riparto lo fa `lambda` a 0,94 — e l'acne, in questo
+    // progetto, non la cura il range: la cura la soglia di `facciaAlSole`
+    // (vedi CLAUDE.md, «l'acne si cura con la soglia, non col bias»).
+    this.ombre.autoCalcDepthBounds = false;
     // ⚠ E LA MAPPA NON SI RIFÀ A OGNI FOTOGRAMMA. Misurato con
     // `SceneInstrumentation`: la resa dei bersagli d'ombra costa 2,12 ms su 5,98
     // di CPU per fotogramma — più di un terzo — e disegna quattro volte gli

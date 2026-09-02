@@ -421,6 +421,56 @@ finalmente dice la verità. Le manopole per rimetterla dove piace sono `vera[1]`
 (scala del fondale) e `assorbi` nella ricetta — ma il verdetto è suo, e va dato
 guardando.
 
+## 02/09 — PASSO 4: le ombre del desktop, e il quadro di fine sessione
+
+Tre cascate invece di quattro sul gradino più alto del desktop, e
+`autoCalcDepthBounds` **spento anche su desktop**.
+
+⚠ **Il riduttore min/max era il singolo costo più grosso rimasto, e non
+dipendeva da niente.** Misurato con `ghibli` e la scena FERMA — cioè con la
+mappa d'ombra congelata, quando le cascate non stanno disegnando nulla —
+spegnerlo porta **130 → 70 disegni** e **2,5 → 1,0 ms**. Il riduttore si tira
+dietro un `DepthRenderer` suo, a piena risoluzione, sull'intera scena, a ogni
+giro, e non gli importa che le cascate siano congelate.
+
+### Il quadro di fine sessione (1280×720, posa standard, camera che gira)
+
+| | disegni | p50 |
+|---|---|---|
+| **partenza** (31/08, ricetta `lago`, 4 cascate, riduttore acceso) | **547** | **6,1 ms** |
+| `ghibli` di partenza, fine sessione | **263** | **1,6 ms** |
+| `lago` scelta a mano, fine sessione | **361** | **2,8 ms** |
+| `lago` da fermo (ombre congelate) | 175 | 2,0 ms |
+| `lago` a q2 | 208 | 2,2 ms |
+| `lago` a q3 | 124 | 1,7 ms |
+| `lago` a q5 | **61** | **0,6 ms** |
+
+L'inventario delle passate a q0 con `lago` è passato da cinque voci a tre:
+`ombre:sole 2048²×3 · specchio-acqua 256² · sott-acqua 1280²`.
+
+### Due voci del piano che NON erano vere nel sorgente
+
+La diagnosi è stata scritta guardando la build de-minificata, e due dei suoi
+punti nel sorgente erano già curati o non esistevano. Vale la pena scriverlo,
+perché «l'ho fatto» su una cosa già fatta è il modo di credere di aver
+guadagnato qualcosa.
+
+- **«Il sole si muove e la mappa non si congela mai»**: nel sorgente
+  `firmaQuiete` quantizza già il verso del sole a 1/100 (≈ 0,57°). Misurato col
+  ciclo del giorno ACCESO e la camera ferma: **3 scongelamenti su 600
+  fotogrammi**, e la media dei disegni passa da 151 a 154. Il sole costa il 2%,
+  non «la mappa non si congela mai». Quantizzare più grosso farebbe saltare
+  l'ombra per guadagnare quel 2%: non si tocca.
+- **«Picking di Babylon attivo su pointer down/up: ray-triangoli su decine di
+  migliaia di triangoli a ogni tocco»**: misurato, **zero**. Babylon pesca solo
+  se qualcuno glielo chiede (nessun `onPointerObservable` con PICK, nessun
+  `ActionManager` in tutto il progetto), e comunque con l'origine mobile il suo
+  raggio è degenere — 200 `scene.pick` sul terreno pescabile costano 0,1 ms **e
+  non colpiscono niente**. `skipPointerDownPicking`/`UpPicking` e i chunk non
+  pescabili si mettono lo stesso, perché sono corretti e gratis: ma non
+  spostano un numero, e dire il contrario sarebbe la stessa comoda bugia di
+  `skipPointerMovePicking`.
+
 ## Da raccogliere
 - [ ] Il quadro `?misura` dal **telefono** (posa standard, percentili veri):
       `https://dakrigh.github.io/leafy-shadows/?misura`, aspettare il riquadro

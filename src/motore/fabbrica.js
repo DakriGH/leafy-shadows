@@ -228,7 +228,14 @@ export class Fabbrica {
     solidi.freezeWorldMatrix();
     acqua.freezeWorldMatrix();
     acqua.alphaIndex = 2;               // il liquido va disegnato dopo i solidi
+    // ⚠ NEMMENO I SOLIDI SONO PESCABILI, ed era l'ultima mesh grossa rimasta
+    // pescabile di tutto il gioco. Il bersaglio lo troviamo camminando la
+    // griglia (`gioco/mira.js`, dieci passi di DDA); il picking di Babylon su un
+    // chunk vuol dire intersecare il raggio con le sue MIGLIAIA di triangoli, e
+    // lo faceva a ogni pressione e a ogni rilascio del dito — cioè proprio nel
+    // momento in cui si sta scavando e uno scatto si sente.
     acqua.isPickable = false;
+    solidi.isPickable = false;
     // ⚠ PROIETTARE E RICEVERE SONO DUE COSE, e la seconda è FALSA di fabbrica.
     // Col solo `addShadowCaster` la mappa si riempie, il costo si paga, e a
     // schermo non cambia NIENTE — il terreno con il sole a 17° non aveva una

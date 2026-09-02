@@ -223,7 +223,15 @@ export const LIVELLI = {
       acquaVera: 0, acquaSpecchio: false, acquaLato: 256, acquaOgni: 4, acquaProf: 0.40 },
   ],
   desktop: [
-    { scala: 1.00, cascate: 4, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, ombraOgni: 1, ombraAcqua: true , fxaa: true,  particelle: true,
+    // ⚠ TRE CASCATE E NON QUATTRO SUL GRADINO PIÙ ALTO, e non è un risparmio
+    // travestito: ogni cascata è un RENDER della scena in una mappa di
+    // profondità, cioè 63 chiamate di disegno l'una in questa scena — la
+    // quarta da sola vale più di tutto lo specchio dell'acqua. E quello che
+    // dà è il quarto anello di distanza, dove `lambda` a 0,94 lascia già
+    // pochissimi texel: la differenza si vede sul bordo di un'ombra a
+    // settanta blocchi, che è dove nessuno guarda. La densità vicina, che è
+    // quella che si vede, la decidono `mappa/ombraZ` e lambda, e non cambiano.
+    { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, ombraOgni: 1, ombraAcqua: true , fxaa: true,  particelle: true,
       acquaVera: 3, acquaSpecchio: true , acquaLato: 256, acquaOgni: 2, acquaProf: 1.00 },
     { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 130, erba: 6.0, erbaR: 5, ombraOgni: 2, ombraAcqua: true , fxaa: true,  particelle: true,
       acquaVera: 3, acquaSpecchio: true , acquaLato: 256, acquaOgni: 2, acquaProf: 0.75 },
