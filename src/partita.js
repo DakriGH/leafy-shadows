@@ -30,6 +30,7 @@ import { Streaming } from './partita/streaming.js';
 import { Sguardo } from './partita/sguardo.js';
 import { Corpi } from './partita/corpi.js';
 import { RegistroModelli } from './partita/registro-modelli.js';
+import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore } from './partita/registri.js';
 
 const params = new URLSearchParams(location.search);
 const opz = {
@@ -102,8 +103,10 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => giu.delete(e.code));
 window.addEventListener('blur', () => giu.clear());
 window.addEventListener('wheel', (e) => scegli(scelto + Math.sign(e.deltaY)), { passive: true });
-function cambiaVolo() { volo = !volo; document.getElementById('volo').classList.toggle('acceso', volo); if (volo) passeggero.vy = 0; }
-function cambiaTerza() { terza = !terza; document.getElementById('terza').classList.toggle('acceso', terza); }
+function impostaVolo(v) { volo = v; document.getElementById('volo').classList.toggle('acceso', volo); if (volo) passeggero.vy = 0; }
+function impostaTerza(v) { terza = v; document.getElementById('terza').classList.toggle('acceso', terza); }
+function cambiaVolo() { impostaVolo(!volo); }
+function cambiaTerza() { impostaTerza(!terza); }
 document.getElementById('volo').addEventListener('click', cambiaVolo);
 document.getElementById('terza').addEventListener('click', cambiaTerza);
 document.getElementById('cubi').addEventListener('click', () => lanciaCubi(20));
@@ -208,18 +211,21 @@ if (opz.corpi > 0) {
 }
 
 // ── la giornata (come il banco) ──────────────────────────────────────────────
-let ora = opz.ora ?? 0.35;
+const giorno = { ora: opz.ora ?? 0.35, auto: opz.ora === null, durata: 600 };
 function sole(dt) {
-  if (opz.ora === null) ora = (ora + dt / 600) % 1;
+  if (giorno.auto) giorno.ora = (giorno.ora + dt / giorno.durata) % 1;
+  const ora = giorno.ora;
   const a = ora * Math.PI * 2 - Math.PI / 2;
   const alt = Math.max(0.24, Math.sin(a));
   const az = a * 0.5;
   resa.sole.verso = [-Math.cos(az) * Math.cos(Math.asin(alt)), -alt, -Math.sin(az) * Math.cos(Math.asin(alt))];
-  const giorno = Math.max(0, Math.min(1, (Math.sin(a) + 0.1) * 2));
-  resa.sole.forza = giorno;
-  resa.sole.colore = [1.0, 0.86 + 0.1 * giorno, 0.66 + 0.2 * giorno];
-  resa.sole.cielo = [0.10 + 0.50 * giorno, 0.12 + 0.56 * giorno, 0.24 + 0.58 * giorno];
-  resa.nebbia.colore = [0.25 + 0.47 * giorno, 0.35 + 0.5 * giorno, 0.5 + 0.42 * giorno];
+  // ⚠ NON si chiama «giorno»: quello è l'oggetto qui sopra, e un const omonimo
+  // dentro la funzione lo oscurava PRIMA di nascere (TDZ) — pagina bianca.
+  const luce = Math.max(0, Math.min(1, (Math.sin(a) + 0.1) * 2));
+  resa.sole.forza = luce;
+  resa.sole.colore = [1.0, 0.86 + 0.1 * luce, 0.66 + 0.2 * luce];
+  resa.sole.cielo = [0.10 + 0.50 * luce, 0.12 + 0.56 * luce, 0.24 + 0.58 * luce];
+  resa.nebbia.colore = [0.25 + 0.47 * luce, 0.35 + 0.5 * luce, 0.5 + 0.42 * luce];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }
 resa.nebbia.da = opz.raggio - 24; resa.nebbia.a = opz.raggio + 8;
@@ -257,6 +263,7 @@ function giro(adesso) {
   tempi.push(dt * 1000); if (tempi.length > 240) tempi.shift();
   jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
   fotogrammi++;
+  if (passoOfficina) passoOfficina();
   if (adesso - ultimaStampa > 500) { ultimaStampa = adesso; stampa(); }
   requestAnimationFrame(giro);
 }
@@ -274,6 +281,26 @@ function stampa() {
 }
 requestAnimationFrame(giro);
 
+// ── l'Officina: `?officina` o il tasto 🛠, caricata solo se la si chiede ────
+let officina = null, passoOfficina = null;
+async function apriOfficinaPartita() {
+  if (officina) { officina.pannello.apri(true); return; }
+  const { apriOfficina } = await import('./officina/index.js');
+  const statoGiocatore = {
+    get volo() { return volo; }, get terza() { return terza; }, impostaVolo, impostaTerza,
+    dove: () => `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)}`,
+    aCasa: () => { passeggero.x = 0.5; passeggero.z = 0.5; passeggero.y = cimaIn(0, 0) + 0.5; passeggero.vy = 0; },
+  };
+  officina = apriOfficina({
+    registri: [registroGiornoPartita(giorno), registroResa(resa), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore)],
+    campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
+    autore: 'partita', titolo: 'Officina · partita', apertoSubito: true,
+    agganciaFrame: (fn) => (passoOfficina = fn),
+  });
+}
+document.getElementById('officina').addEventListener('click', apriOfficinaPartita);
+if (params.has('officina')) apriOfficinaPartita();
+
 // ── il 🩺 ────────────────────────────────────────────────────────────────────
 const diagnostica = new Diagnostica(() => ({
   versione: (document.getElementById('versione') || {}).textContent || 'partita in sviluppo',
@@ -287,7 +314,7 @@ const diagnostica = new Diagnostica(() => ({
   disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, triangoli: resa.statistiche.triangoli + modelli.statistiche.triangoli + resa.statistiche.triangoliAcqua + resa.statistiche.triangoliErba + resa.statistiche.triangoliSpecchio, ombreMs: 0,
   storiaFps, storiaLivelli: [],
   scheda: nomeScheda(gl), software: /swiftshader|llvmpipe/i.test(nomeScheda(gl)),
-  chunk: resa.statistiche.chunkTotali, blocchi: mondo.contaBlocchi, luci: 0, decorazioni: registro.istanze, erba: resa.statistiche.triangoliErba, ora: `${Math.floor(ora * 24)}h`, giorno: 0,
+  chunk: resa.statistiche.chunkTotali, blocchi: mondo.contaBlocchi, luci: 0, decorazioni: registro.istanze, erba: resa.statistiche.triangoliErba, ora: `${Math.floor(giorno.ora * 24)}h`, giorno: 0,
   worldgenMs: tCostruzione, meshMs: tCostruzione,
 }), () => { resa.disegna(camera(), 0, modelli); modelli.disegna(resa, camera()); resa.disegnaAcqua(); return Promise.resolve(tela.toDataURL('image/webp', 0.6)); });
 

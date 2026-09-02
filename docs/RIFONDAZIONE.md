@@ -260,6 +260,12 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   convertitore marcava come emissiva la piastra alla base (era la zona più
   chiara della texture); ora l'emissiva è il vetro (quota 2,05-2,62, raggio
   ≤ 0,3).
+- **02/09, l'Officina nella partita** (🛠 o `?officina`): i registri stanno in
+  `partita/registri.js` (giorno, resa del nucleo — ombra, specchio e la sua
+  risoluzione, erba, nebbia —, corpi, streaming, giocatore) e passano dallo
+  stesso `officina/index.js` del gioco: pannello, bus dei comandi, campionatore.
+  Si carica solo se la si chiede. È il primo pezzo dell'Officina del nucleo;
+  l'editor dei modelli/blocchi e il linguaggio a nodi vengono dopo.
 
 ## 4c. Il mandato sullo stile (02/09, ripetuto dal committente)
 
