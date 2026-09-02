@@ -258,25 +258,6 @@ voxel, luci in cel shading, LOD». Tradotto in regole del nucleo:
   confine di resa, i modelli come cartelli oltre una distanza (F3), la pelle
   dei chunk lontani (come oggi) e lo streaming della frontiera nel nucleo.
 
-## 4c. Il mandato sullo stile (02/09, ripetuto dal committente)
-
-«Non ti dimenticare lo stile grafico e la palette: niente pixel, niente
-voxel, luci in cel shading, LOD». Tradotto in regole del nucleo:
-- **Palette**: i colori sono quelli del gioco, cotti nel vertice dalla stessa
-  `paletteBlocco`. Nessuna texture: il nucleo non ne carica una.
-- **Niente pixel**: niente texture a pixel grossi, niente dithering, niente
-  post-passata che sgrani. L'antialias è l'MSAA del canvas.
-- **Niente voxel «alla Minecraft»**: il mondo è a blocchi ma il look no —
-  colori piatti per faccia (cima/lato/fondo), fili d'erba a triangolo, alberi
-  e lampioni a coni e cilindri lisci, acqua a onde. Il greedy meshing (F1)
-  fonde le facce e toglie anche le cuciture fra blocchi uguali.
-- **Cel shading**: la luce è a gradini ovunque — sole a tre bande, cielo a
-  quattro, lampade a quattro — e l'ombra è del colore del cielo. Nessuna
-  rampa continua, nessuna sfumatura per normale.
-- **LOD**: l'erba solo entro sei chunk (fatto), la nebbia che è anche il
-  confine di resa, i modelli come cartelli oltre una distanza (F3), la pelle
-  dei chunk lontani (come oggi) e lo streaming della frontiera nel nucleo.
-
 ## 5. Le decisioni che spettano al committente
 
 1. **Il pannello di riferimento**: 90 Hz (il Mali di oggi) o 120/144 (quale
