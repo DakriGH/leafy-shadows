@@ -1459,6 +1459,15 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   palette è esatta. Il caldo entra solo col sole basso (`caldo` da `alt`).
 - **L'erba è del colore della cima del blocco sotto** (`ciuffo(..., colCima)`),
   punta ±3% quasi sempre: non si scurisce la base, non si «migliora» la punta.
+- **Il glow è uno sprite** (`nucleo/bagliori.js`): un disegno a istanze per
+  tutte le lanterne, additivo, profondità letta e non scritta, cartello un
+  quarto di raggio verso la camera. Le sorgenti le dà `aggiornaModelli` dal
+  registro dei lampioni (lanterna a +2,35). Prima di un bloom a schermo intero
+  si misura questo sul Mali.
+- **Lo zoo** (`partita/zoo.js`, `?zoo`) è un GENERATORE per chunk come l'open
+  world: passa dalla stessa frontiera e dallo stesso streaming. Fuori dal
+  piano i chunk sono vuoti: lo streaming li segna in `_vuoti` e non li rimette
+  in coda a ogni giro.
 - ⚠ **Niente `const` omonimi dentro le funzioni del modulo**: un `const giorno`
   dentro `sole()` oscurava l'oggetto `giorno` del modulo prima di nascere
   (TDZ) e la pagina moriva bianca al primo fotogramma.

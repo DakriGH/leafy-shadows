@@ -32,7 +32,9 @@ import { Corpi } from './partita/corpi.js';
 import { RegistroModelli } from './partita/registro-modelli.js';
 import { creaLavoro } from './nucleo/lavoro.js';
 import { ARREDI, registraArredi, gatto, TAVOLOZZE } from './partita/arredi.js';
-import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore } from './partita/registri.js';
+import { Bagliori } from './nucleo/bagliori.js';
+import { generaChunkZoo, QUOTA as QUOTA_ZOO } from './partita/zoo.js';
+import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene } from './partita/registri.js';
 import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
 
 const params = new URLSearchParams(location.search);
@@ -46,6 +48,7 @@ const opz = {
   ora: params.has('ora') ? +params.get('ora') : null,
   corpi: +(params.get('corpi') || 0),
   terza: params.has('terza'),
+  zoo: params.has('zoo'),            // la scena di prova (partita/zoo.js) al posto dell'open world
 };
 
 const tela = document.getElementById('tela');
@@ -68,12 +71,14 @@ const mondo = new Mondo();
 const registro = new RegistroModelli();
 mondo.onEvento = (e) => registro.evento(e);
 const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
-const streaming = new Streaming(mondo, resa, (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme), { erba: opz.erba, raggioResa: opz.raggio, lavoro });
+const genera = opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
+const streaming = new Streaming(mondo, resa, genera, { erba: opz.erba, raggioResa: opz.raggio, lavoro });
+const bagliori = new Bagliori(gl);
 resa.apriFinestraAltezze(0.5, 0.5, 512);
 // ⚠ IL SALVATAGGIO SI RIMETTE PRIMA DI GENERARE: sono le modifiche del
 // giocatore (partita/salvataggio.js), e la frontiera le riapplica a ogni
 // chunk che nasce. `?nuovo` riparte da zero.
-const CHIAVE_SALVATAGGIO = `leafy-partita-${opz.seme}`;
+const CHIAVE_SALVATAGGIO = opz.zoo ? 'leafy-zoo' : `leafy-partita-${opz.seme}`;
 let salvate = 0;
 try { if (params.has('nuovo')) localStorage.removeItem(CHIAVE_SALVATAGGIO); else salvate = spacchetta(mondo, localStorage.getItem(CHIAVE_SALVATAGGIO)); } catch { salvate = 0; }
 let salvaFra = 0;   // ms: si salva un secondo dopo l'ultima modifica, non a ogni blocco
@@ -97,12 +102,18 @@ function aggiornaModelli() {
   for (const [nome, lista] of registro.cambiate()) {
     if (!modelli.tipi.has(nome)) { caricaModello(nome); registro.sporchi.add(nome); continue; }
     modelli.istanze(nome, lista);
+    // ⚠ OGNI LAMPIONE HA IL SUO BAGLIORE: la lanterna sta 2,35 sopra la base
+    if (nome === 'lampione') {
+      const b = new Float32Array((lista.length / 4) * 8);
+      for (let i = 0; i < lista.length / 4; i++) b.set([lista[i * 4], lista[i * 4 + 1] + 2.35, lista[i * 4 + 2], 1.6, 1.0, 0.85, 0.5, 1.0], i * 8);
+      bagliori.istanze(b);
+    }
   }
 }
 
 // ── chi cammina ──────────────────────────────────────────────────────────────
 function cimaIn(x, z) { for (let y = 60; y > -60; y--) if (mondo.solido(x, y, z)) return y + 1; return 8; }
-const passeggero = new Passeggero(mondo, { x: 0.5, y: cimaIn(0, 0) + 0.5, z: 0.5 });
+const passeggero = new Passeggero(mondo, { x: 0.5, y: (opz.zoo ? QUOTA_ZOO : cimaIn(0, 0)) + 0.5 + (opz.zoo ? 1 : 0), z: 0.5 });
 const intento = tastiera();
 const comandi = new ComandiTocco(intento);
 const modoGui = new ModoGui((aTocco) => { if (!aTocco && comandi.azzera) comandi.azzera(); });
@@ -317,6 +328,7 @@ function giro(adesso) {
   modelli.disegna(resa, cam);
   if (bersaglio) resa.evidenzia(bersaglio.cella[0], bersaglio.cella[1], bersaglio.cella[2], scavo.progresso(adesso));
   resa.disegnaAcqua();
+  bagliori.disegna(resa, cam);   // il glow delle lanterne: sprite additivi, dopo tutto
   const js = performance.now() - tj;
   tempi.push(dt * 1000); if (tempi.length > 240) tempi.shift();
   jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
@@ -333,7 +345,7 @@ function stampa() {
   document.getElementById('fps').textContent = `${fps.toFixed(0)} fps\n${p50.toFixed(1)} / ${p99.toFixed(1)} ms\nJS ${q(jsMs, 0.5).toFixed(2)} ms`;
   const st = resa.statistiche, sm = streaming.statistiche;
   document.getElementById('stato').textContent =
-    `PARTITA sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
+    `${opz.zoo ? 'ZOO' : 'PARTITA'} sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
     + `disegni ${st.disegni + modelli.statistiche.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio} · triangoli ${(st.triangoli + modelli.statistiche.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio).toLocaleString('it')} · chunk ${st.chunkVisti}/${st.chunkTotali} (coda ${sm.inCoda}${lavoro ? `, in volo ${sm.inVolo} su ${lavoro.operai.length} worker` : ''}, ${sm.ultimaMs.toFixed(1)} ms) · corpi ${corpi.statistiche.corpi} (${corpi.statistiche.svegli} svegli)\n`
     + `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)} · ${volo ? 'volo' : passeggero.aTerra ? 'a terra' : 'in aria'} · modifiche ${contaModifiche(mondo)}${salvate > 0 ? ` (${salvate} ricaricate)` : ''} · in mano: ${bottoni[scelto].textContent}${bersaglio ? ` · miri ${mondo.tipo(...bersaglio.cella)}` : ''}\n`
     + `WASD/joystick cammina · trascina guarda · doppio clic/L cattura il mouse · sinistro tieni = scava · destro/tocco = posa · ⛏ col dito scava · F vola · V terza (rotella/pizzico = zoom) · C cubi · 1-9 cassetta`;
@@ -358,7 +370,7 @@ async function apriOfficinaPartita() {
   const dock = document.getElementById('dock');
   statoGiocatore.cameraTira = () => cam3.tira; statoGiocatore.impostaCameraTira = (v) => (cam3.tira = !!v);
   officina = apriOfficina({
-    registri: [registroGiornoPartita(giorno), registroResa(resa), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore)],
+    registri: [registroGiornoPartita(giorno), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, seme: opz.seme })],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
     autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),
