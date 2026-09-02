@@ -119,7 +119,17 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => giu.delete(e.code));
 window.addEventListener('blur', () => giu.clear());
-window.addEventListener('wheel', (e) => scegli(scelto + Math.sign(e.deltaY)), { passive: true });
+// ⚠ LA ROTELLA È LO ZOOM DELLA TERZA PERSONA (il committente non poteva allontanarsi); la cassetta va coi numeri
+let distanzaTerza = 6;
+window.addEventListener('wheel', (e) => { if (terza) distanzaTerza = Math.max(1.5, Math.min(16, distanzaTerza * (e.deltaY > 0 ? 1.12 : 0.89))); }, { passive: true });
+let pizzico = 0;
+tela.addEventListener('touchmove', (e) => {
+  if (e.touches.length !== 2) return;
+  const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  if (pizzico > 0 && terza) distanzaTerza = Math.max(1.5, Math.min(16, distanzaTerza * pizzico / d));
+  pizzico = d;
+}, { passive: true });
+tela.addEventListener('touchend', () => { pizzico = 0; }, { passive: true });
 function impostaVolo(v) { volo = v; document.getElementById('volo').classList.toggle('acceso', volo); if (volo) passeggero.vy = 0; }
 function impostaTerza(v) { terza = v; document.getElementById('terza').classList.toggle('acceso', terza); }
 function cambiaVolo() { impostaVolo(!volo); }
@@ -156,8 +166,8 @@ function camera() {
   const v = sguardo.verso();
   const testa = [passeggero.x, passeggero.y + 0.8, passeggero.z];
   if (!terza) return { occhio: testa, centro: [testa[0] + v[0], testa[1] + v[1], testa[2] + v[2]], fov: 1.05, rapporto: tela.width / tela.height };
-  let d = 6;
-  for (let s = 0.5; s <= 6; s += 0.5) { if (mondo.solido(Math.floor(testa[0] - v[0] * s), Math.floor(testa[1] - v[1] * s), Math.floor(testa[2] - v[2] * s))) { d = Math.max(0.6, s - 0.6); break; } }
+  let d = distanzaTerza;
+  for (let s = 0.5; s <= distanzaTerza; s += 0.5) { if (mondo.solido(Math.floor(testa[0] - v[0] * s), Math.floor(testa[1] - v[1] * s), Math.floor(testa[2] - v[2] * s))) { d = Math.max(0.6, s - 0.6); break; } }
   const occhio = [testa[0] - v[0] * d, testa[1] - v[1] * d, testa[2] - v[2] * d];
   return { occhio, centro: testa, fov: 1.0, rapporto: tela.width / tela.height };
 }
@@ -265,7 +275,7 @@ function giro(adesso) {
   const cam = camera();
   // la mira, dall'occhio
   const v = sguardo.verso();
-  bersaglio = mira(mondo, { x: cam.occhio[0], y: cam.occhio[1], z: cam.occhio[2] }, { x: v[0], y: v[1], z: v[2] }, PORTATA + (terza ? 6 : 0));
+  bersaglio = mira(mondo, { x: cam.occhio[0], y: cam.occhio[1], z: cam.occhio[2] }, { x: v[0], y: v[1], z: v[2] }, PORTATA + (terza ? distanzaTerza : 0));
   if (tienePremuto && bersaglio) {
     const [x, y, z] = bersaglio.cella;
     scavo.premi(x + ',' + y + ',' + z, durataPer(defDi(mondo.tipo(x, y, z))), adesso);
@@ -299,7 +309,7 @@ function stampa() {
     `PARTITA sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
     + `disegni ${st.disegni + modelli.statistiche.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio} · triangoli ${(st.triangoli + modelli.statistiche.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio).toLocaleString('it')} · chunk ${st.chunkVisti}/${st.chunkTotali} (coda ${sm.inCoda}${lavoro ? `, in volo ${sm.inVolo} su ${lavoro.operai.length} worker` : ''}, ${sm.ultimaMs.toFixed(1)} ms) · corpi ${corpi.statistiche.corpi} (${corpi.statistiche.svegli} svegli)\n`
     + `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)} · ${volo ? 'volo' : passeggero.aTerra ? 'a terra' : 'in aria'} · modifiche ${contaModifiche(mondo)}${salvate > 0 ? ` (${salvate} ricaricate)` : ''} · in mano: ${bottoni[scelto].textContent}${bersaglio ? ` · miri ${mondo.tipo(...bersaglio.cella)}` : ''}\n`
-    + `WASD/joystick cammina · trascina guarda · doppio clic/L cattura il mouse · sinistro tieni = scava · destro/tocco = posa · ⛏ col dito scava · F vola · V terza · C cubi · 1-9 cassetta`;
+    + `WASD/joystick cammina · trascina guarda · doppio clic/L cattura il mouse · sinistro tieni = scava · destro/tocco = posa · ⛏ col dito scava · F vola · V terza (rotella/pizzico = zoom) · C cubi · 1-9 cassetta`;
 }
 requestAnimationFrame(giro);
 

@@ -5,20 +5,20 @@ import { CostruttoreErba, BYTE_FILO } from '../src/nucleo/erba.js';
 import { Mondo } from '../src/world/world.js';
 import { costruisciChunkNucleo } from '../src/nucleo/mesher-nucleo.js';
 
-test('un ciuffo sono tre vertici per filo, dentro il chunk, base e punta', () => {
+test('un ciuffo sono lamelle a istanze di dodici byte, dentro il chunk, col colore e la misura', () => {
   const c = new CostruttoreErba(4);
   const n = c.ciuffo(5, 6, 7, 0, 0, 0x4f9e46, 15, 1);
   const d = c.dati();
-  assert.ok(n >= 2 && n <= 10, `${n} fili`);
-  assert.equal(d.vertici, n * 3); assert.equal(d.fili, n);
-  assert.equal(d.byte.length, n * 3 * BYTE_FILO);
-  for (let i = 0; i < d.vertici; i++) {
+  assert.ok(n >= 2 && n <= 10, `${n} lamelle`);
+  assert.equal(d.fili, n); assert.equal(d.vertici, n * 6, 'sei vertici per lamella, dal shader');
+  assert.equal(d.byte.length, n * BYTE_FILO);
+  for (let i = 0; i < d.fili; i++) {
     const o = i * BYTE_FILO;
     assert.ok(d.byte[o] <= 128 && d.byte[o + 1] <= 128, 'in ottavi dentro il chunk');
-    assert.ok(d.byte[o + 2] >= (6 + 1 - 4) * 8, 'sopra la cima della cella');
-    const punta = d.byte[o + 7] & 1;
-    assert.equal(punta, i % 3 === 2 ? 1 : 0, 'la punta è il terzo vertice');
-    assert.equal(d.byte[o + 7] >> 1, 15, 'porta il cielo');
+    assert.equal(d.byte[o + 2], (6 + 1 - 4) * 8, 'la base è sulla cima della cella');
+    assert.equal(d.byte[o + 7] >> 2, 15, 'porta il cielo');
+    assert.ok(d.byte[o + 8] > 0 && d.byte[o + 8] <= 0.8 * 64, 'alta al più 0,8 celle');
+    assert.ok(d.byte[o + 9] > 0, 'larga');
   }
 });
 
