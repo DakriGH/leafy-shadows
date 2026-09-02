@@ -182,6 +182,17 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   61 alberi e lampioni in 2 disegni, 23k triangoli. ⚠ I modelli di Blockbench
   (cuboidi in JSON) entreranno nello stesso .bin: è il formato dell'Officina
   per «programmare nuovi modelli», e il convertitore è il posto dove aggiungerlo.
+- **02/09, l'acqua a una passata** (tecnica 4, prima stesura): il mesher del
+  nucleo mette l'acqua in un mesh suo (pelo e pareti verso l'aria, mai fra
+  acqua e acqua), con la PROFONDITÀ della colonna e il LIVELLO (`acqua~n`)
+  nei due nibble di luce del vertice; il vertex abbassa il pelo come `peloDi`
+  e lo fa ondeggiare; il fragment fa la legge del lago (azzurro trasparente in
+  superficie, violaceo e quasi pieno a dieci blocchi, il cielo capovolto per
+  fresnel, un brillio a gradino verso il sole). Disegnata dopo solidi e
+  modelli, fusione accesa, profondità non scritta. Culling: lo stesso frustum
+  dei solidi, e un chunk senza acqua non arriva neanche al disegno. Niente
+  specchio, niente rifrazione, niente depth pass: zero passate. Lo specchio
+  vero è la prossima porta di F3, da misurare.
 - Decisioni prese dal committente («vai con i consigli»): pannello di
   riferimento il Mali a 90 Hz finché non se ne misura un altro; ombre del sole
   direzionali via horizon mapping; Babylon solo attrezzo offline.

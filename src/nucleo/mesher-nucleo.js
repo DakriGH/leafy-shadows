@@ -7,8 +7,16 @@
 //
 // ⚠ NIENTE MOTORE: gira in Node, ed è lì che si prova.
 // ⚠ FASE F1, DICHIARATA: facce per blocco (niente greedy ancora), luce del cielo
-// piena ovunque (la propagazione è F2), acqua come blocco opaco (F3), niente
-// modelli (alberi e lampioni: F3). L'erba a ciuffi sta già nel mesh.
+// piena ovunque (la propagazione è F2). L'erba a ciuffi sta già nel mesh; i
+// modelli vanno a istanze (nucleo/modelli.js).
+//
+// ⚠ L'ACQUA È UN MESH A PARTE nello stesso formato (tecnica 4): il pelo e le
+// pareti verso l'aria, disegnati DOPO i solidi con la fusione. Nel vertice:
+//  · «cielo» porta la PROFONDITÀ della colonna (0..15 celle d'acqua sotto il
+//    pelo): è così che il lago vira al violaceo scendendo senza una passata di
+//    profondità — il mesher la sa già;
+//  · «blocco» porta il LIVELLO (`acqua~n`): il vertex shader abbassa il pelo di
+//    (1 + 2n)/16, che è esattamente `peloDi` in world/pelo.js.
 import { CHUNK } from '../world/world.js';
 import { defDi, tipoBase } from '../world/blocks.js';
 import { paletteBlocco, coloreFaccia } from '../world/stagioni.js';
@@ -16,6 +24,7 @@ import { tintaPalette } from '../world/motivi.js';
 import { materiaDi, tingiMateria, indiceMateria } from '../world/materie.js';
 import { FORME_VUOTE } from '../world/forme.js';
 import { CostruttoreNucleo } from './formato.js';
+import { livelloAcqua } from '../world/blocks.js';
 
 /** Lo scarto in Y: il mondo può scendere sotto zero, il byte no. */
 export const SCARTO_Y = 64;
@@ -41,7 +50,7 @@ function hash(x, y, z) {
 
 /**
  * Costruisce il chunk `kc` («cx,cz») del mondo.
- * @returns {{ byte, quad, vertici, triangoli, minY, maxY, y0, cx, cz, altezze }}
+ * @returns {{ byte, quad, vertici, triangoli, minY, maxY, y0, cx, cz, altezze, acqua: { byte, quad } }}
  *   `altezze` è la cima solida di ogni colonna del chunk (16×16, Int16, -1 se vuota):
  *   serve alla mappa delle altezze per l'ombra del sole.
  */
@@ -50,9 +59,11 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2 } = {}) {
   const cx = +kc.slice(0, v), cz = +kc.slice(v + 1);
   const ox = cx * CHUNK, oz = cz * CHUNK;
   const c = new CostruttoreNucleo(1024);
+  const ca = new CostruttoreNucleo(64);          // l'acqua
   const altezze = new Int16Array(CHUNK * CHUNK).fill(-1);
   let minY = 255, maxY = 0;
   const q = (x, y, z, n, col, vento = 0, mat = 0) => [x - ox, y + SCARTO_Y, z - oz, n, 15, 0, col, vento, mat];
+  const qa = (x, y, z, n, col, prof, liv) => [x - ox, y + SCARTO_Y, z - oz, n, prof, liv, col, 0, 0];
 
   mondo.perOgniDelChunk(kc, (x, y, z, tipo) => {
     const def = defDi(tipo);
@@ -69,10 +80,16 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2 } = {}) {
     if (materia) pal = { ...pal, cima: tingiMateria(pal.cima, materia), lato: tingiMateria(pal.lato, materia), fondo: tingiMateria(pal.fondo, materia) };
     const mat = materia ? indiceMateria(def.materia) : 0;
 
+    // la profondità e il livello, solo per l'acqua
+    let prof = 0, liv = 0;
+    if (acqua) {
+      liv = Math.max(0, Math.min(15, livelloAcqua(tipo) || 0));
+      while (prof < 15 && eAcqua(mondo.tipo(x, y - 1 - prof, z))) prof++;
+    }
     for (const [dx, dy, dz, n, asse, segno] of FACCE) {
       const vic = mondo.tipo(x + dx, y + dy, z + dz);
-      if (acqua) { if (vic) continue; }                   // l'acqua mostra la faccia solo verso l'aria
-      else if (opaco(vic)) continue;                      // il solido si ferma sui solidi
+      if (acqua) { if (vic && (eAcqua(vic) || opaco(vic))) continue; }   // il pelo verso l'aria, mai fra acqua e acqua
+      else if (opaco(vic)) continue;                                      // il solido si ferma sui solidi
       const col = coloreFaccia(pal, asse, segno);
       const X = x, Y = y, Z = z;
       let a, b, cc, d;
@@ -82,7 +99,8 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2 } = {}) {
       else if (n === 3) { a = [X, Y, Z + 1]; b = [X, Y, Z]; cc = [X + 1, Y, Z]; d = [X + 1, Y, Z + 1]; }
       else if (n === 4) { a = [X + 1, Y, Z + 1]; b = [X + 1, Y + 1, Z + 1]; cc = [X, Y + 1, Z + 1]; d = [X, Y, Z + 1]; }
       else              { a = [X, Y, Z]; b = [X, Y + 1, Z]; cc = [X + 1, Y + 1, Z]; d = [X + 1, Y, Z]; }
-      c.quadDa(q(...a, n, col, 0, mat), q(...b, n, col, 0, mat), q(...cc, n, col, 0, mat), q(...d, n, col, 0, mat));
+      if (acqua) ca.quadDa(qa(...a, n, col, prof, liv), qa(...b, n, col, prof, liv), qa(...cc, n, col, prof, liv), qa(...d, n, col, prof, liv));
+      else c.quadDa(q(...a, n, col, 0, mat), q(...b, n, col, 0, mat), q(...cc, n, col, 0, mat), q(...d, n, col, 0, mat));
       if (ly < minY) minY = ly; if (ly + 1 > maxY) maxY = ly + 1;
     }
 
@@ -102,7 +120,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2 } = {}) {
   });
   if (minY > maxY) { minY = 0; maxY = 0; }
   const d = c.dati();
-  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze };
+  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, acqua: ca.dati() };
 }
 
 function scurisci(c, k) {
