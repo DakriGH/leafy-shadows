@@ -25,6 +25,7 @@ const opz = {
   // `erba` è la stessa manopola (i fili per cima sono ~n × erba/2).
   erba: +(params.get('erba') ?? 8),
   ombra: params.get('ombra') !== 'no',
+  specchio: params.get('specchio') === 'no' ? 0 : Math.max(0.2, Math.min(1, +(params.get('specchio') ?? 0.5) || 0.5)),   // lo specchio dell'acqua: scala (0,5) o `no`
   dprMax: +(params.get('dpr') || 1.5),
   // ⚠ LA RAMPA: la porta di F0 si trova SALENDO finché il vsync cede. Il primo
   // rapporto dal Mali (89 fps piatti, 52k triangoli in vista, 23 disegni) era
@@ -45,6 +46,8 @@ const { gl, dpr, ridimensiona } = creaContesto(tela, { antialias: true, dprMax: 
 const resa = new Resa(gl);
 const modelli = new Modelli(gl);
 resa.ombra = opz.ombra;
+resa.specchio.attivo = opz.specchio > 0; resa.specchio.scala = opz.specchio || 0.5;
+resa.specchio.mostra = params.has('vedi');   // lo specchio nudo in un angolo
 
 // ── il mondo finto ──────────────────────────────────────────────────────────
 let blocchi = 0, tCostruzione = 0;
@@ -172,7 +175,7 @@ function giro(adesso) {
   sole(dt);
   const oc = occhio();
   const camera = { occhio: oc, centro: cam.centro, fov: cam.fov, rapporto: tela.width / tela.height };
-  resa.disegna(camera, dt);
+  resa.disegna(camera, dt, modelli);   // i modelli entrano anche nello specchio
   modelli.disegna(resa, camera);
   resa.disegnaAcqua();
   const js = performance.now() - tj;
@@ -211,13 +214,13 @@ const q = (arr, p) => { if (!arr.length) return 0; const s = arr.slice().sort((a
 function stampa() {
   const p50 = q(tempi, 0.5), p99 = q(tempi, 0.99), fps = p50 ? 1000 / p50 : 0;
   storiaFps.push(Math.round(fps)); if (storiaFps.length > 120) storiaFps.shift();
-  const st = { disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba, triangoli: resa.statistiche.triangoli + modelli.statistiche.triangoli + resa.statistiche.triangoliAcqua + resa.statistiche.triangoliErba, chunkVisti: resa.statistiche.chunkVisti, chunkTotali: resa.statistiche.chunkTotali };
+  const st = { disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, triangoli: resa.statistiche.triangoli + modelli.statistiche.triangoli + resa.statistiche.triangoliAcqua + resa.statistiche.triangoliErba + resa.statistiche.triangoliSpecchio, chunkVisti: resa.statistiche.chunkVisti, chunkTotali: resa.statistiche.chunkTotali };
   fpsBox.textContent = `${fps.toFixed(0)} fps\n${p50.toFixed(1)} / ${p99.toFixed(1)} ms\nJS ${q(jsMs, 0.5).toFixed(2)} ms`;
   stato.textContent = `NUCLEO ${opz.mondo ? `F1 · open world vero (semilato ${opz.mondo}, ${chunkVeri} chunk, ${blocchiVeri.toLocaleString('it')} blocchi, gen ${tempiMondo.tGen.toFixed(0)} ms + mesh ${tempiMondo.tMesh.toFixed(0)} ms)` : 'F0'} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
     + `disegni ${st.disegni}  triangoli ${st.triangoli.toLocaleString('it')}  chunk ${st.chunkVisti}/${st.chunkTotali}\n`
-    + `ombra del sole: ${resa.ombra ? 'horizon mapping' : 'spenta'} · erba ${opz.erba} · modelli ${modelli.statistiche.istanze} istanze in ${modelli.statistiche.disegni} disegni · acqua ${resa.statistiche.disegniAcqua} disegni · erba ${resa.statistiche.triangoliErba.toLocaleString('it')} fili in ${resa.statistiche.disegniErba} disegni · costruzione ${tCostruzione.toFixed(0)} ms\n`
+    + `ombra del sole: ${resa.ombra ? 'horizon mapping' : 'spenta'} · erba ${opz.erba} · modelli ${modelli.statistiche.istanze} istanze in ${modelli.statistiche.disegni} disegni · acqua ${resa.statistiche.disegniAcqua} disegni${resa.statistiche.pelo != null ? ` + specchio ${resa.statistiche.disegniSpecchio} disegni (pelo ${resa.statistiche.pelo.toFixed(2)}, scala ${resa.specchio.scala})` : ' (senza specchio)'} · erba ${resa.statistiche.triangoliErba.toLocaleString('it')} fili in ${resa.statistiche.disegniErba} disegni · costruzione ${tCostruzione.toFixed(0)} ms\n`
     + `${nomeScheda(gl)}\n`
-    + `?mondo=96 ?ora=0.95 ?finto ?raggio=${opz.raggio} ?erba=${opz.erba} ?ombra=${opz.ombra ? 'sì' : 'no'} ?dpr=${opz.dprMax} ?rampa ?tutto  ·  tocca lo schermo per girare`
+    + `?mondo=96 ?ora=0.95 ?finto ?raggio=${opz.raggio} ?erba=${opz.erba} ?ombra=${opz.ombra ? 'sì' : 'no'} ?specchio=${opz.specchio || 'no'} ?dpr=${opz.dprMax} ?rampa ?tutto  ·  tocca lo schermo per girare`
     + (esitiRampa.length ? '\nRAMPA  fps  p50   p99   dis  triangoli\n' + esitiRampa.map((e) => `r${e.raggio} e${e.erba}${e.tutto ? ' tutto' : ''}  ${String(e.fps).padStart(3)}  ${String(e.p50).padStart(5)}  ${String(e.p99).padStart(5)}  ${String(e.disegni).padStart(3)}  ${e.triangoli.toLocaleString('it')}`).join('\n') : '')
     + (opz.rampa ? `\nrampa: gradino ${gradinoRampa + 1}/${GRADINI_RAMPA.length}…` : '');
 }
@@ -230,10 +233,10 @@ const diagnostica = new Diagnostica(() => ({
   ua: navigator.userAgent, cpu: navigator.hardwareConcurrency || null, memoriaGB: navigator.deviceMemory || null,
   css: [tela.clientWidth, tela.clientHeight], reso: [tela.width, tela.height], dpr: devicePixelRatio,
   livello: 0, quantiLivelli: 1, manuale: true,
-  profilo: { banco: opz.mondo ? 'nucleo F1 mondo vero' : 'nucleo F0', mondo: opz.mondo, raggio: opz.raggio, erba: opz.erba, ombra: resa.ombra, tutto: !!resa.tutto, dprMax: opz.dprMax, jsMs: +q(jsMs, 0.5).toFixed(2), jsP99: +q(jsMs, 0.99).toFixed(2), rampa: esitiRampa },
+  profilo: { banco: opz.mondo ? 'nucleo F1 mondo vero' : 'nucleo F0', mondo: opz.mondo, raggio: opz.raggio, erba: opz.erba, ombra: resa.ombra, specchio: opz.specchio, disegniSpecchio: resa.statistiche.disegniSpecchio, tutto: !!resa.tutto, dprMax: opz.dprMax, jsMs: +q(jsMs, 0.5).toFixed(2), jsP99: +q(jsMs, 0.99).toFixed(2), rampa: esitiRampa },
   ombreLampade: false, antialias: true,
   fps: q(tempi, 0.5) ? 1000 / q(tempi, 0.5) : null, p50: q(tempi, 0.5), p99: q(tempi, 0.99),
-  disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba, triangoli: resa.statistiche.triangoli + modelli.statistiche.triangoli + resa.statistiche.triangoliAcqua + resa.statistiche.triangoliErba, ombreMs: 0,
+  disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, triangoli: resa.statistiche.triangoli + modelli.statistiche.triangoli + resa.statistiche.triangoliAcqua + resa.statistiche.triangoliErba + resa.statistiche.triangoliSpecchio, ombreMs: 0,
   storiaFps, storiaLivelli: [],
   scheda: nomeScheda(gl), software: /swiftshader|llvmpipe/i.test(nomeScheda(gl)),
   chunk: resa.statistiche.chunkTotali, blocchi, luci: 0, decorazioni: modelli.statistiche.istanze, erba: resa.statistiche.triangoliErba, ora: `${Math.floor(ora * 24)}h`, giorno: 0,

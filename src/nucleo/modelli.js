@@ -69,11 +69,13 @@ in float vNebbia;
 in vec3 vPos;
 uniform vec3 uNebbiaCol;
 uniform float uOmbra;
+uniform highp float uTaglio;     // la passata dello specchio non disegna sotto il pelo
 uniform highp vec3 uSoleVerso;
 uniform sampler2D uAltezze;
 uniform vec4 uAltRett;
 out vec4 colore;
 void main() {
+  if (vPos.y < uTaglio) discard;
   float luce = 1.0;
   if (uOmbra > 0.5) {
     vec3 dir = -uSoleVerso;
@@ -97,7 +99,7 @@ export class Modelli {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio']) this.u[n] = gl.getUniformLocation(this.programma, n);
     this.tipi = new Map();   // nome → { vao, vbo, ibo, vertici, istanze: Float32Array, n }
     this.statistiche = { disegni: 0, triangoli: 0, istanze: 0 };
   }
@@ -127,11 +129,13 @@ export class Modelli {
     t.n = t.istanze.length / 4; t.sporco = true;
   }
 
-  /** Disegna tutti i tipi con le stesse uniform della resa dei chunk. */
+  /** Disegna tutti i tipi con le stesse uniform della resa dei chunk, nella
+   *  passata in corso (la vista, o lo specchio: VP e taglio li dice la resa). */
   disegna(resa, camera) {
     const gl = this.gl, u = this.u, s = resa.sole;
     gl.useProgram(this.programma);
-    gl.uniformMatrix4fv(u.uVP, false, resa.vp);
+    gl.uniformMatrix4fv(u.uVP, false, resa.vpCorrente || resa.vp);
+    gl.uniform1f(u.uTaglio, resa.taglio ?? -1e9);
     gl.uniform1f(u.uTempo, resa.tempo);
     gl.uniform3f(u.uSoleVerso, s.verso[0], s.verso[1], s.verso[2]);
     gl.uniform3f(u.uSoleCol, s.colore[0], s.colore[1], s.colore[2]);
