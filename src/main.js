@@ -19,7 +19,8 @@ import { Flora } from './motore/flora.js';
 import { Mondo } from './world/world.js';
 import { Mesher, collegaFabbrica as fabbricaMesher } from './world/mesher.js';
 import { collegaFabbrica as fabbricaStagioni } from './world/stagioni.js';
-import { generaOpenWorld, LIVELLO_ACQUA } from './world/worldgen.js';
+import { generaOpenWorld, generaChunkOpenWorld, LIVELLO_ACQUA } from './world/worldgen.js';
+import { Frontiera } from './world/frontiera.js';
 import { peloVicino, pianoDaTenere } from './world/pelo.js';
 import { Erba, collegaFabbrica as fabbricaErba } from './vegetazione/erba.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
@@ -81,7 +82,21 @@ const t0 = performance.now();
 // è già il modello giusto. Fino ad allora questo parametro serve a trovare il
 // tetto vero di oggi con una misura invece che con una speranza.
 const _semilato = Math.max(16, Math.min(400, Number((location.search.match(/[?&]mondo=(\d+)/) || [])[1]) || 48));
-const { alberi, lampioni } = generaOpenWorld(mondo, 4242, _semilato);
+// ⚠ `?infinito` (o `?infinito=seme`) ACCENDE LO STREAMING: il mondo si genera
+// per chunk attorno a chi cammina e si scarica alle spalle (world/streaming.js).
+// È la strada per il mondo grande; l'open world a estensione fissa resta quello
+// di sempre finché il committente non lo giudica. Con lo streaming il worldgen
+// dà i chunk a richiesta e le decorazioni le posa la frontiera: qui non c'è
+// niente da posare.
+const _infinito = location.search.match(/[?&]infinito(?:=(\d+))?/);
+let alberi = [], lampioni = [];
+if (_infinito) {
+  const seme = Number(_infinito[1]) || 4242;
+  const frontiera = new Frontiera(mondo, (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, seme));
+  frontiera.assicura(0.5, 0.5, { resa: 64 }, { subito: true });   // il 3×3 sotto i piedi, prima del mesher
+} else {
+  ({ alberi, lampioni } = generaOpenWorld(mondo, 4242, _semilato));
+}
 // ⚠ E ADESSO DIVENTANO CELLE. Il worldgen dà delle terne [x, quota, z] e prima
 // finivano dritte nelle istanze di mesh: fuori dal mondo, quindi irrompibili e
 // non salvabili. Posarle come blocchi le fa entrare in tutta la macchina che

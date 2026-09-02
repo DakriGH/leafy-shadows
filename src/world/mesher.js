@@ -1454,6 +1454,18 @@ export class Mesher {
    * @param bersaglio (facolt.) il punto guardato: Vector3 o {x,z}
    */
   aggiorna(mondo, bersaglio = null) {
+    // ---- lo streaming, se c'è: prima si genera, poi si costruisce -------------
+    // ⚠ E LA GRIGLIA DEI MURI SI SPEGNE: è UNA texture 3D sulla scatola di tutto
+    // il mondo, e un mondo che cresce mentre si cammina la rifarebbe a ogni
+    // chunk nuovo finché non sfonda il paracadute. La griglia che segue la
+    // camera è il prossimo passo (PIANO-REWORK, R3); fino ad allora con lo
+    // streaming le lampade tornano ad attraversare i muri — un ripiego che si
+    // vede, non un guasto muto.
+    if (mondo.frontiera) {
+      if (this.occlusioneAttiva) { this.occlusioneAttiva = false; mondo.scordaCambi(); this._spegniOmbre(); }
+      if (bersaglio) mondo.frontiera.assicura(bersaglio.x, bersaglio.z, this.raggi);
+      mondo.scordaCambi();
+    }
     if (mondo.cambiate.length) this._rillumina(mondo);   // luce: subito, costa a blocco
     // i raggi li dice la fabbrica (dal profilo di qualità), se sa dirli
     if (_f.raggi) {

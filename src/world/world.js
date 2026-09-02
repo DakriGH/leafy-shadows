@@ -63,6 +63,64 @@ export class Mondo {
     this.cambiate = [];
     this.troppiCambi = false;
     this._memoCx = 0; this._memoCz = 0; this._memoChunk = null;        // oltre il tetto conviene rifare tutto
+    /**
+     * LO STREAMING (world/streaming.js): quali chunk sono stati GENERATI (anche
+     * se vuoti, per non rigenerarli a ogni giro) e le MODIFICHE del giocatore
+     * per chunk, cella → tipo (o null = tolto). Un chunk scaricato si rigenera
+     * dal seme e poi riceve le sue modifiche: il mondo resta quello che il
+     * giocatore ha lasciato, senza tenere in memoria quello che non guarda.
+     * ⚠ SI REGISTRANO SOLO LE SCRITTURE NON SILENZIOSE: la generazione e la
+     * simulazione scrivono silenziose e sono rigenerabili per definizione.
+     */
+    this.generati = new Set();
+    this.modifiche = new Map();      // kc → Map(chiave cella → tipo | null)
+    this.frontiera = null;            // la Frontiera dello streaming, se c'è
+  }
+
+  /** La frontiera ha generato questo chunk (anche vuoto). */
+  segnaGenerato(kc) { this.generati.add(kc); }
+
+  /** La modifica di una cella da parte di chi gioca: sopravvive allo scarico. */
+  _annotaModifica(x, y, z, tipo) {
+    if (!this.frontiera) return;                    // senza streaming non serve a nessuno
+    const kc = chiaveChunk(x, z);
+    let m = this.modifiche.get(kc);
+    if (!m) { m = new Map(); this.modifiche.set(kc, m); }
+    m.set(chiave(x, y, z), tipo);
+  }
+
+  /** Riapplica su un chunk appena rigenerato quello che il giocatore ci aveva fatto. */
+  applicaModifiche(kc) {
+    const m = this.modifiche.get(kc);
+    if (!m) return 0;
+    for (const [k, tipo] of m) {
+      const x = dax(k), y = day(k), z = daz(k);
+      if (tipo === null) this.togli(x, y, z, true); else this.metti(x, y, z, tipo, true);
+    }
+    return m.size;
+  }
+
+  /**
+   * SCARICA UN CHUNK: via i blocchi (le modifiche restano), il chunk esce dai
+   * generati e finisce fra gli sporchi, così il mesher gli toglie la mesh.
+   * Torna i blocchi «decorativi» (alberi, lampioni) che c'erano, perché chi
+   * tiene il registro delle decorazioni li deve dimenticare: sono le celle per
+   * cui la frontiera emette un evento `togli`.
+   */
+  scaricaChunk(kc) {
+    const c = this.chunks.get(kc);
+    if (!c) { this.generati.delete(kc); return []; }
+    const decorativi = [];
+    for (const [k, tipo] of c) {
+      const d = defDi(tipo);
+      if (d && d.forma === 'modello') decorativi.push([dax(k), day(k), daz(k), tipo]);
+    }
+    this.contaBlocchi -= c.size;
+    this.chunks.delete(kc);
+    this._scordaMemo();
+    this.generati.delete(kc);
+    this._tocca(kc, this.sporchi);
+    return decorativi;
   }
 
   // Tetto: una generazione di mondo passa di qui decine di migliaia di volte, e
@@ -163,7 +221,7 @@ export class Mondo {
       && (prima === undefined || prima.startsWith('acqua'));
     this._sporca(x, z, soloAcqua ? this.sporchiAcqua : this.sporchi);
     if (!soloAcqua) this._cambiata(x, y, z);
-    if (!silenzioso && this.onEvento) this.onEvento({ tipo: 'metti', cella: [x, y, z], blocco: tipo });
+    if (!silenzioso) { this._annotaModifica(x, y, z, tipo); if (this.onEvento) this.onEvento({ tipo: 'metti', cella: [x, y, z], blocco: tipo }); }
   }
 
   togli(x, y, z, silenzioso = false) {
@@ -178,7 +236,7 @@ export class Mondo {
     const eraAcqua = !!(prima && prima.startsWith('acqua'));
     this._sporca(x, z, eraAcqua ? this.sporchiAcqua : this.sporchi);
     if (!eraAcqua) this._cambiata(x, y, z);
-    if (!silenzioso && this.onEvento) this.onEvento({ tipo: 'togli', cella: [x, y, z] });
+    if (!silenzioso) { this._annotaModifica(x, y, z, null); if (this.onEvento) this.onEvento({ tipo: 'togli', cella: [x, y, z] }); }
     return true;
   }
 
