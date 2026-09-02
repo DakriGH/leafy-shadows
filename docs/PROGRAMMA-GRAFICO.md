@@ -86,7 +86,16 @@ chiamate. Oggi il problema è che arrivano in 700 chiamate e 5 passate.
 
 ## 4. Acne e qualità dell'ombra
 
-L'acne che si vede oggi ha quattro cause, tutte con rimedio noto:
+**Stato al 02/09 — fatto nel sorgente** (PR #4, fusa in `sorgente`): i chunk
+si disegnano nella mappa d'ombra con le facce di dietro (mesh per mesh, NON
+`forceBackFacesOnly`: le chiome sono piani incrociati e ne sparirebbe metà);
+verificato col sole a 14°, le righe sul sabbione spariscono. Il quanto del
+sole nella firma di quiete è passato da 1/100 a 1/1000: erano quelli gli
+«scatti» ogni mezzo secondo col giorno di cinque minuti. `ombraOgni` è 1 sui
+primi tre gradini desktop e 2 sui primi due mobile. Restano da fare il punto
+2 (bias per cascata, ora quasi inutile per il mondo) e il rinnovo a scaglioni.
+
+L'acne che si vedeva aveva quattro cause, tutte con rimedio noto:
 
 1. **Facce frontali nella mappa d'ombra**: per geometria chiusa (i blocchi)
    si rende la mappa con le **facce posteriori** (`forceBackFacesOnly`): la
