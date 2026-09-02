@@ -71,6 +71,7 @@ export function registroGiocatore(stato) {
     campi: [
       { chiave: 'volo', nome: 'vola', tipo: 'interruttore', leggi: () => !!stato.volo, scrivi: (v) => stato.impostaVolo(!!v) },
       { chiave: 'terza', nome: 'terza persona', tipo: 'interruttore', leggi: () => !!stato.terza, scrivi: (v) => stato.impostaTerza(!!v) },
+      { chiave: 'cameraTira', nome: 'la camera si tira dentro davanti a un muro', tipo: 'interruttore', leggi: () => !!(stato.cameraTira && stato.cameraTira()), scrivi: (v) => stato.impostaCameraTira && stato.impostaCameraTira(!!v) },
       { chiave: 'dove', nome: 'dove', tipo: 'lettura', leggi: () => stato.dove() },
       { chiave: 'casa', nome: '🏠 torna all\'origine', tipo: 'azione', fai: () => stato.aCasa() },
       { chiave: 'modifiche', nome: 'modifiche salvate', tipo: 'lettura', leggi: () => stato.modifiche ? stato.modifiche() : 0 },

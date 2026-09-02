@@ -11,6 +11,18 @@
          background: rgba(255,255,255,.72); padding: 5px 9px; border-radius: 6px; pointer-events: none; text-align: right; white-space: pre; }
   #stato { position: fixed; left: 8px; top: 8px; z-index: 10; font: 11px/1.45 ui-monospace, monospace; color: #0d2a1a;
            background: rgba(255,255,255,.72); padding: 6px 9px; border-radius: 6px; white-space: pre-wrap; pointer-events: none; max-width: 62vw; }
+  #stato[hidden] { display: none; }
+  #fps { font-size: 11px; padding: 3px 7px; opacity: .8; }
+  /* l'Officina: una colonna scura a destra della tela, fuori dal gioco */
+  body.con-officina { display: flex; flex-direction: row; }
+  body.con-officina #tela { width: calc(100% - 400px); }
+  #dock { display: none; }
+  body.con-officina #dock { display: block; width: 400px; height: 100%; background: #151c18; color: #dfe8e2; overflow: auto; position: relative; }
+  #chiudiDock { position: absolute; right: 8px; top: 6px; z-index: 50; background: transparent; color: #dfe8e2; border: 1px solid rgba(223,232,226,.3); border-radius: 6px; font: 12px ui-monospace, monospace; padding: 2px 8px; }
+  body.con-officina #fps, body.con-officina #azioni { right: 408px; }
+  body.con-officina #barra { left: calc((100vw - 400px) / 2); max-width: calc(100vw - 420px); }
+  body.con-officina #mira { left: calc((100vw - 400px) / 2); }
+  body.con-officina .off-tasto { display: none; }
   #mira { position: fixed; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; z-index: 10; pointer-events: none;
           border: 2px solid rgba(255,255,255,.9); border-radius: 50%; box-shadow: 0 0 0 1px rgba(13,42,26,.5); }
   #barra { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 12; display: flex; gap: 4px; max-width: 96vw;
@@ -29,7 +41,7 @@
 </head>
 <body>
   <canvas id="tela"></canvas>
-  <div id="stato">avvio…</div>
+  <div id="stato" hidden>avvio…</div>
   <div id="fps">—</div>
   <div id="mira"></div>
   <div id="azioni">
@@ -39,6 +51,7 @@
     <button id="officina" title="Officina">🛠</button>
   </div>
   <div id="barra"></div>
+  <div id="dock"><button id="chiudiDock" title="Chiudi l'Officina">✕</button></div>
   <pre id="guasto"></pre>
   <script type="module">
     const guasto = (e) => {

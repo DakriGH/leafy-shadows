@@ -113,6 +113,7 @@ window.addEventListener('keydown', (e) => {
   if (/^(INPUT|TEXTAREA)$/.test(e.target && e.target.tagName)) return;
   giu.add(e.code);
   if (e.code === 'KeyF') cambiaVolo();
+  if (e.code === 'KeyH') { const st = document.getElementById('stato'); st.hidden = !st.hidden; }
   if (e.code === 'KeyV') cambiaTerza();
   if (e.code === 'KeyC') lanciaCubi(20);
   if (/^Digit[0-9]$/.test(e.code)) scegli(e.code === 'Digit0' ? 9 : +e.code.slice(5) - 1);
@@ -139,13 +140,18 @@ document.getElementById('terza').addEventListener('click', cambiaTerza);
 document.getElementById('cubi').addEventListener('click', () => lanciaCubi(20));
 if (terza) document.getElementById('terza').classList.add('acceso');
 
-/** Il passo del passeggero, a passo fisso come i corpi (60 Hz), o il volo. */
+/** Il passo del passeggero, a passo fisso come i corpi (60 Hz), o il volo.
+ *  ⚠ SI INTERPOLA: la posizione disegnata sta fra il passo prima e quello dopo
+ *  (`posizioneDisegnata()`), se no a 90 Hz con passi a 60 il gatto va a scatti. */
 const PASSO = 1 / 60; let resto = 0;
+const prima = { x: passeggero.x, y: passeggero.y, z: passeggero.z };
+function posizioneDisegnata() { const a = Math.min(1, resto / PASSO); return [prima.x + (passeggero.x - prima.x) * a, prima.y + (passeggero.y - prima.y) * a, prima.z + (passeggero.z - prima.z) * a]; }
 function cammina(dt) {
   resto = Math.min(resto + dt, PASSO * 4);
   const av = sguardo.avantiPiano();
   while (resto >= PASSO) {
     resto -= PASSO;
+    prima.x = passeggero.x; prima.y = passeggero.y; prima.z = passeggero.z;
     if (volo) {
       const v = 9 * PASSO, fx = av.x, fz = av.z;
       passeggero.x += (fx * intento.avanti - fz * intento.destra) * v;
@@ -161,15 +167,28 @@ function cammina(dt) {
   }
 }
 
-/** L'occhio: in prima persona la testa, in terza sei blocchi dietro, tirato dentro se c'è un muro. */
-function camera() {
+/**
+ * L'occhio. In prima persona la testa. In terza, alla Animal Crossing: la
+ * camera SEGUE il gatto con un ritardo morbido (mira e occhio filtrati), sta
+ * SEMPRE alla stessa distanza e ATTRAVERSA gli ostacoli (di fabbrica: il buco
+ * di visuale nel fragment lascia vedere il gatto lo stesso); con
+ * `cameraTira` invece si tira dentro davanti a un muro, come prima.
+ */
+const cam3 = { mira: null, occhio: null, tira: false };
+let giroGatto = Math.PI, giroVoluto = Math.PI;
+function camera(dt = 0) {
   const v = sguardo.verso();
-  const testa = [passeggero.x, passeggero.y + 0.8, passeggero.z];
-  if (!terza) return { occhio: testa, centro: [testa[0] + v[0], testa[1] + v[1], testa[2] + v[2]], fov: 1.05, rapporto: tela.width / tela.height };
+  const [px, py, pz] = posizioneDisegnata();
+  const testa = [px, py + 0.8, pz];
+  if (!terza) { cam3.mira = null; return { occhio: testa, centro: [testa[0] + v[0], testa[1] + v[1], testa[2] + v[2]], fov: 1.05, rapporto: tela.width / tela.height }; }
   let d = distanzaTerza;
-  for (let s = 0.5; s <= distanzaTerza; s += 0.5) { if (mondo.solido(Math.floor(testa[0] - v[0] * s), Math.floor(testa[1] - v[1] * s), Math.floor(testa[2] - v[2] * s))) { d = Math.max(0.6, s - 0.6); break; } }
-  const occhio = [testa[0] - v[0] * d, testa[1] - v[1] * d, testa[2] - v[2] * d];
-  return { occhio, centro: testa, fov: 1.0, rapporto: tela.width / tela.height };
+  if (cam3.tira) for (let s = 0.5; s <= distanzaTerza; s += 0.5) { if (mondo.solido(Math.floor(testa[0] - v[0] * s), Math.floor(testa[1] - v[1] * s), Math.floor(testa[2] - v[2] * s))) { d = Math.max(0.6, s - 0.6); break; } }
+  const voluto = [testa[0] - v[0] * d, testa[1] - v[1] * d, testa[2] - v[2] * d];
+  // il filtro: costante di tempo 90 ms sulla mira, 60 ms sull'occhio (la rotazione resta pronta)
+  if (!cam3.mira) { cam3.mira = testa.slice(); cam3.occhio = voluto.slice(); }
+  const km = 1 - Math.exp(-dt / 0.09), ko = 1 - Math.exp(-dt / 0.06);
+  for (let i = 0; i < 3; i++) { cam3.mira[i] += (testa[i] - cam3.mira[i]) * km; cam3.occhio[i] += (voluto[i] - cam3.occhio[i]) * ko; }
+  return { occhio: cam3.occhio.slice(), centro: cam3.mira.slice(), fov: 1.0, rapporto: tela.width / tela.height };
 }
 
 // ── la cassetta e il cantiere ────────────────────────────────────────────────
@@ -275,7 +294,8 @@ function giro(adesso) {
   streaming.aggiorna(passeggero.x, passeggero.z, 5);
   resa.seguiAltezze(passeggero.x, passeggero.z);
   aggiornaModelli();
-  const cam = camera();
+  const cam = camera(dt);
+  resa.buco = terza ? [cam.centro[0], cam.centro[1] - 0.2, cam.centro[2], 0.75] : [0, 0, 0, 0];
   // la mira, dall'occhio
   const v = sguardo.verso();
   bersaglio = mira(mondo, { x: cam.occhio[0], y: cam.occhio[1], z: cam.occhio[2] }, { x: v[0], y: v[1], z: v[2] }, PORTATA + (terza ? distanzaTerza : 0));
@@ -286,9 +306,13 @@ function giro(adesso) {
   } else if (!tienePremuto) scavo.molla();
   // i corpi e l'omino
   modelli.istanze('cubo', bufIstanze = corpi.istanze(bufIstanze), 8);
-  // il gatto guarda dove guarda la camera, e cammina con un passetto
+  // ⚠ ALLA ANIMAL CROSSING: il gatto si gira verso dove CAMMINA (non verso la
+  // camera), con una rotazione morbida; cammina con un passetto
+  if (intento.avanti || intento.destra) giroVoluto = Math.PI - passeggero.verso;
+  let dg = giroVoluto - giroGatto; dg = Math.atan2(Math.sin(dg), Math.cos(dg)); giroGatto += dg * (1 - Math.exp(-dt / 0.08));
   const passo = (intento.avanti || intento.destra) && passeggero.aTerra ? Math.abs(Math.sin(adesso / 90)) * 0.06 : 0;
-  if (terza) modelli.istanze('omino', [passeggero.x, passeggero.y + passo, passeggero.z, 1, 1, 1, 1, sguardo.alpha], 8); else modelli.istanze('omino', [], 8);
+  const [gx, gy, gz] = posizioneDisegnata();
+  if (terza) modelli.istanze('omino', [gx, gy + passo, gz, 1, 1, 1, 1, giroGatto], 8); else modelli.istanze('omino', [], 8);
   resa.disegna(cam, dt, modelli);
   modelli.disegna(resa, cam);
   if (bersaglio) resa.evidenzia(bersaglio.cella[0], bersaglio.cella[1], bersaglio.cella[2], scavo.progresso(adesso));
@@ -328,12 +352,18 @@ async function apriOfficinaPartita() {
     modifiche: () => contaModifiche(mondo),
     nuovo: () => { try { localStorage.removeItem(CHIAVE_SALVATAGGIO); } catch { /* niente */ } location.search = `?seme=${opz.seme}&nuovo`; },
   };
+  // ⚠ FUORI DAL GIOCO, SCURA: una colonna a destra della tela (il committente:
+  // «l'officina doveva essere in dark mode esterna», non un pannello sopra la GUI)
+  document.body.classList.add('con-officina');
+  const dock = document.getElementById('dock');
+  statoGiocatore.cameraTira = () => cam3.tira; statoGiocatore.impostaCameraTira = (v) => (cam3.tira = !!v);
   officina = apriOfficina({
     registri: [registroGiornoPartita(giorno), registroResa(resa), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore)],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
-    autore: 'partita', titolo: 'Officina · partita', apertoSubito: true,
+    autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),
   });
+  document.getElementById('chiudiDock').addEventListener('click', () => { document.body.classList.remove('con-officina'); officina.pannello.radice.remove(); officina = null; passoOfficina = null; });
 }
 document.getElementById('officina').addEventListener('click', apriOfficinaPartita);
 if (params.has('officina')) apriOfficinaPartita();
