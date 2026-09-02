@@ -48,6 +48,12 @@
                   background: rgba(255,255,255,.85); font: 600 11px/1.1 ui-monospace, monospace; color: #0d2a1a; padding: 2px 6px; }
   #barra button.scelto { background: #0d2a1a; color: #fff; }
   #barra button .q { display: block; width: 26px; height: 12px; margin: 0 auto 3px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); }
+  /* ⚠ LE PILLOLE «col mouse» e «diagnosi» NON STANNO SUL JOYSTICK: a metà
+     schermo (46 %) su un telefono di traverso coprivano la parte alta della
+     levetta, e spingendo «avanti» il dito partiva sulla pillola: il gatto non
+     camminava («il movimento si blocca in avanti»). A dito vanno in alto a sinistra. */
+  html.gui-tocco #diag { top: 58px; }
+  html.gui-tocco #modoGui { top: 8px; }
   #azioni { position: fixed; right: 8px; top: 64px; z-index: 12; display: flex; flex-direction: column; gap: 6px; }
   #azioni button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(13,42,26,.18); background: rgba(255,255,255,.8);
                    font-size: 20px; color: #0d2a1a; padding: 0; }

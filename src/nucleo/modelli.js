@@ -71,7 +71,7 @@ precision mediump sampler2D;
 flat in vec3 vColOmbra;
 flat in vec3 vColSole;
 in float vNebbia;
-in vec3 vPos;
+in highp vec3 vPos;
 uniform highp vec4 uBuco;        // il buco di visuale (vedi resa.js); zero per il giocatore stesso
 uniform highp vec3 uOcchio;
 uniform vec3 uNebbiaCol;
@@ -79,9 +79,22 @@ uniform float uSagoma;           // 1 = la passata della sagoma: colore scuro pi
 uniform float uOmbra;
 uniform highp float uTaglio;     // la passata dello specchio non disegna sotto il pelo
 uniform highp vec3 uSoleVerso;
-uniform sampler2D uAltezze;
-uniform vec4 uAltRett;
+uniform sampler2D uOmbre;
+uniform vec2 uOmbreScala;
+uniform highp vec4 uAltRett;
 out vec4 colore;
+// ⚠ L'OMBRA DEL SOLE È UNA LETTURA SOLA: la mappa delle ombre (uOmbre, per
+// colonna: la quota sotto cui si è in ombra, calcolata dalla GPU quando il sole
+// si sposta, vedi Resa._calcolaOmbre) letta mezzo blocco VERSO il sole (così
+// una parete al sole legge la colonna davanti, non la propria) e confrontata
+// con la quota del pixel con una soglia netta: cel shading, niente acne,
+// niente puntini, niente penombra sbavata.
+float ombraSole(highp vec3 pos) {
+  vec2 dir = -uSoleVerso.xz; float l = length(dir); dir = l > 1e-4 ? dir / l : vec2(0.0);
+  highp vec2 uv = (pos.xz + dir * 0.5 - uAltRett.xy) * uAltRett.zw;
+  float hs = texture(uOmbre, uv).r * uOmbreScala.x + uOmbreScala.y;
+  return 1.0 - smoothstep(-0.04, 0.04, hs - (pos.y + 0.03));
+}
 void main() {
   if (vPos.y < uTaglio) discard;
   if (uBuco.w > 0.0) {
@@ -89,20 +102,7 @@ void main() {
     float t = dot(vPos - uOcchio, dir);
     if (t > 0.0 && t < lung - 0.35 && length(vPos - uOcchio - dir * t) < uBuco.w) discard;
   }
-  float luce = 1.0;
-  if (uOmbra > 0.5) {
-    vec3 dir = -uSoleVerso;
-    vec3 q = vPos + dir * 0.35 + vec3(0.0, 0.15, 0.0);
-    float passo = 0.6, cammino = 0.35, copertura = 0.0;
-    for (int i = 0; i < 8; i++) {
-      q += dir * passo; cammino += passo;
-      vec2 uv = (q.xz - uAltRett.xy) * uAltRett.zw;
-      float h = texture(uAltezze, uv).r * 255.0;
-      copertura = max(copertura, clamp((h - q.y) / (0.3 + 0.10 * cammino), 0.0, 1.0));
-      passo *= 1.35;
-    }
-    luce = 1.0 - copertura;
-  }
+  float luce = uOmbra > 0.5 ? ombraSole(vPos) : 1.0;
   vec3 c = vColOmbra + vColSole * luce;
   c = pow(mix(c, pow(uNebbiaCol, vec3(2.2)), vNebbia), vec3(1.0 / 2.2));
   // ⚠ LA SAGOMA: quando il gatto è dietro un albero o un muro, si vede la sua
@@ -152,7 +152,7 @@ export class Modelli {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma']) this.u[n] = gl.getUniformLocation(this.programma, n);
     this.sagoma = 'omino';   // il tipo che si vede in sagoma attraverso i blocchi (null = nessuno)
     this.tipi = new Map();   // nome → { vao, vbo, ibo, vertici, istanze: Float32Array, n }
     this.statistiche = { disegni: 0, triangoli: 0, istanze: 0 };
@@ -205,7 +205,7 @@ export class Modelli {
     gl.uniform3f(u.uNebbiaCol, resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2]);
     gl.uniform3f(u.uCam, camera.occhio[0], camera.occhio[1], camera.occhio[2]);
     gl.uniform1f(u.uOmbra, resa.ombra && resa.altezze ? 1 : 0);
-    if (resa.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, resa.altezze); gl.uniform1i(u.uAltezze, 0); gl.uniform4f(u.uAltRett, resa.altRett[0], resa.altRett[1], resa.altRett[2], resa.altRett[3]); }
+    if (resa.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, resa.ombre.tex); gl.uniform1i(u.uOmbre, 0); gl.uniform2f(u.uOmbreScala, resa.ombre.scala, resa.ombre.offset); gl.uniform4f(u.uAltRett, resa.altRett[0], resa.altRett[1], resa.altRett[2], resa.altRett[3]); }
     let disegni = 0, tri = 0, ist = 0;
     gl.uniform1f(u.uSagoma, 0);
     for (const [nome, t] of this.tipi) {

@@ -68,49 +68,41 @@ flat in float vEmis;
 flat in float vCielo;
 in float vBlocco;
 in float vNebbia;
-in vec3 vPos;
+in highp vec3 vPos;   // ⚠ highp: l'ombra si legge a coordinate di mondo (±256), in mediump ballerebbe di un quarto di blocco
 uniform vec3 uNebbiaCol;
 uniform vec3 uSoleCol;
 uniform vec3 uCieloCol;          // il colore dell'ombra: È il cielo
-uniform float uOmbra;            // 1 = horizon mapping acceso
+uniform float uOmbra;            // 1 = ombra del sole accesa
 uniform highp float uTaglio;     // sotto questa quota non si disegna (la passata dello specchio)
 // ⚠ STESSA PRECISIONE DEL VERTEX: un uniform condiviso fra i due shader deve
 // avere la stessa precisione, o il link fallisce («precisions differ»).
 uniform highp vec3 uSoleVerso;
-uniform sampler2D uAltezze;      // R8: quota della cima / 255, un texel per colonna
-uniform vec4 uAltRett;           // x0, z0, 1/larghezza, 1/profondita
+uniform sampler2D uOmbre;        // la mappa delle ombre: quota d'ombra per colonna (Resa._calcolaOmbre)
+uniform vec2 uOmbreScala;        // come si decodifica: quota = r * x + y
+uniform highp vec4 uAltRett;           // x0, z0, 1/larghezza, 1/profondita
 uniform highp vec4 uBuco;        // il buco di visuale della terza persona: il giocatore (xyz) e il raggio (0 = spento)
 uniform highp vec3 uOcchio;      // da dove guarda la camera
 out vec4 colore;
+// ⚠ L'OMBRA DEL SOLE È UNA LETTURA SOLA: la mappa delle ombre (uOmbre, per
+// colonna: la quota sotto cui si è in ombra, calcolata dalla GPU quando il sole
+// si sposta, vedi Resa._calcolaOmbre) letta mezzo blocco VERSO il sole (così
+// una parete al sole legge la colonna davanti, non la propria) e confrontata
+// con la quota del pixel con una soglia netta: cel shading, niente acne,
+// niente puntini, niente penombra sbavata.
+float ombraSole(highp vec3 pos) {
+  vec2 dir = -uSoleVerso.xz; float l = length(dir); dir = l > 1e-4 ? dir / l : vec2(0.0);
+  highp vec2 uv = (pos.xz + dir * 0.5 - uAltRett.xy) * uAltRett.zw;
+  float hs = texture(uOmbre, uv).r * uOmbreScala.x + uOmbreScala.y;
+  return 1.0 - smoothstep(-0.04, 0.04, hs - (pos.y + 0.03));
+}
 void main() {
   if (vPos.y < uTaglio) discard;   // lo specchio non guarda sott'acqua
-  // ⚠ IL BUCO DI VISUALE («occhio di bue»): fra la camera e il giocatore non si
-  // disegna niente entro il raggio, così il gatto si vede sempre e la camera
-  // non deve tirarsi dentro quando c'è un albero in mezzo.
   if (uBuco.w > 0.0) {
     vec3 seg = uBuco.xyz - uOcchio; float lung = length(seg); vec3 dir = seg / lung;
     float t = dot(vPos - uOcchio, dir);
     if (t > 0.0 && t < lung - 0.35 && length(vPos - uOcchio - dir * t) < uBuco.w) discard;
   }
-  float luce = 1.0;
-  if (uOmbra > 0.5) {
-    // ⚠ HORIZON MAPPING: si cammina verso il sole sulla mappa delle altezze
-    // (un texel per colonna, NEAREST: filtrata, ogni gradino faceva una rampa
-    // d'ombra sul blocco accanto — «artefatti ovunque»). Quanto la cima supera
-    // il raggio, diviso per la distanza, fa la PENOMBRA: vicino all'ostacolo
-    // l'ombra è netta, lontano sfuma.
-    vec3 dir = -uSoleVerso;
-    vec3 q = vPos + dir * 0.35 + vec3(0.0, 0.15, 0.0);
-    float passo = 0.6, cammino = 0.35, copertura = 0.0;
-    for (int i = 0; i < 8; i++) {
-      q += dir * passo; cammino += passo;
-      vec2 uv = (q.xz - uAltRett.xy) * uAltRett.zw;
-      float h = texture(uAltezze, uv).r * 255.0;
-      copertura = max(copertura, clamp((h - q.y) / (0.3 + 0.10 * cammino), 0.0, 1.0));
-      passo *= 1.35;
-    }
-    luce = 1.0 - copertura;
-  }
+  float luce = uOmbra > 0.5 ? ombraSole(vPos) : 1.0;
   // le bande: il cielo a quattro (per faccia), la lampada a quattro (sulla luce
   // interpolata: pozze tonde), il sole diretto solo dove il cielo è pieno
   float cieloB = floor(vCielo * 4.0 + 0.5) / 4.0;
@@ -290,7 +282,7 @@ export class Resa {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio']) {
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio']) {
       this.u[n] = gl.getUniformLocation(this.programma, n);
     }
     // ⚠ UN SOLO BUFFER DI INDICI PER TUTTI I CHUNK (formato.js)
@@ -300,7 +292,7 @@ export class Resa {
     // stesso fragment dei solidi (horizon mapping, nebbia), ma con i colori INTERPOLATI: la lamella sfuma dalla base alla punta
     this.programmaErba = compila(gl, VS_ERBA, FS.replace(/flat in /g, 'in '));
     this.ue = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
     this.programmaAcqua = compila(gl, VS_ACQUA, FS_ACQUA);
     this.ua = {};
     for (const n of ['uVP', 'uChunk', 'uTempo', 'uCam', 'uNebbia', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbiaCol', 'uSpecchio', 'uSchermo']) this.ua[n] = gl.getUniformLocation(this.programmaAcqua, n);
@@ -327,6 +319,15 @@ export class Resa {
     this._tegolaVuota = new Uint8Array(256);
     this.taglio = -1e9;         // la quota sotto cui la passata in corso non disegna
     this.buco = [0, 0, 0, 0];   // il buco di visuale (xyz, raggio; 0 = spento: di fabbrica il gatto si vede in SAGOMA attraverso i blocchi, vedi modelli.js)
+    // ⚠ LA MAPPA DELLE OMBRE: per ogni colonna della mappa delle altezze, la
+    // quota sotto cui si è in ombra del sole (la cima più alta incontrata
+    // verso il sole, abbassata della pendenza). La calcola la GPU
+    // (`_calcolaOmbre`) quando il sole si sposta o quando cambiano le altezze,
+    // solo nel rettangolo cambiato; il fragment fa UNA lettura. Mezzo float se
+    // la scheda lo permette (quote esatte), altrimenti R8 a quarti di blocco.
+    this.ombre = { tex: null, fbo: null, w: 0, h: 0, sporco: null, sole: [0, 0, 0], scala: 1, offset: 0, mezzoFloat: false, calcoli: 0 };
+    this._ombreMezzo = !!gl.getExtension('EXT_color_buffer_half_float') && !!gl.getExtension('OES_texture_half_float_linear');
+    this.statistiche.calcoliOmbre = 0;
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
@@ -430,6 +431,7 @@ export class Resa {
     if (!forza && Math.abs(x - (f.x0 + mezzo)) < f.lato / 4 && Math.abs(z - (f.z0 + mezzo)) < f.lato / 4) return false;
     f.x0 = Math.floor((x - mezzo) / 16) * 16; f.z0 = Math.floor((z - mezzo) / 16) * 16;
     this.altRett = [f.x0, f.z0, 1 / f.lato, 1 / f.lato];
+    if (this.ombre.w !== f.lato) this._preparaOmbre(f.lato, f.lato); else this.ombre.sporco = [0, 0, f.lato, f.lato];
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, f.lato, f.lato, 0, gl.RED, gl.UNSIGNED_BYTE, f.vuota);
@@ -445,6 +447,7 @@ export class Resa {
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, px, pz, 16, 16, gl.RED, gl.UNSIGNED_BYTE, vuota ? this._tegolaVuota : c.tegola);
+    this._sporcaOmbre(px, pz, 16, 16);
   }
 
   /**
@@ -514,7 +517,93 @@ precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { co
     this.chunks.delete(kc);
   }
 
-  /** La mappa delle altezze per l'horizon mapping: un byte per colonna. */
+  /** Segna da ricalcolare le ombre in un rettangolo della mappa (texel), allargato di quanto un'ombra può arrivare. */
+  _sporcaOmbre(px, pz, w, h) {
+    const M = 26;
+    const r = [Math.max(0, px - M), Math.max(0, pz - M), Math.min(this.ombre.w || 1e9, px + w + M), Math.min(this.ombre.h || 1e9, pz + h + M)];
+    const s = this.ombre.sporco;
+    this.ombre.sporco = s ? [Math.min(s[0], r[0]), Math.min(s[1], r[1]), Math.max(s[2], r[2]), Math.max(s[3], r[3])] : r;
+  }
+
+  _preparaOmbre(w, h) {
+    const gl = this.gl, o = this.ombre;
+    if (!o.tex) { o.tex = gl.createTexture(); o.fbo = gl.createFramebuffer(); }
+    gl.bindTexture(gl.TEXTURE_2D, o.tex);
+    o.mezzoFloat = this._ombreMezzo;
+    if (o.mezzoFloat) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, w, h, 0, gl.RED, gl.HALF_FLOAT, null); o.scala = 1; o.offset = 0; }
+    else { gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, null); o.scala = 64; o.offset = -8; }   // (quota + 8) / 64: da −8 a 56 a quarti di blocco
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, o.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, o.tex, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE && o.mezzoFloat) {
+      // la scheda non rende su mezzo float: si ripiega sull'R8
+      this._ombreMezzo = false; gl.bindFramebuffer(gl.FRAMEBUFFER, null); return this._preparaOmbre(w, h);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    o.w = w; o.h = h; o.sporco = [0, 0, w, h];
+    if (!this.programmaOmbre) {
+      this.programmaOmbre = compila(gl, `#version 300 es
+void main() { vec2 q = vec2((gl_VertexID == 1) ? 3.0 : -1.0, (gl_VertexID == 2) ? 3.0 : -1.0); gl_Position = vec4(q, 0.0, 1.0); }`,
+      `#version 300 es
+precision highp float;
+uniform sampler2D uAltezze;   // R8: la cima di ogni colonna (+1) / 255
+uniform vec4 uAltRett;        // x0, z0, 1/larghezza, 1/profondita
+uniform vec3 uSole;           // direzione VERSO il sole in pianta (x, z), e la pendenza (tan dell'elevazione)
+uniform vec2 uCodifica;       // scala e offset: r = (quota - offset) / scala
+out vec4 colore;
+void main() {
+  // la colonna di questo texel, al centro
+  vec2 p = gl_FragCoord.xy;
+  vec2 dir = uSole.xy; float tg = uSole.z;
+  // la propria cima, un quarto di passo avanti: le pareti di schiena sono in ombra, le cime no
+  float hs = texture(uAltezze, p * uAltRett.zw).r * 255.0 - 0.25 * tg;
+  // ⚠ PASSO FISSO DI MEZZO BLOCCO PER 24 BLOCCHI: nessuna colonna saltata, che era la causa dei puntini
+  for (int i = 1; i <= 48; i++) {
+    float t = float(i) * 0.5;
+    float h = texture(uAltezze, (p + dir * t) * uAltRett.zw).r * 255.0;
+    hs = max(hs, h - t * tg);
+  }
+  colore = vec4((hs - uCodifica.y) / uCodifica.x, 0.0, 0.0, 1.0);
+}`);
+      this.uOmbre = {}; for (const n of ['uAltezze', 'uAltRett', 'uSole', 'uCodifica']) this.uOmbre[n] = gl.getUniformLocation(this.programmaOmbre, n);
+      this.vaoOmbre = gl.createVertexArray();
+    }
+  }
+
+  /** Ricalcola la mappa delle ombre nel rettangolo sporco (o tutta, se il sole si è spostato). */
+  _calcolaOmbre() {
+    const gl = this.gl, o = this.ombre, s = this.sole;
+    if (!this.altezze || !o.tex) return;
+    // il sole si è spostato di più di mezzo grado? tutto da rifare
+    const d = s.verso[0] * o.sole[0] + s.verso[1] * o.sole[1] + s.verso[2] * o.sole[2];
+    if (d < 0.99996) { o.sole = s.verso.slice(); o.sporco = [0, 0, o.w, o.h]; }
+    if (!o.sporco) return;
+    const [x0, z0, x1, z1] = o.sporco; o.sporco = null;
+    if (x1 <= x0 || z1 <= z0) return;
+    const lx = Math.hypot(s.verso[0], s.verso[2]) || 1e-4;
+    const dir = [-s.verso[0] / lx, -s.verso[2] / lx], tg = Math.max(0.05, -s.verso[1] / lx);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, o.fbo);
+    gl.viewport(0, 0, o.w, o.h);
+    gl.enable(gl.SCISSOR_TEST); gl.scissor(x0, z0, x1 - x0, z1 - z0);
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+    gl.useProgram(this.programmaOmbre);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(this.uOmbre.uAltezze, 0);
+    gl.uniform4f(this.uOmbre.uAltRett, 0, 0, 1 / o.w, 1 / o.h);   // in texel: la mappa e le ombre hanno la stessa griglia
+    gl.uniform3f(this.uOmbre.uSole, dir[0], dir[1], tg);
+    gl.uniform2f(this.uOmbre.uCodifica, o.scala, o.offset);
+    gl.bindVertexArray(this.vaoOmbre);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+    gl.disable(gl.SCISSOR_TEST); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    o.calcoli++; this.statistiche.calcoliOmbre = o.calcoli;
+  }
+
+  /** La mappa delle altezze per l'ombra del sole: un byte per colonna. */
   impostaAltezze(byte, x0, z0, larghezza, profondita) {
     const gl = this.gl;
     if (!this.altezze) this.altezze = gl.createTexture();
@@ -527,6 +616,7 @@ precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { co
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.altRett = [x0, z0, 1 / larghezza, 1 / profondita];
+    this._preparaOmbre(larghezza, profondita);
   }
 
   /** Le sedici materie: [emissione, brillio, riflesso, libero] per riga. La riga 0 è «nessuna». */
@@ -565,6 +655,8 @@ precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { co
       // la tinta della cima, e i triangoli risparmiati sono migliaia per chunk.
       if (c.verticiErba > 0 && Math.hypot(c.x0 + 8 - camera.occhio[0], c.z0 + 8 - camera.occhio[2]) <= this.erbaFinoA) this._visibiliErba.push(c);
     }
+    // ── la mappa delle ombre, se il sole si è spostato o le altezze sono cambiate ──
+    if (this.ombra && this.altezze) this._calcolaOmbre();
     // ── lo specchio dell'acqua, prima di tutto: una passata a parte ──────────
     st.disegniSpecchio = 0; st.triangoliSpecchio = 0; st.pelo = null;
     this.specchio.pelo = null;
@@ -593,7 +685,7 @@ precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { co
       gl.uniform1f(ue.uTaglio, -1e9);
       gl.uniform1f(ue.uErbaFinoA, this.erbaFinoA);
       gl.uniform4f(ue.uBuco, this.buco[0], this.buco[1], this.buco[2], this.buco[3]); gl.uniform3f(ue.uOcchio, camera.occhio[0], camera.occhio[1], camera.occhio[2]);
-      if (this.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(ue.uAltezze, 0); gl.uniform4f(ue.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]); }
+      if (this.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.ombre.tex); gl.uniform1i(ue.uOmbre, 0); gl.uniform2f(ue.uOmbreScala, this.ombre.scala, this.ombre.offset); gl.uniform4f(ue.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]); }
       gl.disable(gl.CULL_FACE);
       for (const c of this._visibiliErba) {
         // ⚠ LA BASE DELL'ERBA È GIÀ IN QUOTA DI MONDO (yLo del chunk): NON si somma
@@ -634,8 +726,8 @@ precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { co
     const b = specchiato ? [0, 0, 0, 0] : this.buco;   // lo specchio non ha il buco
     gl.uniform4f(u.uBuco, b[0], b[1], b[2], b[3]); gl.uniform3f(u.uOcchio, occhio[0], occhio[1], occhio[2]);
     if (this.altezze) {
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.altezze);
-      gl.uniform1i(u.uAltezze, 0);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.ombre.tex);
+      gl.uniform1i(u.uOmbre, 0); gl.uniform2f(u.uOmbreScala, this.ombre.scala, this.ombre.offset);
       gl.uniform4f(u.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]);
     }
     let disegni = 0, tri = 0;
