@@ -1215,9 +1215,18 @@ provati in Node (257 prove) e a schermo. Le trappole già pagate:
   decorazioni si posano NON silenziose e allo scarico si emette un `togli`
   per ciascuna: `gioco/decoro.js` impara dagli eventi, e una posa silenziosa
   darebbe l'albero nel mondo e nessun modello a schermo. ⚠ Con la frontiera
-  la griglia dei muri è SPENTA (è una texture 3D sulla scatola del mondo
-  intero, e un mondo che cresce la rifarebbe a ogni chunk): le lampade
-  attraversano i muri finché non c'è la griglia che segue la camera.
+  la griglia dei muri è una FINESTRA che segue chi guarda (`_seguiFinestra`
+  in world/mesher.js): ±48 blocchi in pianta, ricentrata quando ci si
+  allontana di 16 dal centro, letta solo dai chunk che tocca. I cambi fuori
+  dalla finestra in pianta si scartano PRIMA di `_rillumina` (la frontiera
+  genera a novanta blocchi: sono migliaia di celle a giro che non riguardano
+  nessun muro vicino); se il tetto dei cambi è scattato si guarda se un chunk
+  sporco tocca la finestra e solo allora si rifà. Una lampada FUORI dalla
+  finestra non trova muri e passa attraverso tutto: a 48 blocchi è già nella
+  nebbia, ed è il compromesso dichiarato. Il pannello Mondo dice «griglia:
+  finestra». ⚠ La scatola in pianta è fissa sulla finestra, non sui blocchi:
+  un blocco posato al bordo non la fa crescere; uno posato sopra il TETTO sì,
+  come senza streaming (`applicaCambi` torna false → ricalcolo).
   `generaChunkOpenWorld` è la stessa terra dell'open world senza l'anello di
   bordo e senza i fiumi (non locali); niente tetti globali su alberi e lampioni.
 - **Le uniform delle lampade si scrivono una volta per fotogramma per

@@ -840,6 +840,14 @@ const APPLICAZIONI_PER_GIRO = 3;
 // sotto la soglia. Un paracadute che non si apre mai è codice morto; questo
 // invece resta una rete vera per i mondi importati o costruiti in verticale.
 const LUCE_LIMITE_CELLE = 2e6;
+// LA FINESTRA DELLA GRIGLIA CON LO STREAMING: mezzo lato in pianta, in blocchi,
+// attorno a chi guarda. ⚠ Più larga del raggio di una lampada (RAGGIO_MAX, 15)
+// di parecchio, perché una lampada FUORI dalla finestra non trova muri e passa
+// attraverso tutto: a 48 blocchi la lampada che sbaglia è già nella nebbia.
+// L'isteresi decide ogni quanto si rifà camminando: un ricalcolo ogni sedici
+// blocchi, non uno per passo.
+const FINESTRA_LUCE = 48;
+const ISTERESI_FINESTRA = 16;
 // Oltre questi cambi in un colpo solo la rilluminazione locale non conviene più
 // (generazione del mondo, import, incolla di una struttura): meglio una griglia
 // nuova. NON è più una soglia sulla TAGLIA DEL MONDO: quella era una rupe
@@ -867,7 +875,7 @@ export class Mesher {
     // spento l'interruttore" e di "mondo vuoto". Tre stati diversi sotto
     // un'etichetta sola: se il paracadute si aprisse davvero, nessuno saprebbe
     // distinguerlo da una preferenza.
-    this.statistiche = { ultimaMs: 0, chunkAttivi: 0, occMs: 0, occCelle: 0, occLocali: 0, occTroppoGrande: 0, voxTroppoLarga: 0, inCoda: 0 };
+    this.statistiche = { ultimaMs: 0, chunkAttivi: 0, occMs: 0, occCelle: 0, occLocali: 0, occTroppoGrande: 0, voxTroppoLarga: 0, occFinestra: '', inCoda: 0 };
     this._codaPiena = new Set();   // chunk in attesa di rebuild INTERO (vedi aggiorna)
     this._codaAcqua = new Set();   // chunk in attesa del solo rebuild dell'acqua
     /**
@@ -903,6 +911,8 @@ export class Mesher {
     this._chunkOsservatore = null; // "cx,cz" di chi guarda all'ultimo riesame
     this._bersaglio = null;        // {x, z} dell'ultimo riesame
     this.luce = null;              // GrigliaLuce (i muri), rifatta prima dei chunk
+    this._finestra = null;         // con lo streaming: la finestra della griglia (vedi _seguiFinestra)
+    this._bersaglioLuce = null;    // l'ultimo punto da cui si è guardato, per ricentrarla
     this.occlusioneAttiva = true;  // interruttore delle Impostazioni
     this._velato = false;          // il mondo sta usando il materiale dell'occhio di bue?
     // QUI STAVA MEZZO SISTEMA, e vale la pena dire cosa se n'è andato con le
@@ -922,7 +932,7 @@ export class Mesher {
    * colore che lo shader moltiplica per tutto, quindi cambiare ora non tocca
    * niente e infatti il ciclo non rimesha mai.
    */
-  _ricalcolaLuce(mondo) {
+  _ricalcolaLuce(mondo, bersaglio = this._bersaglioLuce) {
     const t0 = performance.now();
     const vecchia = this.luce;
     this.luce = null;
@@ -931,8 +941,21 @@ export class Mesher {
     this.statistiche.occLocali = 0;
     this.statistiche.occTroppoGrande = 0;
     this.statistiche.voxTroppoLarga = 0;
+    this.statistiche.occFinestra = '';
     mondo.scordaCambi();
     if (!this.occlusioneAttiva) { this._spegniOmbre(); return; }
+
+    // ⚠ CON LO STREAMING LA GRIGLIA È UNA FINESTRA, non la scatola del mondo:
+    // un mondo che cresce mentre si cammina non ha una scatola, e quella che
+    // avrebbe sfonderebbe il paracadute delle celle al terzo chunk. La finestra
+    // sta attorno a chi guarda (FINESTRA_LUCE per lato), si ricentra quando se
+    // ne allontana di ISTERESI_FINESTRA (vedi `_seguiFinestra`), e si legge
+    // SOLO dai chunk che tocca: il resto del mondo non si scorre nemmeno.
+    // ⚠ La scatola in pianta è FISSA sulla finestra, non sui blocchi che
+    // contiene: così un blocco posato al bordo non la fa crescere, e la
+    // texture 3D resta della stessa misura da un ricentramento all'altro.
+    const finestra = (mondo.frontiera && bersaglio) ? this._finestraLuce(bersaglio) : null;
+    this._finestra = finestra;
 
     // UNA SOLA PASSATA SUL MONDO. La scatola serve prima di poter allocare la
     // griglia, quindi le celle solide si mettono da parte qui appiattite: la
@@ -941,12 +964,13 @@ export class Mesher {
     // split+map e alloca un oggetto: altri 34 ms buttati (misurato in gioco).
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    if (finestra) { minX = finestra.minX; maxX = finestra.maxX; minZ = finestra.minZ; maxZ = finestra.maxZ; }
     const solidi = [];
     // blocchi che fermano le lampade ma NON il sole (Officina: «solo alle
     // lampade»). Elenco a parte perche' sono rari: cosi' il ciclo caldo resta
     // quello di prima e questi si applicano dopo, in una passata sua.
     const senzaSole = [];
-    mondo.perOgni((x, y, z, tipo) => {
+    const raccogli = (x, y, z, tipo) => {
       if (x < minX) minX = x; if (x > maxX) maxX = x;
       if (y < minY) minY = y; if (y > maxY) maxY = y;
       if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
@@ -962,14 +986,28 @@ export class Mesher {
       // tutta la riscrittura: la griglia serve a dire dove sono i MURI, e i muri
       // non sanno niente di chi li illumina. Prima qui si metteva da parte ogni
       // sorgente pesante per poterle cuocere una mappa a testa.
-    });
-    if (!isFinite(minX)) { this._spegniOmbre(); return; }   // mondo vuoto
+    };
+    if (finestra) {
+      for (let cx = Math.floor(finestra.minX / CHUNK); cx <= Math.floor(finestra.maxX / CHUNK); cx++) {
+        for (let cz = Math.floor(finestra.minZ / CHUNK); cz <= Math.floor(finestra.maxZ / CHUNK); cz++) {
+          mondo.perOgniDelChunk(cx + ',' + cz, (x, y, z, tipo) => {
+            if (x < finestra.minX || x > finestra.maxX || z < finestra.minZ || z > finestra.maxZ) return;
+            raccogli(x, y, z, tipo);
+          });
+        }
+      }
+    } else {
+      mondo.perOgni(raccogli);
+    }
+    if (!isFinite(minX) || !isFinite(minY)) { this._spegniOmbre(); return; }   // mondo (o finestra) vuoto
 
     // GLI INGOMBRI DEI FURNI ALLARGANO LA SCATOLA, e non è pignoleria: la chioma
     // di un albero piantato sul blocco più alto del mondo sta SOPRA il mondo, e
     // fuori dalla scatola marcaOmbra() scarta in silenzio — cioè l'albero più
     // visibile del diorama sarebbe l'unico senza ombra.
+    // (Con la finestra: solo in altezza, e solo per chi sta dentro in pianta.)
     for (const c of mondo.ombreFurni.values()) {
+      if (finestra && (c.x < finestra.minX || c.x > finestra.maxX || c.z < finestra.minZ || c.z > finestra.maxZ)) continue;
       if (c.x < minX) minX = c.x; if (c.x > maxX) maxX = c.x;
       if (c.y < minY) minY = c.y; if (c.y > maxY) maxY = c.y;
       if (c.z < minZ) minZ = c.z; if (c.z > maxZ) maxZ = c.z;
@@ -1022,6 +1060,64 @@ export class Mesher {
     this.luce = g;
     this.statistiche.occCelle = celle;
     this.statistiche.occMs = performance.now() - t0;
+    if (finestra) this.statistiche.occFinestra = `${finestra.cx},${finestra.cz} ±${FINESTRA_LUCE}`;
+  }
+
+  /** La finestra della griglia attorno a un punto: quadrata, in blocchi interi. */
+  _finestraLuce(b) {
+    const cx = Math.round(b.x), cz = Math.round(b.z);
+    return { cx, cz, minX: cx - FINESTRA_LUCE, maxX: cx + FINESTRA_LUCE, minZ: cz - FINESTRA_LUCE, maxZ: cz + FINESTRA_LUCE };
+  }
+
+  /**
+   * LA GRIGLIA SEGUE CHI GUARDA (solo con lo streaming). Da chiamare a ogni
+   * giro PRIMA di `_rillumina`, che consuma i cambi:
+   *  · nessuna griglia → se ne fa una attorno al bersaglio;
+   *  · il bersaglio è uscito dall'isteresi → si ricentra (un ricalcolo ogni
+   *    sedici blocchi camminati, misurato sotto i dieci millisecondi);
+   *  · altrimenti i cambi FUORI dalla finestra in pianta si scartano qui, prima
+   *    che `_rillumina` li conti: la frontiera genera a novanta blocchi e quei
+   *    blocchi non riguardano nessun muro vicino. ⚠ Il filtro è in pianta e
+   *    non in altezza: un blocco posato sopra il tetto della scatola deve
+   *    ancora farla rifare (come senza streaming), e ci pensa `applicaCambi`.
+   *  · Se il tetto dei cambi è scattato non si sa più COSA è cambiato: si
+   *    guarda se un chunk sporco tocca la finestra — è il caso dell'avvio, con
+   *    i chunk che nascono sotto la griglia appena fatta — e in quel caso si
+   *    rifà; se no era tutta roba lontana e si lascia stare.
+   */
+  _seguiFinestra(mondo, bersaglio) {
+    if (!this.occlusioneAttiva) { mondo.scordaCambi(); return; }
+    if (bersaglio) this._bersaglioLuce = { x: bersaglio.x, z: bersaglio.z };
+    const f = this._finestra;
+    if (!this.luce || !f) {
+      if (this._bersaglioLuce) this._ricalcolaLuce(mondo, this._bersaglioLuce);
+      else mondo.scordaCambi();
+      return;
+    }
+    if (bersaglio && (Math.abs(bersaglio.x - f.cx) > ISTERESI_FINESTRA || Math.abs(bersaglio.z - f.cz) > ISTERESI_FINESTRA)) {
+      this._ricalcolaLuce(mondo, this._bersaglioLuce);
+      return;
+    }
+    const c = mondo.cambiate;
+    let n = 0;
+    for (let i = 0; i < c.length; i += 3) {
+      const x = c[i], z = c[i + 2];
+      if (x < f.minX || x > f.maxX || z < f.minZ || z > f.maxZ) continue;
+      c[n] = x; c[n + 1] = c[i + 1]; c[n + 2] = z; n += 3;
+    }
+    c.length = n;
+    if (mondo.troppiCambi) {
+      mondo.troppiCambi = false;
+      for (const kc of mondo.sporchi) {
+        if (this._chunkToccaFinestra(kc, f)) { this._ricalcolaLuce(mondo, this._bersaglioLuce); return; }
+      }
+    }
+  }
+
+  _chunkToccaFinestra(kc, f) {
+    const v = kc.indexOf(',');
+    const x0 = +kc.slice(0, v) * CHUNK, z0 = +kc.slice(v + 1) * CHUNK;
+    return x0 <= f.maxX && x0 + CHUNK - 1 >= f.minX && z0 <= f.maxZ && z0 + CHUNK - 1 >= f.minZ;
   }
 
   /** Carica la griglia in GPU. False se la scheda non regge un lato cosi' lungo. */
@@ -1314,7 +1410,8 @@ export class Mesher {
    */
   ricostruisciTutto(mondo, attorno = null) {
     const t0 = performance.now();
-    this._ricalcolaLuce(mondo);
+    this._bersaglioLuce = attorno ? { x: attorno.x, z: attorno.z } : null;
+    this._ricalcolaLuce(mondo, this._bersaglioLuce);
     for (const kc of [...this.chunks.keys()]) {
       if (!mondo.chunks.has(kc)) this._rimuovi(kc);
     }
@@ -1455,16 +1552,14 @@ export class Mesher {
    */
   aggiorna(mondo, bersaglio = null) {
     // ---- lo streaming, se c'è: prima si genera, poi si costruisce -------------
-    // ⚠ E LA GRIGLIA DEI MURI SI SPEGNE: è UNA texture 3D sulla scatola di tutto
-    // il mondo, e un mondo che cresce mentre si cammina la rifarebbe a ogni
-    // chunk nuovo finché non sfonda il paracadute. La griglia che segue la
-    // camera è il prossimo passo (PIANO-REWORK, R3); fino ad allora con lo
-    // streaming le lampade tornano ad attraversare i muri — un ripiego che si
-    // vede, non un guasto muto.
+    // ⚠ E LA GRIGLIA DEI MURI È UNA FINESTRA CHE SEGUE CHI GUARDA (vedi
+    // `_seguiFinestra`): la scatola del mondo intero non esiste più quando il
+    // mondo cresce camminando, e la prima versione la spegneva del tutto — le
+    // lampade attraversavano i muri. Adesso la griglia copre ±FINESTRA_LUCE
+    // attorno al bersaglio e si ricentra con isteresi.
     if (mondo.frontiera) {
-      if (this.occlusioneAttiva) { this.occlusioneAttiva = false; mondo.scordaCambi(); this._spegniOmbre(); }
       if (bersaglio) mondo.frontiera.assicura(bersaglio.x, bersaglio.z, this.raggi);
-      mondo.scordaCambi();
+      this._seguiFinestra(mondo, bersaglio);
     }
     if (mondo.cambiate.length) this._rillumina(mondo);   // luce: subito, costa a blocco
     // i raggi li dice la fabbrica (dal profilo di qualità), se sa dirli
@@ -1596,6 +1691,9 @@ export function registroMesher(mesher, mondo, { applicaPieno = null, leggiPieno 
     { chiave: 'blocchi', nome: 'blocchi nel mondo', tipo: 'lettura', leggi: () => mondo.contaBlocchi.toLocaleString('it') },
     { chiave: 'luce', nome: 'griglia dei muri (celle · ms)', tipo: 'lettura',
       leggi: () => `${(st().occCelle || 0).toLocaleString('it')} · ${(st().occMs || 0).toFixed(1)} ms` },
+    { chiave: 'finestra', nome: 'griglia: finestra (streaming)', tipo: 'lettura',
+      nota: 'con la frontiera la griglia copre solo una finestra attorno a chi guarda, e si ricentra con isteresi',
+      leggi: () => st().occFinestra || '— (la scatola del mondo intero)' },
     { chiave: 'ultima', nome: 'ultimo giro del mesher', tipo: 'lettura', leggi: () => `${(st().ultimaMs || 0).toFixed(2)} ms` },
   ];
   if (applicaPieno && leggiPieno) {
