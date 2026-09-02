@@ -219,8 +219,10 @@ void main() {
 // ── L'ERBA: fili a triangolo, un disegno per chunk, due facce, opaca ────────
 const VS_ERBA = `#version 300 es
 precision highp float;
+// ⚠ UNA LAMELLA È UN'ISTANZA (nucleo/erba.js): la geometria la fa gl_VertexID
 layout(location = 0) in uvec4 aA;   // x8 z8 y8 seme
-layout(location = 1) in uvec4 aB;   // r g b (punta | cielo<<1)
+layout(location = 1) in uvec4 aB;   // r g b (cielo<<2)
+layout(location = 2) in uvec4 aC;   // altezza/64, larghezza/128, inclinazione/128+128, libero
 uniform mat4 uVP;
 uniform vec3 uChunk;                // x0, yBase, z0
 uniform float uTempo;
@@ -231,26 +233,45 @@ uniform vec3 uCieloCol;
 uniform vec2 uNebbia;
 uniform vec3 uCam;
 uniform vec2 uVento;                // direzione del vento in pianta
-flat out vec3 vColOmbra;
-flat out vec3 vColSole;
+uniform float uErbaFinoA;           // oltre, niente lamelle: ci si arriva abbassandole, non tagliandole
+out vec3 vColOmbra;
+out vec3 vColSole;
 out float vNebbia;
 out vec3 vPos;
 void main() {
-  vec3 p = uChunk + vec3(float(aA.x), float(aA.z), float(aA.y)) / 8.0;
+  vec3 base = uChunk + vec3(float(aA.x), float(aA.z), float(aA.y)) / 8.0;
   float seme = float(aA.w) / 255.0;
-  bool punta = (aB.w & 1u) == 1u;
-  float cielo = float(aB.w >> 1u) / 15.0;
-  if (punta) {   // la punta ondeggia col vento, la base no: come il prato
-    float f = sin(uTempo * 1.9 + seme * 6.28 + p.x * 0.35 + p.z * 0.5) * 0.5 + 0.5;
-    p.xz += uVento * (0.06 + 0.16 * f) + vec2(sin(uTempo * 3.1 + seme * 9.0), cos(uTempo * 2.3 + seme * 7.0)) * 0.03;
+  float cielo = float(aB.w >> 2u) / 15.0;
+  float alto = float(aC.x) / 64.0, largo = float(aC.y) / 128.0, inclina = (float(aC.z) - 128.0) / 128.0;
+  // il verso della lamella in pianta (dal seme) e la sua perpendicolare
+  float ang = seme * 6.2832;
+  vec2 lungo = vec2(cos(ang), sin(ang)), largoV = vec2(-lungo.y, lungo.x);
+  // la distanza decide la forma: rettangolo vicino, triangolo da 28 blocchi in poi,
+  // e nell'ultimo quinto prima del confine la lamella si abbassa nel terreno
+  float d = distance(base.xz, uCam.xz);
+  float triangolo = smoothstep(28.0, 44.0, d);
+  float fade = 1.0 - smoothstep(uErbaFinoA * 0.8, uErbaFinoA, d);
+  alto *= fade;
+  // i sei vertici del rettangolo: 0 basso-sx, 1 basso-dx, 2 alto-dx, 3 basso-sx, 4 alto-dx, 5 alto-sx
+  int id = gl_VertexID;
+  float punta = (id == 2 || id == 4 || id == 5) ? 1.0 : 0.0;
+  float lato = (id == 1 || id == 2 || id == 4) ? 1.0 : -1.0;
+  lato *= mix(1.0, 0.0, punta * triangolo);   // in alto, da lontano, le due punte si chiudono al centro
+  vec3 p = base;
+  p.xz += largoV * (lato * largo * 0.5) + lungo * (inclina * punta);
+  p.y += alto * punta;
+  if (punta > 0.5) {   // la punta ondeggia col vento, la base no: come il prato
+    float f = sin(uTempo * 1.9 + seme * 6.28 + base.x * 0.35 + base.z * 0.5) * 0.5 + 0.5;
+    p.xz += (uVento * (0.06 + 0.16 * f) + vec2(sin(uTempo * 3.1 + seme * 9.0), cos(uTempo * 2.3 + seme * 7.0)) * 0.03) * fade;
   }
-  vec3 base = pow(vec3(aB.xyz) / 255.0, vec3(2.2));
+  // la SFUMATURA: base scura, punta chiara, come le lamelle di Leafy
+  vec3 col = pow(vec3(aB.xyz) / 255.0, vec3(2.2)) * mix(0.42, 1.0, punta);
   // l'erba è tinta piatta: vede il sole se ha il cielo, senza normale
   float sole = floor(step(0.99, cielo) * uSoleForza * 3.0 + 0.5) / 3.0;
   float cieloBande = floor(cielo * 4.0 + 0.5) / 4.0;
-  vec3 ombraE = base * uCieloCol * (0.25 + 0.75 * cieloBande);
+  vec3 ombraE = col * uCieloCol * (0.25 + 0.75 * cieloBande);
   vColOmbra = ombraE;
-  vColSole = (base * uSoleCol - ombraE) * sole;
+  vColSole = (col * uSoleCol - ombraE) * sole;
   vNebbia = clamp((distance(p, uCam) - uNebbia.x) / (uNebbia.y - uNebbia.x), 0.0, 1.0);
   vPos = p;
   gl_Position = uVP * vec4(p, 1.0);
@@ -268,9 +289,10 @@ export class Resa {
     this.ebo = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ebo);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indiciCondivisi(QUAD_MAX), gl.STATIC_DRAW);
-    this.programmaErba = compila(gl, VS_ERBA, FS);   // stesso fragment dei solidi (horizon mapping, nebbia)
+    // stesso fragment dei solidi (horizon mapping, nebbia), ma con i colori INTERPOLATI: la lamella sfuma dalla base alla punta
+    this.programmaErba = compila(gl, VS_ERBA, FS.replace(/flat in vec3/g, 'in vec3'));
     this.ue = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uAltezze', 'uAltRett', 'uTaglio', 'uErbaFinoA']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
     this.programmaAcqua = compila(gl, VS_ACQUA, FS_ACQUA);
     this.ua = {};
     for (const n of ['uVP', 'uChunk', 'uTempo', 'uCam', 'uNebbia', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbiaCol', 'uSpecchio', 'uSchermo']) this.ua[n] = gl.getUniformLocation(this.programmaAcqua, n);
@@ -331,14 +353,17 @@ export class Resa {
     // l'erba del chunk, se c'è: fili a triangolo, un VAO suo
     const e = dati.erba;
     c.verticiErba = e ? e.vertici : 0;
+    c.lamelle = e ? e.fili : 0;
     c.yBaseErba = e ? e.yBase : 0;
     if (c.verticiErba > 0) {
       if (!c.vaoErba) {
         c.vaoErba = gl.createVertexArray(); c.vboErba = gl.createBuffer();
         gl.bindVertexArray(c.vaoErba);
         gl.bindBuffer(gl.ARRAY_BUFFER, c.vboErba);
-        gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 4, gl.UNSIGNED_BYTE, 8, 0);
-        gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_BYTE, 8, 4);
+        // ⚠ TRE ATTRIBUTI PER ISTANZA (divisor 1): dodici byte per lamella, sei vertici dal gl_VertexID
+        gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 4, gl.UNSIGNED_BYTE, 12, 0); gl.vertexAttribDivisor(0, 1);
+        gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 4, gl.UNSIGNED_BYTE, 12, 4); gl.vertexAttribDivisor(1, 1);
+        gl.enableVertexAttribArray(2); gl.vertexAttribIPointer(2, 4, gl.UNSIGNED_BYTE, 12, 8); gl.vertexAttribDivisor(2, 1);
         gl.bindVertexArray(null);
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, c.vboErba);
@@ -527,6 +552,7 @@ precision mediump float; uniform vec3 uColore; out vec4 colore; void main() { co
       gl.uniform2f(ue.uVento, Math.cos(this.tempo * 0.045), Math.sin(this.tempo * 0.045));
       gl.uniform1f(ue.uOmbra, this.ombra && this.altezze ? 1 : 0);
       gl.uniform1f(ue.uTaglio, -1e9);
+      gl.uniform1f(ue.uErbaFinoA, this.erbaFinoA);
       if (this.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(ue.uAltezze, 0); gl.uniform4f(ue.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]); }
       gl.disable(gl.CULL_FACE);
       for (const c of this._visibiliErba) {
@@ -534,8 +560,8 @@ precision mediump float; uniform vec3 uColore; out vec4 colore; void main() { co
         // lo scarto del chunk, o i fili finiscono 64 celle sotto, nel lago.
         gl.uniform3f(ue.uChunk, c.chunk[0], c.yBaseErba, c.chunk[2]);
         gl.bindVertexArray(c.vaoErba);
-        gl.drawArrays(gl.TRIANGLES, 0, c.verticiErba);
-        disegniErba++; triErba += c.verticiErba / 3;
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, c.lamelle);
+        disegniErba++; triErba += c.lamelle * 2;
       }
       gl.enable(gl.CULL_FACE);
       gl.bindVertexArray(null);

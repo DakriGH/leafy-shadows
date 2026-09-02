@@ -52,7 +52,7 @@ test('l\'erba col cappello mette i fili nel mesh dell\'erba, non nei solidi', ()
   const d = costruisciChunkNucleo(m, '0,0', { erba: 3 });
   assert.equal(d.quad, senza.quad, 'i solidi non cambiano');
   assert.ok(d.erba.fili > 0, 'ci sono i fili');
-  assert.equal(d.erba.vertici, d.erba.fili * 3, 'tre vertici per filo');
+  assert.equal(d.erba.vertici, d.erba.fili * 6, 'sei vertici per lamella (dal shader)');
   assert.ok(d.maxY >= 0 + 2 + SCARTO_Y);
 });
 
