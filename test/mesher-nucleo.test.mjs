@@ -41,11 +41,15 @@ test('l\'erba col cappello mette i ciuffi nel mesh, con la cima che ondeggia', (
   assert.equal(d.maxY, 0 + 2 + SCARTO_Y);
 });
 
-test('l\'acqua mostra la faccia solo verso l\'aria', () => {
-  const m = new Mondo(); m.metti(0, 0, 0, 'terra', true); m.metti(0, 1, 0, 'acqua', true);
+test('l\'acqua va nel suo mesh, con profondità e livello nel vertice', () => {
+  const m = new Mondo(); m.metti(0, 0, 0, 'terra', true); m.metti(0, 1, 0, 'acqua', true); m.metti(0, 2, 0, 'acqua', true); m.metti(0, 3, 0, 'acqua~1', true);
   const d = costruisciChunkNucleo(m, '0,0', { erba: 0 });
-  // terra: 5 facce (la cima è coperta dall'acqua? no: l'acqua non è opaca → la cima resta) → 6; acqua: 5 (sotto c'è terra)
-  assert.equal(d.quad, 6 + 5);
+  assert.equal(d.quad, 6, 'la terra ha le sue sei facce (l\'acqua non è opaca)');
+  assert.ok(d.acqua.quad > 0, 'l\'acqua ha un mesh suo');
+  // il pelo (normale +Y) esiste solo sulla cella più alta, e porta profondità 2 e livello 1
+  let peli = 0;
+  for (let i = 0; i < d.acqua.vertici; i++) { const v = leggiVertice(d.acqua.byte, i); if (v.normale === 2) { peli++; assert.equal(v.cielo, 2); assert.equal(v.blocco, 1); } }
+  assert.equal(peli, 4, 'un pelo solo, quattro vertici');
   assert.equal(d.altezze[0], 0, 'l\'acqua non conta come cima solida');
 });
 
