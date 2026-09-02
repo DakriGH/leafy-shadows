@@ -83,10 +83,17 @@
   si genera per chunk davanti a chi cammina e si scarica dietro, con le
   modifiche del giocatore conservate per chunk; misurato: 316 chunk generati
   camminando 360 blocchi, mai più di ~150 in memoria, decorazioni al seguito;
-- ⏳ la griglia dei muri che SEGUE la camera (con lo streaming oggi è spenta:
-  le lampade attraversano i muri), i fiumi nel generatore per chunk (oggi
-  solo nell'open world a estensione fissa), catalogo asset dichiarativo,
-  LOD/impostor dei modelli;
+- ✅ la griglia dei muri che SEGUE la camera con lo streaming (`_seguiFinestra`
+  nel mesher: finestra ±48, ricentrata con isteresi di 16, cambi lontani
+  scartati); misurato in Node: 286k celle, 25 ms al ricentramento (SwiftShader);
+- ✅ le ombre del sole senza scatti né acne (PR #4): quanto del sole 1/1000
+  nella firma di quiete, `ombraOgni` più fitto, i chunk proiettano con le
+  facce di dietro mesh per mesh;
+- ⏳ compressione delle colonne del mondo (oggi `Map` con chiave per cella:
+  ~0,55 KB a colonna, a dist 150 sono ~85 MB); ricentramento della griglia
+  a scorrimento invece che da capo; rinnovo delle cascate a scaglioni;
+- ⏳ i fiumi nel generatore per chunk (oggi solo nell'open world a estensione
+  fissa), catalogo asset dichiarativo, LOD/impostor dei modelli;
 - ⏳ luci in cluster (oltre 24 lampade) e UBO per fotogramma.
 
 ### Fase R4 — Il look di Leafy, riconquistato
