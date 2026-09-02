@@ -1199,6 +1199,45 @@ provati in Node (257 prove) e a schermo. Le trappole già pagate:
   tavolozza per pixel dal vivo, che alza `versione`). ⚠ `world/` resta senza
   motore anche nei registri: `pieno` lo scrive chi chiama, con `rig.applicaProfilo`.
 
+### ⚠ PER LA SESSIONE ACQUA (02/09/2026): cosa è cambiato sotto i piedi, e le corsie
+
+Il cloud ha fuso R3 in `sorgente`. Chi riprende l'acqua parte da qui, e queste
+sono le cose che la toccano direttamente:
+
+- **`fabbrica.js` importa `aggiungiDefinizioniVertex`** e il mondo nasce con
+  `{ materie: tavolozza }`. La risacca e ogni altro innesto sul vertex del
+  mondo passano da `aggiungiDefinizioniVertex` / `aggiungiDopoWorldPos`
+  (stile.js): una `Vertex_Definitions(...)` scritta a mano cancella le materie
+  in silenzio, esattamente come `Fragment_Definitions` cancellava le lampade.
+- **Ogni mesh che usa `matMondo` porta `aMateria`** (anche tutto a zero). Se
+  l'acqua fa nascere una mesh nuova col materiale del mondo (schegge, riva,
+  anteprime) il buffer va messo, o l'attributo si legge di traverso.
+- **`costruisciChunkDati(mondo, kc, livello, soloAcqua)`** è la funzione pura
+  del mesher, e gira anche nel Worker su una FOTOGRAFIA (`mesher-foto.js`:
+  ±4 in pianta, 33 in giù, 26 in su). Se l'acqua legge più lontano (una
+  cascata più alta, una riva più larga) i margini si allargano LÌ, e
+  `test/mesher-foto.test.mjs` te lo dice: pretende gli stessi triangoli in
+  linea e dal Worker. Il chunk con `soloAcqua` rifà solo la mesh dell'acqua,
+  e questa strada è quella che la simulazione dei ruscelli batte di continuo.
+- **Le uniform per programma si scrivono una volta per fotogramma** (timbro
+  `effect._leafyGiroLuci === frameId` in stile.js). Se l'acqua aggiunge
+  uniform «tutte uguali per ogni mesh» in un `onBindObservable`, si usa lo
+  stesso timbro: le passate dell'acqua moltiplicano i bind, non i valori.
+- **Con `?infinito` la simulazione dell'acqua scrive silenziosa e la frontiera
+  NON la annota**: un chunk rigenerato torna al seme più le modifiche del
+  giocatore, e i ruscelli ripartono da zero. È voluto (il diario serve alle
+  mani, non alla fisica), ma se un test di acqua cammina lontano se ne ricordi.
+- Le prove sono 279 e si lanciano con `npm test`: prima di ogni push, verdi.
+
+**Le corsie**, per non pestarsi i piedi: il cloud sta sulle OMBRE
+(`motore/motore.js` cascate e `_ombraOgni`, `main.js` `firmaQuiete`,
+`motore/qualita.js` colonna `ombraOgni`, `motore/luci.js`) e poi griglia dei
+muri che segue la camera e compressione delle colonne. La sessione acqua sta
+su `motore/acqua.js`, le ricette, le passate e `docs/ACQUA*.md`. Se serve
+toccare un file dell'altra corsia, si lascia una riga qui sotto prima di
+farlo. Il cloud rilegge `sorgente` a ogni controllo: una nota in CLAUDE.md
+spinta su `sorgente` arriva.
+
 ## «Desktop» non vuol dire «GPU da desktop»
 
 ⚠ **Il Chromebook del committente ha una Intel HD 400 del 2015, che è più debole
