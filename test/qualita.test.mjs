@@ -62,10 +62,14 @@ for (const [nome, livelli] of Object.entries(LIVELLI)) {
   });
 }
 
-test('su mobile si parte più scarichi che su desktop', () => {
-  const m = LIVELLI.mobile[0], d = LIVELLI.desktop[0];
-  assert.ok(m.cascate <= d.cascate && m.mappa <= d.mappa && m.dist <= d.dist);
-  assert.ok(m.erba < d.erba, 'e con molta meno erba: è la cosa che si conta a decine di migliaia');
+test('una grafica sola, ovunque: la tabella mobile È quella desktop', () => {
+  // ⚠ MANDATO DEL 02/09: «in ogni dispositivo la grafica deve essere uguale,
+  // non diversa». Prima qui si pretendeva il contrario (mobile più scarico);
+  // adesso `mobile` è un alias, e se qualcuno rimette una tabella sua questa
+  // prova lo dice. Il telefono che non regge si cura con la rifondazione del
+  // motore (docs/RIFONDAZIONE.md), non con una grafica diversa.
+  assert.equal(LIVELLI.mobile, LIVELLI.desktop);
+  assert.equal(LIVELLI.mobile[0].erba, LIVELLI.desktop[0].erba);
 });
 
 test('su mobile un anti-aliasing c\'è SEMPRE — ed è l\'MSAA, non FXAA', () => {
@@ -77,11 +81,12 @@ test('su mobile un anti-aliasing c\'è SEMPRE — ed è l\'MSAA, non FXAA', () =
   // passata fullscreen con store+rilettura dell'intero frame — su un tiler
   // l'ordine di convenienza è l'OPPOSTO del desktop. Quindi: FXAA spento su
   // TUTTI i gradini mobile, e il canvas con l'MSAA acceso (`antialias`).
-  for (const [i, p] of LIVELLI.mobile.entries()) {
-    assert.equal(p.fxaa, false, `mobile[${i}]: FXAA è la passata sbagliata su un tiler`);
-  }
+  // ⚠ DAL 02/09 LA TABELLA È UNA SOLA (mandato: «una grafica sola, ovunque»),
+  // quindi l'FXAA dei gradini alti arriva anche sul telefono insieme al resto.
+  // Quello che resta vero, e si prova qui, è il primo capitolo: un AA sul
+  // canvas c'è, ed è l'MSAA.
   assert.equal(fissiDiAvvio({ mobile: true }).antialias, true,
-    'e al suo posto il canvas tiene l\'MSAA: senza NESSUN AA tornano le vibrazioni');
+    'il canvas tiene l\'MSAA: senza NESSUN AA tornano le vibrazioni');
 });
 
 test('la mappa d\'ombra e la sua portata scendono INSIEME', () => {
@@ -124,9 +129,12 @@ test('l\'acqua non può accendere passate che il profilo non concede', () => {
     assert.equal(fondo.acquaVera, 0, `${nome}: l'ultimo gradino paga ancora l'acqua vera`);
     assert.equal(fondo.acquaSpecchio, false, `${nome}: l'ultimo gradino paga ancora lo specchio`);
   }
-  // ⚠ E LA MAPPA DI PROFONDITÀ A PIENA RISOLUZIONE LA PAGA SOLO CHI PUÒ: su
-  // mobile è la passata più cara di tutte (piena risoluzione × DPR).
-  assert.ok(LIVELLI.mobile[0].acquaProf <= 0.5, 'mobile non deve mai avere la profondità a piena risoluzione');
+  // ⚠ LA MAPPA DI PROFONDITÀ A PIENA RISOLUZIONE su mobile era vietata (è la
+  // passata più cara: piena risoluzione × DPR). Dal 02/09 la tabella è una
+  // sola per mandato («una grafica sola, ovunque»): il telefono la paga come il
+  // desktop, e il tetto di DPR_MAX resta l'unico freno. Si prova che il tetto
+  // ci sia ancora, e che sia più stretto di quello desktop.
+  assert.ok(DPR_MAX.mobile <= DPR_MAX.desktop, 'il tetto di dpr del telefono non può superare quello desktop');
   assert.equal(LIVELLI.desktop[0].acquaProf, 1, 'e chi ha la macchina la vede intera');
 });
 
@@ -137,11 +145,12 @@ test('e il tetto dei pixel è più basso su mobile', () => {
   assert.equal(DPR_MAX.mobile, 1.5, 'è il valore di Leafy-Lantern, provato lì');
 });
 
-test('mobile: il cammino nei voxel non si compila proprio', () => {
-  // ⚠ NON «si spegne»: NON SI COMPILA. Su GPU mobile un `if` non toglie il
-  // costo — il compilatore riserva i registri per il ramo che non esegue e
-  // l'occupancy crolla. È la lezione di Lantern, misurata: ~30% di fps.
-  assert.equal(fissiDiAvvio({ mobile: true }).ombreLampade, false);
+test('il cammino nei voxel si compila uguale su mobile e su desktop', () => {
+  // ⚠ FINO AL 02/09 su mobile NON si compilava (Lantern, misurato: ~30% di
+  // fps, e un `if` non toglie il costo su una GPU a tile). Dal mandato «una
+  // grafica sola, ovunque» il telefono parte come il desktop, dal gradino di
+  // fatica che ricorda: il costo è noto e accettato in cambio della coerenza.
+  assert.equal(fissiDiAvvio({ mobile: true }).ombreLampade, fissiDiAvvio({ mobile: false }).ombreLampade);
   assert.equal(fissiDiAvvio({ mobile: false }).ombreLampade, true);
 });
 

@@ -130,7 +130,7 @@ rig.camera.setTarget(new (rig.camera.target.constructor)(0, cima, 0));
 // tetto è quanto BUFFER si alloca, cioè memoria di GPU che si paga anche se non
 // la si riempie mai. Mezzo milione di lamelle sono 10,5 MB di attributi.
 const erba = new Erba(rig.scena, {
-  max: rig.dispositivo.mobile ? 120000 : 500000,
+  max: 500000,   // una grafica sola, ovunque (02/09): stesso tetto del desktop
   densita: rig.profilo.erba, raggioChunk: rig.profilo.erbaR,
 });
 
@@ -817,6 +817,16 @@ const scala = new ScalaQualita({
   applica: (p) => rig.applicaProfilo(p, { erba, fabbrica }),
 });
 scala.avvia();
+// ⚠ LA SCALA NON SCENDE DA SOLA (02/09), e ribalta il contratto qui sotto per
+// mandato del committente: «da telefono la grafica scende automaticamente e
+// quindi non va a ultra: cosa sbagliata per i test. In ogni dispositivo la
+// grafica deve essere uguale, non diversa». Si parte da ULTRA e ci si resta,
+// ovunque, finché non è il giocatore a cambiare gradino (pillola ⚙ o tasto K).
+// L'automatismo resta a disposizione con `?scala=auto` nell'indirizzo, per chi
+// vuole vedere cosa sceglierebbe la scala. Il contratto vecchio («automatico
+// finché non lo tocchi») resta scritto qui sotto perché spiega le tre cure
+// dell'oscillazione in gioco/adatta.js, che valgono ancora in `?scala=auto`.
+if (!/[?&]scala=auto(&|$)/.test(location.search)) scala.adatta.manuale = true;
 // ⚠ E QUANTO VA LO SCHERMO SI MISURA, non si chiede: `screen.refreshRate` non
 // esiste in Chrome e tornava `undefined`. Arriva dopo una quarantina di
 // fotogrammi, che è comunque prima che la scala possa decidere qualcosa.
@@ -855,9 +865,7 @@ misuraHz().then((hz) => scala.impostaHz(hz));
 // ⚠ I NOMI SONO POCHI E GROSSI, non un nome per gradino: sette gradini con
 // sette nomi sono un menu di sfumature indistinguibili. Quattro nomi, quattro
 // salti che si VEDONO. La mappa è sugli indici della tabella LIVELLI.
-const LIVELLI_GRAFICA = rig.dispositivo.mobile
-  ? [['ultra', 0], ['alta', 1], ['media', 3], ['bassa', 5]]
-  : [['ultra', 0], ['alta', 2], ['media', 3], ['bassa', 5]];
+const LIVELLI_GRAFICA = [['ultra', 0], ['alta', 2], ['media', 3], ['bassa', 5]];   // una tabella sola, un nome per gradino
 const sceltaGrafica = new SceltaAcqua(
   LIVELLI_GRAFICA.map(([nome, gradino]) => ({ chiave: nome, nome: nome.toUpperCase(), gradino })),
   (chiave, voce) => scala.fissa(voce.gradino),
