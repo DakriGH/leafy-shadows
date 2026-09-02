@@ -877,3 +877,19 @@ sPos[j + 1] = y;
     if (this.attiva) this.risemina();
   }
 }
+
+/** IL REGISTRO DELL'ERBA PER L'OFFICINA. */
+export function registroErba(erba) {
+  return {
+    chiave: 'erba', nome: 'Erba',
+    nota: 'Densità e raggio riseminano: sul telefono il ritocco si sente per un attimo, ed è normale.',
+    campi: [
+      { chiave: 'attiva', nome: 'attiva', tipo: 'interruttore', leggi: () => !!erba.attiva, scrivi: (v) => erba.imposta(v) },
+      { chiave: 'densita', nome: 'densità', tipo: 'numero', min: 0, max: 8, passo: 0.2,
+        leggi: () => erba.densita, scrivi: (v) => { erba.densita = v; erba.risemina(); } },
+      { chiave: 'raggio', nome: 'raggio in chunk', tipo: 'numero', min: 0, max: 6, passo: 1,
+        leggi: () => erba.raggioChunk, scrivi: (v) => { erba.raggioChunk = v; erba.risemina(); } },
+      { chiave: 'fili', nome: 'fili disegnati', tipo: 'lettura', leggi: () => (erba.attiva ? erba.fili : 0) },
+    ],
+  };
+}

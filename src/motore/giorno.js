@@ -244,3 +244,22 @@ export class Giorno {
     return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   }
 }
+
+/** IL REGISTRO DEL CIELO PER L'OFFICINA: l'ora è la manopola che cambia tutto. */
+export function registroGiorno(giorno) {
+  return {
+    chiave: 'giorno', nome: 'Giorno',
+    nota: 'Muovere l\'ora spegne il ciclo automatico: se no la manopola combatte col tempo che passa.',
+    campi: [
+      { chiave: 'auto', nome: 'ciclo automatico', tipo: 'interruttore',
+        leggi: () => !!giorno.auto, scrivi: (v) => { giorno.auto = v; giorno.applica(); } },
+      { chiave: 't', nome: 'ora del giorno', tipo: 'numero', min: 0, max: 1, passo: 0.002,
+        leggi: () => giorno.t, scrivi: (v) => { giorno.auto = false; giorno.impostaOra(v); giorno.applica(); } },
+      { chiave: 'durata', nome: 'quanto dura un giorno', tipo: 'numero', min: 30, max: 1800, passo: 30, unita: 's',
+        leggi: () => giorno.durata, scrivi: (v) => (giorno.durata = v) },
+      { chiave: 'giorno', nome: 'giorno dell\'anno', tipo: 'numero', min: 0, max: 364, passo: 1,
+        leggi: () => giorno.giorno, scrivi: (v) => giorno.impostaGiorno(v) },
+      { chiave: 'orologio', nome: 'orologio', tipo: 'lettura', leggi: () => giorno.orologio },
+    ],
+  };
+}

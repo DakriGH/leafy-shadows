@@ -533,3 +533,60 @@ export class ScalaQualita {
   fissa(i) { this.adatta.fissa(i); this._applica(this.profilo); return this.profilo; }
   libera() { this.adatta.libera(); }
 }
+
+/**
+ * IL REGISTRO DELLA QUALITÀ PER L'OFFICINA.
+ *
+ * ⚠ IL LIVELLO APPLICA UNA RIGA INTERA, le voci sotto ne cambiano UN campo:
+ * sono due gesti diversi e vanno tenuti distinti, se no non si capisce mai se
+ * un numero è quello del gradino o un ritocco.
+ *
+ * ⚠ E TOCCARE UNA QUALSIASI DI QUESTE MANOPOLE FERMA LO SCALATORE AUTOMATICO
+ * (`scala.fissa`), perché è il contratto del gioco: automatico finché non lo
+ * tocchi, fermo per sempre dopo. Chi apre l'Officina sta guardando una cosa
+ * precisa, e una scala che gliela cambia sotto gli occhi mentre misura è
+ * peggio di nessuna scala.
+ *
+ * ⚠ QUESTO FILE NON NOMINA BABYLON, e il registro non fa eccezione: legge la
+ * tabella e chiama `rig.applicaProfilo`, che è l'unico che sa cosa sia una
+ * mappa d'ombra.
+ */
+export function registroQualita(rig, scala, bersagli) {
+  const conCampo = (chiave, v) => { scala.adatta.manuale = true; rig.applicaProfilo({ ...rig.profilo, [chiave]: v }, bersagli); };
+  const p = (chiave, nome, tipo, extra = {}) => ({ chiave, nome, tipo, ...extra,
+    leggi: () => rig.profilo[chiave], scrivi: (v) => conCampo(chiave, v) });
+  return {
+    chiave: 'qualita', nome: 'Qualità',
+    nota: 'Il livello applica un gradino intero; le voci sotto ne cambiano un campo alla volta. '
+      + 'Toccare qualunque cosa qui ferma lo scalatore automatico per il resto della sessione.',
+    campi: [
+      { chiave: 'livello', nome: 'gradino', tipo: 'scelta',
+        scelte: [...Array(scala.quanti).keys()].map((i) => ({ v: i, nome: `${i}${i === 0 ? ' (massimo)' : i === scala.quanti - 1 ? ' (minimo)' : ''}` })),
+        leggi: () => scala.livello, scrivi: (v) => scala.fissa(v) },
+      { chiave: 'auto', nome: 'scalatore automatico', tipo: 'lettura',
+        nota: 'si spegne da solo al primo gradino scelto a mano',
+        leggi: () => (scala.adatta.manuale ? 'fermo (a mano)' : 'acceso') },
+      p('scala', 'scala di risoluzione', 'numero', { min: 0.25, max: 1, passo: 0.01 }),
+      p('dist', 'distanza di resa', 'numero', { min: 30, max: 200, passo: 5, unita: 'blocchi' }),
+      p('sole', 'ombre del sole', 'interruttore'),
+      p('cascate', 'cascate d\'ombra', 'scelta', { scelte: [2, 3, 4] }),
+      p('mappa', 'mappa d\'ombra', 'scelta', { scelte: [256, 512, 768, 1024, 2048] }),
+      p('ombraZ', 'ombre fino a', 'numero', { min: 10, max: 120, passo: 2, unita: 'blocchi' }),
+      p('pcf', 'ombre morbide (PCF)', 'interruttore'),
+      p('ombraOgni', 'ombre ogni N fotogrammi', 'numero', { min: 1, max: 6, passo: 1 }),
+      p('ombraAcqua', 'ombre sull\'acqua', 'interruttore'),
+      p('fxaa', 'FXAA', 'interruttore'),
+      p('particelle', 'effetti (spruzzi, veli, bolle)', 'interruttore'),
+      p('erba', 'erba: densità', 'numero', { min: 0, max: 8, passo: 0.2 }),
+      p('erbaR', 'erba: raggio in chunk', 'numero', { min: 0, max: 6, passo: 1 }),
+      p('acquaVera', 'acqua: tetto di «vera»', 'numero', { min: 0, max: 3, passo: 1 }),
+      p('acquaSpecchio', 'acqua: specchio permesso', 'interruttore'),
+      p('acquaLato', 'acqua: lato dello specchio', 'numero', { min: 128, max: 1024, passo: 128, unita: 'px' }),
+      p('acquaOgni', 'acqua: specchio ogni N', 'numero', { min: 1, max: 8, passo: 1 }),
+      p('acquaProf', 'acqua: frazione della passata sott\'acqua', 'numero', { min: 0.2, max: 1, passo: 0.05 }),
+      { chiave: 'texel', nome: 'texel per blocco d\'ombra', tipo: 'lettura',
+        nota: `la costante di casa è ${TEXEL_PER_BLOCCO}: è mappa ÷ portata, ed è la grandezza che decide l'acne`,
+        leggi: () => Math.round(rig.profilo.mappa / rig.profilo.ombraZ * 10) / 10 },
+    ],
+  };
+}

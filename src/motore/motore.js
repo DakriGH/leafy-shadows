@@ -783,3 +783,70 @@ export class Rig {
     });
   }
 }
+
+/**
+ * IL REGISTRO DELLE OMBRE PER L'OFFICINA.
+ *
+ * ⚠ SONO LE MANOPOLE CHE NON STANNO NEL PROFILO, perché sono quelle che si
+ * TARANO guardando: bias, normal bias, lambda, filtro. Quello che si trova
+ * buono qui va scritto nella tabella dei livelli (`qualita.js`), non lasciato
+ * in un preset — un preset vive nel browser di chi l'ha fatto.
+ */
+export function registroOmbre(rig) {
+  const mappa = () => rig.ombre && rig.ombre.getShadowMap();
+  return {
+    chiave: 'ombre', nome: 'Ombre',
+    nota: 'Cascate del sole. La mappa si CONGELA da sola quando sole, camera e mondo stanno fermi '
+      + '(tre fotogrammi con la stessa firma): «si rinnova» qui sotto dice se in questo istante è viva.',
+    campi: [
+      { chiave: 'autoZ', nome: 'profondità automatica (riduttore min/max)', tipo: 'interruttore',
+        nota: 'una passata di profondità a schermo intero IN PIÙ a ogni giro, anche a mappa congelata: misurato 130 → 70 disegni spegnendola',
+        leggi: () => !!rig.ombre.autoCalcDepthBounds, scrivi: (v) => (rig.ombre.autoCalcDepthBounds = v) },
+      { chiave: 'filtro', nome: 'filtro', tipo: 'scelta',
+        scelte: [{ v: CascadedShadowGenerator.QUALITY_HIGH, nome: 'alto' },
+                 { v: CascadedShadowGenerator.QUALITY_MEDIUM, nome: 'medio' },
+                 { v: CascadedShadowGenerator.QUALITY_LOW, nome: 'basso' }],
+        leggi: () => rig.ombre.filteringQuality, scrivi: (v) => (rig.ombre.filteringQuality = v) },
+      { chiave: 'lambda', nome: 'lambda (riparto delle cascate)', tipo: 'numero', min: 0.5, max: 1, passo: 0.01,
+        nota: 'vicino a 1 = tessitura densa dove si guarda',
+        leggi: () => rig.ombre.lambda, scrivi: (v) => (rig.ombre.lambda = v) },
+      { chiave: 'bias', nome: 'bias', tipo: 'numero', min: 0, max: 0.02, passo: 0.0005,
+        leggi: () => rig.ombre.bias, scrivi: (v) => (rig.ombre.bias = v) },
+      { chiave: 'normalBias', nome: 'normal bias', tipo: 'numero', min: 0, max: 0.05, passo: 0.001,
+        nota: 'ALZARLO È LA CURA SBAGLIATA all\'acne: accende una lineetta sul bordo dell\'ombra (vedi CLAUDE.md)',
+        leggi: () => rig.ombre.normalBias, scrivi: (v) => (rig.ombre.normalBias = v) },
+      { chiave: 'stabili', nome: 'cascate stabilizzate', tipo: 'interruttore',
+        leggi: () => !!rig.ombre.stabilizeCascades, scrivi: (v) => (rig.ombre.stabilizeCascades = v) },
+      { chiave: 'viva', nome: 'la mappa si rinnova adesso', tipo: 'lettura',
+        leggi: () => (mappa() ? (mappa().refreshRate === 0 ? 'no (congelata)' : `sì, ogni ${mappa().refreshRate}`) : '—') },
+    ],
+  };
+}
+
+/** IL REGISTRO DEL MOTORE: quello che si misura, non quello che si sceglie. */
+export function registroMotore(rig) {
+  const attr = () => { try { return rig.motore._gl.getContextAttributes(); } catch { return {}; } };
+  return {
+    chiave: 'motore', nome: 'Motore',
+    campi: [
+      { chiave: 'dprMax', nome: 'DPR massimo', tipo: 'numero', min: 1, max: 3, passo: 0.25,
+        nota: 'la risoluzione vera = min(DPR del dispositivo, questo) × scala del profilo',
+        leggi: () => rig.dprMax, scrivi: (v) => { rig.dprMax = v; rig.applicaScala(rig._scala); } },
+      { chiave: 'picking', nome: 'picking di Babylon al tocco', tipo: 'interruttore',
+        nota: 'il gioco cammina la griglia da sé: questo è lavoro doppio (e con l\'origine mobile il raggio è pure degenere)',
+        leggi: () => !rig.scena.skipPointerDownPicking,
+        scrivi: (v) => { rig.scena.skipPointerDownPicking = rig.scena.skipPointerUpPicking = !v; } },
+      { chiave: 'attiveFerme', nome: 'mesh attive congelate', tipo: 'interruttore',
+        nota: 'salta la selezione per frustum: serve SOLO a misurare quanto costa',
+        leggi: () => !!rig.scena._activeMeshesFrozen,
+        scrivi: (v) => (v ? rig.scena.freezeActiveMeshes() : rig.scena.unfreezeActiveMeshes()) },
+      { chiave: 'scheda', nome: 'scheda', tipo: 'lettura', leggi: () => rig.scheda.nome },
+      { chiave: 'reso', nome: 'risoluzione', tipo: 'lettura',
+        leggi: () => `${rig.motore.getRenderWidth()}×${rig.motore.getRenderHeight()}` },
+      { chiave: 'mesh', nome: 'mesh (attive)', tipo: 'lettura',
+        leggi: () => `${rig.scena.meshes.length} (${rig.scena.getActiveMeshes().length})` },
+      { chiave: 'msaa', nome: 'MSAA (fisso all\'avvio)', tipo: 'lettura', leggi: () => (attr().antialias ? 'acceso' : 'spento') },
+      { chiave: 'webgl', nome: 'WebGL', tipo: 'lettura', leggi: () => rig.motore.webGLVersion },
+    ],
+  };
+}

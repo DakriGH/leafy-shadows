@@ -3036,3 +3036,68 @@ export class Acqua {
     this.materiale._newUniformInstances['float-uLunaFase'] = fase;
   }
 }
+
+/**
+ * IL REGISTRO DELL'ACQUA PER L'OFFICINA — le manopole che questo modulo ha, e
+ * chi le sa leggere e scrivere.
+ *
+ * ⚠ STA QUI E NON NEL PANNELLO, ed è la regola dell'architettura: chi possiede
+ * una manopola dichiara come si gira. Nella versione che girava sopra la build
+ * pubblicata esisteva un adattatore unico che conosceva i nomi interni di tutto
+ * il motore (`rig._specchioAcqua`, `acqua.vera`…): era l'unico modo di parlare a
+ * un gioco senza sorgente, e per costruzione mentiva il giorno che un nome
+ * cambiava. Con il registro accanto al codice, chi rinomina qualcosa rompe la
+ * riga che gli sta sotto gli occhi.
+ *
+ * ⚠ E OGNI CAMPO LEGGE LA SCENA VERA, mai quello che crede di aver scritto: se
+ * la scala di qualità abbassa il tetto dell'acqua, il pannello lo mostra da sé.
+ */
+export function registroAcqua(rig, fabbrica) {
+  const variante = (p) => {
+    const a = fabbrica.acqua;
+    fabbrica.cambiaStileAcqua(p.stile ?? a.stile, p.onde ?? a.onde, p.modello ?? a.modello,
+      p.riflesso ?? a.riflesso, p.vera ?? a.vera);
+  };
+  const specchio = () => rig._specchioAcqua || null;
+  const sotto = () => rig._sottAcqua || null;
+  const meshAcqua = () => rig.scena.meshes.find((m) => m.name.startsWith('acqua:') && m.isEnabled());
+  return {
+    chiave: 'acqua', nome: 'Acqua',
+    nota: 'Ricetta e varianti costruiscono un materiale nuovo (un attimo di compilazione, poi resta in cache). '
+      + 'Le passate qui sotto sono le rese extra della scena che l\'acqua richiede: sono loro il costo. '
+      + 'Il PROFILO di qualità è un tetto: se dice «niente specchio», qui il valore torna a no.',
+    campi: [
+      { chiave: 'ricetta', nome: 'ricetta', tipo: 'scelta',
+        scelte: [{ v: '', nome: '— variante —' }, ...Object.keys(RICETTE)],
+        nota: 'cambiando stile o passate la ricetta diventa una «variante»',
+        leggi: () => fabbrica.acqua.ricetta || '', scrivi: (v) => v && fabbrica.cambiaRicettaAcqua(v) },
+      { chiave: 'stile', nome: 'stile del pelo', tipo: 'scelta', scelte: Object.keys(STILI),
+        leggi: () => fabbrica.acqua.stile, scrivi: (v) => variante({ stile: v }) },
+      { chiave: 'modello', nome: 'modello di luce', tipo: 'scelta', scelte: Object.keys(MODELLI),
+        leggi: () => fabbrica.acqua.modello, scrivi: (v) => variante({ modello: v }) },
+      { chiave: 'onde', nome: 'onde (vertex shader)', tipo: 'interruttore',
+        leggi: () => !!fabbrica.acqua.onde, scrivi: (v) => variante({ onde: v }) },
+      { chiave: 'riflesso', nome: 'specchio (passata riflesso)', tipo: 'interruttore',
+        leggi: () => !!fabbrica.acqua.riflesso, scrivi: (v) => variante({ riflesso: v }) },
+      { chiave: 'vera', nome: 'acqua «vera»', tipo: 'numero', min: 0, max: 3, passo: 1,
+        nota: '0 niente · 1 profondità · 2 + rifrazione · 3 + caustiche — dalla stessa passata',
+        leggi: () => fabbrica.acqua.vera | 0, scrivi: (v) => variante({ vera: v }) },
+      { chiave: 'ombre', nome: 'riceve le ombre del sole', tipo: 'interruttore',
+        leggi: () => { const m = meshAcqua(); return m ? !!m.receiveShadows : !!rig.profilo.ombraAcqua; },
+        scrivi: (v) => fabbrica.ombreSullAcqua(v) },
+      { chiave: 'specchioLato', nome: 'specchio: lato', tipo: 'numero', min: 128, max: 1024, passo: 128, unita: 'px',
+        leggi: () => (specchio() ? specchio().getSize().width : 0),
+        scrivi: (v) => specchio() && misuraPassate(rig, { lato: v, ogni: specchio().refreshRate, prof: rig._profAcquaFraz }) },
+      { chiave: 'specchioOgni', nome: 'specchio: ogni N fotogrammi', tipo: 'numero', min: 1, max: 8, passo: 1,
+        leggi: () => (specchio() ? Math.max(1, specchio().refreshRate) : 1),
+        scrivi: (v) => specchio() && misuraPassate(rig, { lato: specchio().getSize().width, ogni: v, prof: rig._profAcquaFraz }) },
+      { chiave: 'sottoScala', nome: 'sott\'acqua: frazione dello schermo', tipo: 'numero', min: 0.2, max: 1, passo: 0.05,
+        nota: 'una passata sola per rifrazione E profondità',
+        leggi: () => Math.round((rig._profAcquaFraz || 1) * 100) / 100, scrivi: (v) => misuraSottAcqua(rig, v) },
+      { chiave: 'sottoLato', nome: 'sott\'acqua: lato vero', tipo: 'lettura',
+        leggi: () => (sotto() ? `${sotto().getSize().width}×${sotto().getSize().height}` : '—') },
+      { chiave: 'pelo', nome: 'quota del piano dello specchio', tipo: 'lettura',
+        leggi: () => (specchio() ? Math.round(specchio().mirrorPlane.d * 100) / 100 : '—') },
+    ],
+  };
+}

@@ -11,12 +11,17 @@
 
 ## Le tre verità da cui si parte
 
-1. **Le prestazioni non verranno dai tagli.** La scala automatica è stata
-   tolta (era «una vergogna», e aveva ragione: oscillava, tagliava l'erba,
-   spegneva il sole — tutte cose che si VEDONO). Restano quattro livelli
-   manuali (ULTRA/ALTA/MEDIA/BASSA), col massimo di default ovunque. Quindi
-   ogni millisecondo va guadagnato in architettura: passate più furbe, non
-   grafica più povera.
+1. **Le prestazioni non verranno dai tagli.** Ogni millisecondo va guadagnato
+   in architettura: passate più furbe, non grafica più povera.
+   ⚠ **AGGIORNATO IL 02/09**: la scala automatica era stata TOLTA (era «una
+   vergogna», e aveva ragione: oscillava, tagliava l'erba, spegneva il sole —
+   tutte cose che si VEDONO). Adesso è tornata, ma con un contratto diverso e
+   una riga sola: **automatica finché non la tocchi, ferma per sempre dopo**.
+   `scala.fissa(0)` all'avvio non voleva dire «parti dal massimo» — ci si parte
+   comunque — ma «parti dal massimo e non muoverti più», anche sulle macchine
+   che a q0 fanno sei fotogrammi al secondo e non hanno modo di saperlo. I
+   quattro livelli con un nome (ULTRA/ALTA/MEDIA/BASSA, pillola ⚙ e tasto K)
+   restano e vincono sempre sull'automatismo.
 2. **Il collo attuale non è il JavaScript** (misurato: <0,05 ms/frame nostro),
    **sono le PASSATE**: 4 cascate d'ombra ridisegnano ~50 mesh l'una, e
    l'acqua «vera» aggiunge specchio + rifrazione + profondità. Con 8 Mpixel e

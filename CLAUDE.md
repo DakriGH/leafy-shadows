@@ -1029,6 +1029,48 @@ l'origine mobile toglie la traslazione dalla matrice di vista.
 camera, venticinque blocchi indietro. Con sette di portata non arrivava
 nemmeno al terreno, e il mirino era sempre spento.
 
+## L'OFFICINA — `?officina` nell'indirizzo
+
+Un pannello solo, generato dai DATI, per girare le manopole del motore dal vivo
+— sul telefono come sul portatile — e misurare l'effetto con numeri (p50, p99,
+disegni, ms dei bersagli). Sette schede: Acqua, Qualità, Ombre, Giorno, Erba,
+Motore, Misura. Si carica solo se la si chiede, come l'Ispettore.
+
+| file | fa |
+|---|---|
+| `src/officina/comandi.js` | il bus: esegui / annulla / ripeti, diario serializzabile, stato netto |
+| `src/officina/schema.js` | i tipi di campo (numero, interruttore, scelta, colore, testo, azione, lettura) |
+| `src/officina/pannello.js` | il DOM: schede per registro, controlli generati dallo schema, valori RILETTI dalla scena ogni ½ s |
+| `src/officina/editor.js` | la cornice scura: qui non si gioca, qui si regola (la tela viene solo ritagliata) |
+| `src/officina/misura.js` | campionatore per fotogramma e misure A/B col riscaldo scartato |
+| `src/officina/preset.js` | esporta / importa / salva nel browser lo stato netto |
+| `src/officina/apri.js` | mette in fila i registri e apre |
+
+⚠ **L'OFFICINA NON TOCCA MAI LA SCENA: EMETTE COMANDI** `{registro, campo,
+prima, dopo, autore, t}`. Oggi il comando scrive in locale; domani lo stesso
+comando lo valida un server e lo ritrasmette agli altri giocatori. Costruire nel
+sandbox e regolare il motore diventano lo stesso gesto — ed è il passo zero del
+multiplayer, non un vezzo di architettura. `test/officina.test.mjs` lo presidia
+in Node (annulla, ripeti, stato netto, `rigioca` che NON riempie la pila).
+
+⚠ **E OGNI MODULO DICHIARA IL SUO REGISTRO, accanto al suo codice**:
+`registroAcqua` sta in `motore/acqua.js`, `registroQualita` in
+`motore/qualita.js`, `registroOmbre`/`registroMotore` in `motore/motore.js`,
+`registroGiorno` in `motore/giorno.js`, `registroErba` in `vegetazione/erba.js`.
+La versione che girava sopra la build pubblicata aveva un ADATTATORE unico
+(`officina/leafy.js`) che conosceva i nomi interni di tutto: era l'unico modo di
+parlare a un gioco senza sorgente, e per costruzione mentiva in silenzio il
+giorno che un nome cambiava. Con il registro accanto alla manopola, chi rinomina
+rompe la riga che ha sotto gli occhi.
+
+⚠ **E OGNI CAMPO HA UN `leggi`**, sempre: il pannello disegna il valore VERO
+della scena, mai quello che crede di aver scritto. Se la scala di qualità
+abbassa il tetto dell'acqua o il ciclo del giorno muove l'ora, si vede.
+
+⚠ **Toccare una manopola della Qualità FERMA lo scalatore automatico.** È il
+contratto del gioco (automatico finché non lo tocchi), e in Officina serve
+doppio: una scala che cambia il gradino mentre si sta misurando falsa la misura.
+
 ## Da fare, in ordine
 Vedi `docs/PIANO.md`. La fase 1 (scheletro + terreno vero a schermo) è **fatta**.
 

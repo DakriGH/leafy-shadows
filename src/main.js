@@ -1439,3 +1439,22 @@ globalThis.LEAFY = { rig, fabbrica, mondo, mesher, erba, giorno, modelli, passeg
   // ⚠ ANCHE GLI EFFETTI STANNO QUI, ed è quello che permette di PROVARE dalla
   // console che un blocco vuole più colpi invece di guardarlo e sperare.
   scavo, schegge, agisci, modoGui, diagnostica, mira: () => ({ bersaglio, azSinistra, azDestra, cosaFa }) };
+
+// ---- L'OFFICINA: `?officina` nell'indirizzo ---------------------------------
+// ⚠ SI CARICA SOLO SE LA SI CHIEDE, come l'Ispettore: è uno strumento, e chi
+// apre il gioco per giocare non deve pagarne il DOM, i timer e il campionatore.
+// Con `import()` il pannello resta fuori dal cammino di chi non lo apre.
+//
+// ⚠ E RICEVE GLI OGGETTI VERI, non `globalThis.LEAFY`. È la differenza fra un
+// pannello e un adattatore: `src/officina/apri.js` mette in fila i registri che
+// ogni modulo dichiara per sé (`registroAcqua` sta in motore/acqua.js, accanto
+// alle manopole che descrive), quindi rinominare un campo rompe la riga che gli
+// sta sotto gli occhi invece di far mentire in silenzio un file lontano.
+if (/[?&]officina/.test(location.search)) {
+  import('./officina/apri.js')
+    .then((m) => m.apriLOfficina({
+      rig, fabbrica, scala, giorno, erba, particelle: null,
+      versione: (document.getElementById('versione') || {}).textContent || '',
+    }))
+    .catch((e) => console.error('officina:', e));
+}
