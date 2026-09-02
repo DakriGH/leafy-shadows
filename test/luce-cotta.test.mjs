@@ -48,8 +48,11 @@ test('il mesher scrive nel vertice la luce della cella davanti alla faccia', () 
     sopra++; if (v.cielo === 15) cieloPieno++;
   }
   assert.ok(conBlocco > 0, 'le cime attorno al lampione hanno luce di blocco');
-  assert.equal(cieloPieno, sopra, 'a cielo aperto ogni faccia che non sia un fondo ha cielo pieno');
-  assert.equal(fondiBui, fondi, 'e sotto la lastra nessun fondo ha il cielo pieno');
+  // ⚠ LA LUCE È PER VERTICE (media delle otto celle verso fuori): a cielo aperto
+  // le cime hanno cielo pieno; sotto la lastra i fondi sono bui tranne l'orlo,
+  // dove il vertice legge anche l'aria di fianco (è l'occlusione ambientale)
+  assert.ok(cieloPieno >= sopra * 0.95, `a cielo aperto quasi ogni faccia che non sia un fondo ha cielo pieno (${cieloPieno}/${sopra})`);
+  assert.ok(fondiBui >= fondi * 0.6, `e sotto la lastra i fondi sono per lo più bui (${fondiBui}/${fondi})`);
   const senza = costruisciChunkNucleo(m, '0,0', { erba: 0, luce: false });
   assert.equal(senza.quad, d.quad, 'la luce non cambia la geometria');
 });

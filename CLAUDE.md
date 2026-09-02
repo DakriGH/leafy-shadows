@@ -1438,6 +1438,21 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   (`registraArredi`). Il gatto blu è il giocatore (`omino`), l'arancione il
   PNG. Un arredo nuovo = una funzione e una riga in `ARREDI`; la cassetta
   della partita li accoda a `CASSETTA`.
+- ⚠ **Le forme tornite si avvolgono come dice la normale** (`metti` in
+  `cuboidi.js` scambia due vertici se il triangolo gira al contrario): senza,
+  il tornio girava verso dentro e col culling si vedeva l'interno del gatto.
+- **La luce cotta è PER VERTICE** (`Pennello._luceVertice`: otto celle verso
+  fuori, media) e le bande si fanno nel FRAGMENT sulla luce interpolata
+  (`vCielo`, `vBlocco`); il colore e il sole restano `flat`. L'erba compila lo
+  stesso fragment con `flat` tolto. ⚠ Chi legge la luce «della cella davanti»
+  torna ai quadrati che il committente ha bocciato.
+- **L'ombra del sole è morbida**: mappa delle altezze in filtro LINEAR e
+  penombra proporzionale al cammino nel loop dell'horizon mapping (stesso
+  codice in `resa.js` e `modelli.js`: se cambia uno, cambia l'altro).
+- **Il sole a mezzogiorno è bianco** (partita e banco): al sole pieno la
+  palette è esatta. Il caldo entra solo col sole basso (`caldo` da `alt`).
+- **L'erba è del colore della cima del blocco sotto** (`ciuffo(..., colCima)`),
+  punta ±3% quasi sempre: non si scurisce la base, non si «migliora» la punta.
 - ⚠ **Niente `const` omonimi dentro le funzioni del modulo**: un `const giorno`
   dentro `sole()` oscurava l'oggetto `giorno` del modulo prima di nascere
   (TDZ) e la pagina moriva bianca al primo fotogramma.

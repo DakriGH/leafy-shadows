@@ -47,7 +47,11 @@ function trasformazione(p, centro) {
 /** Costruisce il modello: `{ byte, vertici, triangoli, minY, maxY, raggio }` come `leggiModello`. */
 export function modelloDaCuboidi(pezzi) {
   const tri = [];   // [ [p0,p1,p2], normale, colore, materia ]
-  const metti = (a, b, c, n, col, mat) => tri.push([[a, b, c], n, col, mat]);
+  // ⚠ L'AVVOLGIMENTO SEGUE LA NORMALE DICHIARATA: se il triangolo gira al
+  // contrario di come dice `n`, si scambiano due vertici. Il tornio girava
+  // verso dentro (visto a schermo dal committente: «mesh invertite») e col
+  // culling delle facce di schiena si vedeva l'interno.
+  const metti = (a, b, c, n, col, mat) => { const g = normaleDi(a, b, c); tri.push([g[0] * n[0] + g[1] * n[1] + g[2] * n[2] < 0 ? [a, c, b] : [a, b, c], n, col, mat]); };
   for (const p of pezzi) {
     const col = p.colore ?? 0xffffff, mat = p.materia | 0;
     if (p.tornio) {
@@ -62,10 +66,13 @@ export function modelloDaCuboidi(pezzi) {
           const j = (i + 1) % lati;
           const a = A[i], b = A[j], c = B[j], d = B[i];
           if (prof[k][0] === 0 && prof[k + 1][0] === 0) continue;
-          const n = normaleDi(a, b, c, d);
+          // la normale del pezzo laterale guarda FUORI dall'asse (radiale, più la pendenza del profilo)
+          const mx = (a[0] + b[0] + c[0] + d[0]) / 4 - x0, mz = (a[2] + b[2] + c[2] + d[2]) / 4 - z0, ml = Math.hypot(mx, mz) || 1;
+          const dr = prof[k + 1][0] - prof[k][0], dy = prof[k + 1][1] - prof[k][1], pl = Math.hypot(dr, dy) || 1;
+          const n = [(mx / ml) * (dy / pl), -dr / pl, (mz / ml) * (dy / pl)];
           if (prof[k][0] > 0 && prof[k + 1][0] > 0) { metti(a, b, c, n, col, mat); metti(a, c, d, n, col, mat); }
-          else if (prof[k][0] > 0) metti(a, b, c, normaleDi(a, b, c), col, mat);       // verso una punta in alto
-          else metti(a, c, d, normaleDi(a, c, d), col, mat);                             // da una punta in basso
+          else if (prof[k][0] > 0) metti(a, b, c, n, col, mat);       // verso una punta in alto
+          else metti(a, c, d, n, col, mat);                             // da una punta in basso
         }
       }
       // i tappi: il fondo (se il primo raggio non è zero) e la cima
@@ -78,8 +85,13 @@ export function modelloDaCuboidi(pezzi) {
     const T = trasformazione(p, centro);
     if (p.piramide) {
       const b = [[p.da[0], p.da[1], p.da[2]], [p.a[0], p.da[1], p.da[2]], [p.a[0], p.da[1], p.a[2]], [p.da[0], p.da[1], p.a[2]]];
-      const v = p.punta;
-      for (let i = 0; i < 4; i++) { const a = b[i], c = b[(i + 1) % 4]; metti(a, v, c, normaleDi(a, v, c), col, mat); }
+      const v = p.punta, cb = [(p.da[0] + p.a[0]) / 2, p.da[1], (p.da[2] + p.a[2]) / 2];
+      for (let i = 0; i < 4; i++) {
+        const a = b[i], c = b[(i + 1) % 4], g = normaleDi(a, v, c);
+        // fuori dal baricentro della base, mai verso l'asse (vale anche per una piramide a testa in giù)
+        const m = [(a[0] + v[0] + c[0]) / 3 - cb[0], 0, (a[2] + v[2] + c[2]) / 3 - cb[2]];
+        metti(a, v, c, g[0] * m[0] + g[2] * m[2] < 0 ? [-g[0], -g[1], -g[2]] : g, col, mat);
+      }
       metti(b[0], b[1], b[2], [0, -1, 0], col, mat); metti(b[0], b[2], b[3], [0, -1, 0], col, mat);
       applica(tri, T);
       continue;
