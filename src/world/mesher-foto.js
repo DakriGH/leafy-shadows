@@ -101,7 +101,7 @@ export function allineaAllaFoto(f) {
 /** Da array JS a Float32Array, così viaggiano senza copia (trasferibili). */
 export function impacchetta(r) {
   const f32 = (a) => (a && !(a instanceof Float32Array) ? new Float32Array(a) : a);
-  const dati = (d) => (d ? { pos: f32(d.pos), col: f32(d.col), acq: f32(d.acq), riv: f32(d.riv) } : d);
+  const dati = (d) => (d ? { pos: f32(d.pos), col: f32(d.col), mat: f32(d.mat), acq: f32(d.acq), riv: f32(d.riv) } : d);
   const out = { ...r, acqua: dati(r.acqua) };
   if (r.solidi) out.solidi = dati(r.solidi);
   return out;
@@ -112,7 +112,7 @@ export function trasferibili(r) {
   const t = [];
   for (const d of [r.solidi, r.acqua]) {
     if (!d) continue;
-    for (const a of [d.pos, d.col, d.acq, d.riv]) if (a && a.buffer && !t.includes(a.buffer)) t.push(a.buffer);
+    for (const a of [d.pos, d.col, d.mat, d.acq, d.riv]) if (a && a.buffer && !t.includes(a.buffer)) t.push(a.buffer);
   }
   return t;
 }

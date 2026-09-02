@@ -98,6 +98,9 @@ export class Flora {
     VertexData.ComputeNormals(vd.positions, vd.indices, nrm);
     vd.normals = nrm;
     vd.applyToMesh(mesh);
+    // il materiale del MONDO legge `aMateria` (world/materie.js): la flora non ha
+    // materie, ma l'attributo va dichiarato — tutto a zero, cioè «nessuna»
+    mesh.setVerticesData('aMateria', new Float32Array(nV * 2), false, 1);
     mesh.material = this.materiale;
     mesh.isPickable = false;
 

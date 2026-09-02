@@ -321,7 +321,15 @@ export const GLSL_OMBRA_VOXEL = `
  * e torna subito se lo trova; e anche svuotando quella cache il motore tiene
  * l'effetto già compilato — misurato, il sorgente a schermo non cambia.
  */
-export function glslAccumuloLuci(conOmbre) {
+/**
+ * @param curva  espressione GLSL (float) che STRINGE o ALLARGA la banda della
+ *               lampada per materia — `curva` in world/materie.js: +1 metallo
+ *               (banda stretta, «duro e lucido»), −1 fango (larga e smorzata).
+ *               `null` = niente termine: la caduta lineare di sempre, senza
+ *               nemmeno un `pow` per chi non ha materie (erba, acqua, modelli).
+ */
+export function glslAccumuloLuci(conOmbre, curva = null) {
+  const caduta = curva ? `pow(1.0 - d / lampada.w, exp2(${curva}))` : '1.0 - d / lampada.w';
   return `
   vec3 lampade = vec3(0.0);
   for (int i = 0; i < ${LUCI_MAX}; i++) {
@@ -351,7 +359,7 @@ ${conOmbre ? `    // ⚠ IL CAMMINO SI PAGA SOLO DENTRO LA SFERA E SOLO SE LA LA
       vec3 sorgente = lampada.xyz + clamp(dv, -semiLati, semiLati);
       if (ombraVoxel(sorgente + uCamPos, (vPositionW - sorgente) / d, d)) continue;
     }` : '    // (qui vive il cammino nei voxel: su mobile non viene compilato)'}
-    float caduta = 1.0 - d / lampada.w;
+    float caduta = ${caduta};
     float banda = ceil(caduta * ${BANDE_LUCE.toFixed(1)}) / ${BANDE_LUCE.toFixed(1)};
     lampade += uLuciCol[i] * banda;
   }

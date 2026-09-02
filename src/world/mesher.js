@@ -15,7 +15,7 @@
 // una FABBRICA iniettata da main, che è l'unica a sapere cosa sia una mesh.
 import { BLOCCHI, defDi, tipoBase, livelloAcqua } from './blocks.js';
 import { paletteBlocco, coloreFaccia } from './stagioni.js';
-import { materiaDi, tingiMateria } from './materie.js';
+import { materiaDi, tingiMateria, indiceMateria } from './materie.js';
 import { FORME_EXTRA, FORME_VUOTE } from './forme.js';
 import { tintaPalette } from './motivi.js';
 import { GrigliaLuce, scatolaPerMondo } from './luce.js';
@@ -89,6 +89,10 @@ const IV = (dx, dy, dz) => ((dy + 1) * 3 + (dz + 1)) * 3 + (dx + 1);
 class Costruttore {
   constructor() {
     this.pos = []; this.col = []; this.acq = null; this._ex = null;
+    // L'IDENTITÀ DELLA MATERIA per vertice (world/materie.js): 0 = nessuna. Si
+    // scrive SEMPRE, anche tutta a zero, perché lo shader del mondo dichiara
+    // l'attributo e una mesh senza quel buffer leggerebbe l'attributo spento.
+    this.mat = []; this._materia = 0;
     // vertici "cima d'erba" [indice, quotaCella, …]: il cambio stagione SMOOTH
     // riscrive solo questi float nel color buffer, senza ricostruire nulla
     this.erbe = [];
@@ -108,6 +112,8 @@ class Costruttore {
   /** Attiva/spegne la marcatura dei triangoli color pal.cima come "erba". */
   erba(hexCima, quotaCella) { this._erbaHex = hexCima; this._erbaY = quotaCella; }
   fineErba() { this._erbaHex = null; }
+  /** La materia dei prossimi triangoli (indice della tavolozza, 0 = nessuna). */
+  materia(i) { this._materia = i | 0; }
 
   /** Canale extra per-vertice dell'ACQUA: (dirX corrente, dirZ corrente, tipo faccia).
    *  tipo: 0 sorgente calma · 1 pelo che scorre · 2 lato cascata · 3 schiuma · 5 piatto. */
@@ -138,6 +144,7 @@ class Costruttore {
     // moltiplicatore per direzione di faccia né per occlusione (vedi in alto)
     _daHex(colore);
     for (let i = 0; i < 3; i++) this.col.push(_colore.r, _colore.g, _colore.b);
+    this.mat.push(this._materia, this._materia, this._materia);
     if (this.acq) {
       const e = this._ex || [0, 0, 5];
       for (let i = 0; i < 3; i++) this.acq.push(e[0], e[1], e[2]);
@@ -160,7 +167,7 @@ class Costruttore {
    *  ⚠ È IL CONFINE. Finché questo metodo torna array, `world/` resta
    *  agnostico e si può provare in Node senza un contesto grafico. */
   dati() {
-    return { pos: this.pos, col: this.col, acq: this.acq || null, riv: this.riv || null };
+    return { pos: this.pos, col: this.col, mat: this.mat, acq: this.acq || null, riv: this.riv || null };
   }
 
   get vuoto() { return this.pos.length === 0; }
@@ -521,6 +528,9 @@ function costruisciBlocco(bSolidi, bAcqua, mondo, x, y, z, tipo) {
       pal.facce = pal.facce.map((c) => (c === null || c === undefined ? c : tingiMateria(c, materia)));
     }
   }
+  // e l'identità va nel vertice: è quello che il pixel legge per emissione,
+  // brillio e cielo (il livello per pixel di world/materie.js)
+  bSolidi.materia(materia ? indiceMateria(def.materia) : 0);
   const cx = x + 0.5, cy = y + 0.5, cz = z + 0.5;
   if (def.acqua) {
     const sopraT = mondo.tipo(x, y + 1, z);
@@ -722,6 +732,7 @@ function costruisciPelle(bSolidi, bAcqua, mondo, kc) {
       if (materia) {
         pal = { ...pal, cima: tingiMateria(pal.cima, materia), lato: tingiMateria(pal.lato, materia), fondo: tingiMateria(pal.fondo, materia) };
       }
+      bSolidi.materia(materia ? indiceMateria(def.materia) : 0);
       // la cima: un quadrato a filo cella. Per l'erba è la cima del cappello,
       // marcata come tale così la stagione la ridipinge in-place
       if (def.cappello) bSolidi.erba(pal.cima, y);
@@ -1543,6 +1554,7 @@ export function geometriaSingola(tipo) {
   const pal = paletteBlocco(tipoBase(tipo), 3);   // quota media della rampa
   const b = new Costruttore();
   const nessuno = () => false;
+  { const mt = materiaDi(def); b.materia(mt ? indiceMateria(def.materia) : 0); }
   if (def.acqua) acquaBox(b, 0, 0, 0, pal, { livello: 0, mioSopra: false, cascata: false, flusso: [0, 0], vicinoAcqua: () => null, vicinoPieno: nessuno });
   else if (def.forma && FORME_EXTRA[def.forma]) FORME_EXTRA[def.forma](b, 0, 0, 0, pal, nessuno);
   else if (def.cappello) conCappello(b, 0, 0, 0, pal, nessuno);

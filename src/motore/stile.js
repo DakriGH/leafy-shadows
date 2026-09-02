@@ -52,6 +52,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 // definizioni del fragment. Dichiararle anche in `Fragment_Definitions` darebbe
 // una doppia dichiarazione e lo shader non compila.
 import { LUCI_MAX, glslAccumuloLuci, GLSL_OMBRA_VOXEL } from './luci.js';
+import { MATERIE_MAX } from '../world/materie.js';
 
 /** I gradini dell'ombra. In Leafy-Lantern è `BANDE_LUCE` in config.js, e sono
  *  «i gradini che il committente ha indicato come metro della nettezza». */
@@ -85,6 +86,20 @@ export const GAMMA = 2.2;
 export function aggiungiDefinizioniFragment(m, glsl) {
   const prima = m.CustomParts?.Fragment_Definitions || '';
   m.Fragment_Definitions(prima + '\n' + glsl);
+  return m;
+}
+
+/** Come sopra, per il VERTEX: anche `Vertex_Definitions` e
+ *  `Vertex_After_WorldPosComputed` sono settori, e il materiale del mondo li
+ *  riceve da due mani (lo stile per le materie, la fabbrica per la risacca). */
+export function aggiungiDefinizioniVertex(m, glsl) {
+  const prima = m.CustomParts?.Vertex_Definitions || '';
+  m.Vertex_Definitions(prima + '\n' + glsl);
+  return m;
+}
+export function aggiungiDopoWorldPos(m, glsl) {
+  const prima = m.CustomParts?.Vertex_After_WorldPosComputed || '';
+  m.Vertex_After_WorldPosComputed(prima + '\n' + glsl);
   return m;
 }
 
@@ -132,8 +147,15 @@ export function aggiungiDefinizioniFragment(m, glsl) {
  *                     non si tocca. ⚠ Chi lo usa scavalca anche `visibility` e
  *                     l'alfa del materiale: quella resta buona solo a dire a
  *                     Babylon che la mesh va nella coda dei trasparenti.
+ * @param materie      la tavolozza delle materie (Float32Array da
+ *                     `tavolozzaMaterie()`), o null. Con la tavolozza il
+ *                     materiale legge l'attributo `aMateria` per vertice e il
+ *                     pixel sa che materia dipinge: emissione, brillio del
+ *                     sole, colore del cielo, banda delle lampade. Solo il
+ *                     materiale del MONDO la passa: erba, modelli e acqua non
+ *                     hanno materie e non pagano nemmeno la varying.
  */
-export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiffuseColor.rgb', { facce = true, schiarisci = 1, luceExtra = null, alfa = null, primaDellaLegge = null, leggeLuce = null } = {}) {
+export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiffuseColor.rgb', { facce = true, schiarisci = 1, luceExtra = null, alfa = null, primaDellaLegge = null, leggeLuce = null, materie = null } = {}) {
   // niente riflesso speculare: su una faccia piatta si legge come vernice
   m.specularColor = Color3.Black();
   m.diffuseColor = Color3.White();
@@ -185,9 +207,22 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     m.AddUniform('uCamPos', 'vec3');    // per disfare l'origine mobile
     aggiungiDefinizioniFragment(m, GLSL_OMBRA_VOXEL);
   }
+  // ---- le materie: un float per vertice, una riga di tavolozza per pixel -----
+  // ⚠ LA RIGA SI PESCA NEL VERTEX, NON NEL FRAGMENT: in GLSL ES 1.00 (WebGL1)
+  // l'indice dinamico su un array di uniform è garantito solo nel vertex
+  // shader. Il valore è costante sul triangolo (i tre vertici di un blocco
+  // hanno la stessa materia), quindi la varying arriva esatta.
+  if (materie) {
+    m.AddAttribute('aMateria');
+    m.AddUniform(`uMaterie[${MATERIE_MAX}]`, 'vec4');
+    aggiungiDefinizioniVertex(m, '\n  attribute float aMateria;\n  varying vec4 vMateria;\n');
+    aggiungiDopoWorldPos(m, '\n  vMateria = uMaterie[int(aMateria + 0.5)];\n');
+    aggiungiDefinizioniFragment(m, '\n  varying vec4 vMateria;\n');
+  }
   m.onBindObservable.add(() => {
     const e = m.getEffect();
     if (!e) return;
+    if (materie) e.setArray4('uMaterie', materie);
     if (conVoxel) {
       const v = rig.voxel;
       // ⚠ IL FLAG STA NELLA «w», non in un uniform a parte: così lo shader fa un
@@ -333,6 +368,20 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   const sommaLuce = luceExtra
     ? `nostro += ${luceExtra};`
     : '// (nessuna luce aggiunta: la somma serve solo al brillio dell acqua)';
+  // ⚠ LE MATERIE PER PIXEL, tutte piatte e tutte binarie, in stile:
+  //  · il BRILLIO è un disco a gradino dove il sole riflesso guarda l'occhio
+  //    (`vPositionW` è relativo alla camera: il verso di vista è già lì), solo
+  //    dove il sole arriva (`sole`), largo quanto dice `glintR`;
+  //  · il CIELO: lo specchio simulato prende la tinta del cielo (la stessa
+  //    dell'ombra, che È il colore del cielo) invece di una cubemap;
+  //  · l'EMISSIONE scavalca ombra e notte: un blocco acceso resta del suo
+  //    colore, piatto, anche sotto un albero a mezzanotte.
+  // Con materia 0 (tutto a zero) ogni riga è l'identità: il mondo di sempre.
+  const effettiMaterie = materie ? `
+    float materiaBrillio = step(1.0 - vMateria.z * 0.25, dot(reflect(normalize(uSoleVerso), normalize(vNormalW)), normalize(-vPositionW))) * sole * step(0.001, vMateria.z);
+    nostro = mix(nostro, uAmbiente * uOmbraTinta * 1.15, vMateria.w * (0.35 + 0.35 * sole));
+    nostro += vec3(0.45) * materiaBrillio;
+    nostro = mix(nostro, lineare * 1.15, vMateria.x);` : '// (nessuna materia su questo materiale)';
   const scriviAlfa = alfa
     ? `color.a = ${alfa};`
     : '// (alfa del materiale: per pixel la scrive solo l acqua)';
@@ -340,7 +389,7 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
   m.Fragment_Before_FragColor(`
     float sole = clamp(diffuseBase.r, 0.0, 1.0) * facciaAlSole;
     sole = floor(sole * ${BANDE.toFixed(1)} + 0.5) / ${BANDE.toFixed(1)};
-    ${glslAccumuloLuci(conVoxel)}
+    ${glslAccumuloLuci(conVoxel, materie ? 'vMateria.y' : null)}
     // ⚠ LE LAMPADE SI SOMMANO DOPO L'OMBRA, non dentro: una lampada accesa deve
     // illuminare anche quello che sta all'ombra del sole. È il motivo per cui
     // di notte, sotto un lampione, in Leafy si vede.
@@ -348,6 +397,7 @@ export function applicaStilePiatto(m, rig, colorePiatto = 'baseColor.rgb * vDiff
     vec3 lineare = pow(max(${lift}, vec3(0.0)), vec3(${GAMMA.toFixed(1)}));
     vec3 nostro = lineare * (${legge} + lampade);
     ${sommaLuce}
+    ${effettiMaterie}
     // ⚠ E LA NEBBIA VA RIMESSA, perché questo innesto sta DOPO il suo. Babylon
     // stampa il blocco della nebbia sopra di noi e poi noi riscriviamo
     // «color.rgb» di sana pianta: la nebbia veniva calcolata e buttata via, e a
