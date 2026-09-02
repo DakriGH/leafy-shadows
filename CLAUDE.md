@@ -1431,6 +1431,12 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   `officina/index.js` (NON `officina/apri.js`, che importa il motore vecchio).
   Un registro nuovo si scrive accanto a quello che governa e si aggiunge alla
   lista in `partita.js`; si prova in Node con `normalizzaRegistro`.
+- **Gli arredi sono cuboidi** (`nucleo/cuboidi.js`: scatole e piramidi con
+  `giro` e `perno`, origine ai piedi, davanti = −Z) definiti in
+  `partita/arredi.js` e registrati come blocchi «modello» non solidi
+  (`registraArredi`). Il gatto blu è il giocatore (`omino`), l'arancione il
+  PNG. Un arredo nuovo = una funzione e una riga in `ARREDI`; la cassetta
+  della partita li accoda a `CASSETTA`.
 - ⚠ **Niente `const` omonimi dentro le funzioni del modulo**: un `const giorno`
   dentro `sole()` oscurava l'oggetto `giorno` del modulo prima di nascere
   (TDZ) e la pagina moriva bianca al primo fotogramma.
