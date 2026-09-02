@@ -57,6 +57,20 @@ test('si mira al lampione, non al terreno sotto di lui', () => {
   assert.deepEqual(r.dato.cella, [3, 7, 0]);
 });
 
+test('la lanterna col cielo dietro: prima e faccia non sono mai nulle', () => {
+  // ⚠ La parte alta del lampione (cella 7, scatola fino a 10) sta fuori dalla
+  // sua cella: mirando lì con NIENTE dietro, `prima` restava null e la partita
+  // moriva al primo fotogramma («w.prima is not iterable»).
+  const m = piano(6);
+  m.metti(3, 7, 0, 'lampione', true);
+  const d = new Decoro(); d.scansiona(m);
+  const r = miraCompleta(m, { x: 0.5, y: 9.5, z: 0.5 }, vers(1, 0, 0), d.scatole(), 20);
+  assert.ok(r && r.dato, 'doveva colpire la lanterna: ' + JSON.stringify(r));
+  assert.deepEqual(r.cella, [3, 7, 0]);
+  assert.deepEqual(r.faccia, [-1, 0, 0]);
+  assert.deepEqual(r.prima, [2, 7, 0]);
+});
+
 test('ma non attraverso un muro', () => {
   // ⚠ LA PROVA CHE VALE: guardando solo «c'è una scatola sul raggio?» si
   // accenderebbe un lampione attraverso la roccia.
