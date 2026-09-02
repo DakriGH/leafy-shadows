@@ -53,7 +53,7 @@ function hash(x, y, z) {
 
 /**
  * Costruisce il chunk `kc` («cx,cz») del mondo.
- * @returns {{ byte, quad, vertici, triangoli, minY, maxY, y0, cx, cz, altezze, acqua: { byte, quad }, erba: { byte, vertici, fili, yBase } }}
+ * @returns {{ byte, quad, vertici, triangoli, minY, maxY, y0, cx, cz, altezze, acqua: { byte, quad, pelo }, erba: { byte, vertici, fili, yBase } }}
  *   `altezze` è la cima solida di ogni colonna del chunk (16×16, Int16, -1 se vuota):
  *   serve alla mappa delle altezze per l'ombra del sole.
  */
@@ -63,6 +63,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   const ox = cx * CHUNK, oz = cz * CHUNK;
   const c = new CostruttoreNucleo(1024);
   const ca = new CostruttoreNucleo(64);          // l'acqua
+  let peloMax = -Infinity;                        // la quota del pelo più alto del chunk (il piano dello specchio)
   const altezze = new Int16Array(CHUNK * CHUNK).fill(-1);
   let minY = 255, maxY = 0;
   // la fascia verticale del chunk, per cuocere la luce solo dove serve
@@ -122,6 +123,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
       else if (n === 3) { a = [X, Y, Z + 1]; b = [X, Y, Z]; cc = [X + 1, Y, Z]; d = [X + 1, Y, Z + 1]; }
       else if (n === 4) { a = [X + 1, Y, Z + 1]; b = [X + 1, Y + 1, Z + 1]; cc = [X, Y + 1, Z + 1]; d = [X, Y, Z + 1]; }
       else              { a = [X, Y, Z]; b = [X, Y + 1, Z]; cc = [X + 1, Y + 1, Z]; d = [X + 1, Y, Z]; }
+      if (acqua && n === 2) { const pelo = y + (15 - 2 * liv) / 16; if (pelo > peloMax) peloMax = pelo; }   // peloDi() di world/pelo.js
       if (acqua) ca.quadDa(qa(...a, n, col, prof, liv, a[1] === Y + 1), qa(...b, n, col, prof, liv, b[1] === Y + 1), qa(...cc, n, col, prof, liv, cc[1] === Y + 1), qa(...d, n, col, prof, liv, d[1] === Y + 1));
       else {
         // ⚠ LA LUCE DELLA FACCIA È QUELLA DELLA CELLA CHE HA DAVANTI (la cella d'aria)
@@ -142,7 +144,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   });
   if (minY > maxY) { minY = 0; maxY = 0; }
   const d = c.dati();
-  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, acqua: ca.dati(), erba: ce.dati() };
+  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, acqua: { ...ca.dati(), pelo: peloMax === -Infinity ? null : peloMax }, erba: ce.dati() };
 }
 
 function scurisci(c, k) {

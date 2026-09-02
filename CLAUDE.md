@@ -1373,6 +1373,19 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   per l'horizon mapping è in QUOTA DI MONDO (lo scarto del chunk è dentro
   `uChunk`): con lo scarto anche lì il mondo stava sotto la mappa, tutto in
   ombra a mezzogiorno.
+- **Lo specchio dell'acqua è una passata in più** (`resa._specchia`), non una
+  camera in più: matrice di riflessione rispetto al pelo a DESTRA del VP, così
+  il riflesso di un pixel sta in quel pixel e l'acqua lo legge con
+  `gl_FragCoord`. ⚠ La riflessione capovolge il verso dei triangoli: nella
+  passata si scartano le facce DAVANTI (`cullFace(FRONT)`). ⚠ Sotto il pelo si
+  scarta con `uTaglio` in TUTTI i fragment che entrano nello specchio (solidi
+  e modelli): chi lo dimentica vede il fondo del lago riflesso nel cielo.
+  ⚠ Il piano è uno solo e lo scelgono i chunk votando col loro `peloAcqua`
+  (mesher) pesato per quad e distanza: il più vicino e basta sceglieva la
+  pozza della sorgente sopra il lago, e il riflesso usciva shiftato di sei
+  blocchi, cioè invisibile. ⚠ `blitFramebuffer` verso la tela con antialias
+  è un `GL_INVALID_OPERATION` (multisample): per mostrare una texture a
+  schermo si disegna un quad.
 
 ## «Desktop» non vuol dire «GPU da desktop»
 

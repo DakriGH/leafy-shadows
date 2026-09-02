@@ -122,7 +122,7 @@ costruzione**.
 | F0 ✅ | il banco vuoto: nucleo WebGL2, chunk finti nel formato nuovo, luce cotta finta | ≥ 90 fps con 300k triangoli, ≤ 60 disegni, JS < 2 ms — **misurato: 89 fps a 964k triangoli e 256 disegni, JS 0,6 ms** |
 | F1 ⏳ | mondo in array tipizzati + mesher greedy; il gioco di oggi disegnato dal nucleo (senza luce) — **primo passo fatto: `?mondo=48`, l'open world vero con la palette di Leafy** | la scena dell'open world a ≥ 90 fps di giorno |
 | F2 ⏳ | luce cotta (cielo + lampade) + ciclo del giorno + horizon mapping del sole — **prima stesura fatta: propagazione per chunk, lampade a bande, notte blu** | la notte costa come il giorno; ombre senza acne né scatti |
-| F3 | erba nel mesh, acqua a una passata, modelli a istanze con impostor | parità visiva col gioco di oggi, verdetto del committente |
+| F3 | erba nel mesh ✅, acqua a una passata ✅ + specchio (⏳ misura), modelli a istanze ✅ con impostor | parità visiva col gioco di oggi, verdetto del committente |
 | F4 | fisica a passo fisso, centinaia di corpi; camera AR (WebXR) | 200 corpi attivi a ≥ 90 fps |
 
 Ogni fase si spinge in `sorgente` e si pubblica: il gioco di oggi resta
@@ -222,6 +222,22 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   Mali ogni chiamata è tempo di CPU. Con un disegno per chunk una passata
   specchiata sono ~50 disegni a 256², cioè quello che facevano Quake 3 e
   Mario 64. Si misura in F3 con la porta, non si vieta.
+- **02/09, lo specchio dell'acqua (F3, seconda passata, da misurare)**: in
+  `nucleo/resa.js` una passata in più PRIMA dei solidi, in un framebuffer a
+  mezza risoluzione (`specchio.scala`, `?specchio=0.5|no`), con la MATRICE DI
+  RIFLESSIONE rispetto al pelo moltiplicata a destra del VP: un punto del mondo
+  finisce a schermo dove finirebbe la sua immagine, quindi il fragment
+  dell'acqua legge il riflesso con `gl_FragCoord` e basta, spostato di un soffio
+  dalle onde. Le facce si scartano al contrario (la riflessione capovolge il
+  verso), sotto il pelo non si disegna (`uTaglio`, anche nei modelli), sott'acqua
+  non si specchia, e senza acqua a schermo la passata non parte. Il piano è UNO
+  (limite della tecnica): ogni chunk d'acqua visto vota la quota del suo pelo
+  (`acqua.pelo` dal mesher, cioè `peloDi()`) con i suoi quad smorzati dalla
+  distanza — il lago vince sulla pozza della sorgente, la pozza vince quando ci
+  si è sopra. Costo in SwiftShader sul lago del mondo 96: 90 disegni la vista +
+  92 lo specchio (solidi + modelli, niente erba). La porta è il 🩺 dal Mali con
+  e senza `?specchio`. `?vedi` mostra lo specchio nudo in un angolo.
+  Le pozze dei lampioni sono più calde e piene (1,3/1,02/0,58 sul bianco).
 
 ## 4c. Il mandato sullo stile (02/09, ripetuto dal committente)
 

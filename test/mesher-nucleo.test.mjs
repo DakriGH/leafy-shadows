@@ -69,3 +69,11 @@ test('l\'open world vero: tutti i chunk stanno sotto il tetto e la mappa delle a
   // il mondo copre 65×65 colonne dentro un rettangolo di 5×5 chunk (80×80): il resto è vuoto per davvero
   assert.equal(piene, 65 * 65, 'ogni colonna del mondo ha una cima, e fuori dal mondo niente');
 });
+
+test('il chunk sa la quota del suo pelo più alto (il piano dello specchio)', () => {
+  const m = new Mondo(); m.metti(0, 0, 0, 'terra', true); m.metti(0, 1, 0, 'acqua', true); m.metti(3, 5, 3, 'acqua~2', true);
+  const d = costruisciChunkNucleo(m, '0,0', { erba: 0, luce: false });
+  assert.equal(d.acqua.pelo, 5 + (15 - 4) / 16, 'il pelo è quello di peloDi(): y + (15 − 2·livello)/16, del pelo più alto');
+  const senza = new Mondo(); senza.metti(0, 0, 0, 'terra', true);
+  assert.equal(costruisciChunkNucleo(senza, '0,0', { erba: 0, luce: false }).acqua.pelo, null, 'senza acqua, niente pelo');
+});
