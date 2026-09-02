@@ -85,14 +85,15 @@ void main() {
   if (uOmbra > 0.5) {
     vec3 dir = -uSoleVerso;
     vec3 q = vPos + dir * 0.35 + vec3(0.0, 0.15, 0.0);
-    float passo = 0.6;
+    float passo = 0.6, cammino = 0.35, copertura = 0.0;
     for (int i = 0; i < 8; i++) {
-      q += dir * passo;
+      q += dir * passo; cammino += passo;
       vec2 uv = (q.xz - uAltRett.xy) * uAltRett.zw;
       float h = texture(uAltezze, uv).r * 255.0;
-      if (h > q.y) { luce = 0.0; break; }
+      copertura = max(copertura, clamp((h - q.y) / (0.3 + 0.10 * cammino), 0.0, 1.0));
       passo *= 1.35;
     }
+    luce = 1.0 - copertura;
   }
   vec3 c = vColOmbra + vColSole * luce;
   c = pow(mix(c, pow(uNebbiaCol, vec3(2.2)), vNebbia), vec3(1.0 / 2.2));

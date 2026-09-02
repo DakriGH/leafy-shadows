@@ -13,12 +13,17 @@
 //   byte 0-1  x z  base della lamella, in ottavi di cella nel chunk (0..128)
 //   byte 2    y    base, in ottavi di cella sopra `yBase` del chunk (0..255 → 32 celle)
 //   byte 3    seme (fase del vento, verso della lamella)
-//   byte 4-6  r g b  il colore della punta (la base è lo stesso, più scuro)
+//   byte 4-6  r g b  IL COLORE DELLA CIMA DEL BLOCCO SOTTO (la lamella parte da lì)
 //   byte 7    cielo cotto (0..15) << 2
 //   byte 8    altezza in 1/64 di cella (0..255 → 4 celle)
 //   byte 9    larghezza in 1/128 di cella
 //   byte 10   inclinazione della punta lungo il verso, in 1/128 di cella (+128)
-//   byte 11   libero
+//   byte 11   luce di blocco (0..15) | punta (0..15) << 4: quanto la punta si scosta dalla base (0,90 … 1,10)
+//
+// ⚠ IL COLORE È QUELLO DEL BLOCCO D'ERBA SOTTO, e basta: «i ciuffi partono
+// dalla sfumatura del blocco sottostante e sfumano leggermente verso una
+// punta un po' più chiara o più scura; la maggior parte ha un colore molto
+// simile alla base — cel shading alla Zelda». Niente base scura al 42%.
 export const BYTE_FILO = 12;
 
 const FORME = [
@@ -33,10 +38,6 @@ function hash(x, z, k) {
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
-function chiarisci(c, k) {
-  const f = (v) => Math.max(0, Math.min(255, Math.round(v * k)));
-  return (f((c >> 16) & 255) << 16) | (f((c >> 8) & 255) << 8) | f(c & 255);
-}
 
 export class CostruttoreErba {
   constructor(yBase, fili = 512) {
@@ -44,20 +45,21 @@ export class CostruttoreErba {
     this.byte = new Uint8Array(fili * BYTE_FILO);
     this.n = 0;
   }
-  _lamella(x8, z8, y8, seme, col, cielo, alto64, largo128, inclina) {
+  _lamella(x8, z8, y8, seme, col, cielo, alto64, largo128, inclina, blocco = 0, punta = 8) {
     if ((this.n + 1) * BYTE_FILO > this.byte.length) { const b = new Uint8Array(this.byte.length * 2); b.set(this.byte); this.byte = b; }
     const o = this.n * BYTE_FILO, b = this.byte;
     b[o] = x8; b[o + 1] = z8; b[o + 2] = y8; b[o + 3] = seme;
     b[o + 4] = (col >> 16) & 255; b[o + 5] = (col >> 8) & 255; b[o + 6] = col & 255;
     b[o + 7] = (cielo & 15) << 2;
-    b[o + 8] = Math.max(1, Math.min(255, alto64)); b[o + 9] = Math.max(1, Math.min(255, largo128)); b[o + 10] = Math.max(0, Math.min(255, inclina + 128)); b[o + 11] = 0;
+    b[o + 8] = Math.max(1, Math.min(255, alto64)); b[o + 9] = Math.max(1, Math.min(255, largo128)); b[o + 10] = Math.max(0, Math.min(255, inclina + 128));
+    b[o + 11] = (blocco & 15) | ((punta & 15) << 4);
     this.n++;
   }
   /**
    * Un ciuffo sulla cima della cella (x, y, z) del mondo (quote assolute), nel
    * chunk con origine (ox, oz). `densita` scala il numero di lamelle della forma.
    */
-  ciuffo(x, y, z, ox, oz, colCima, cielo, densita = 1) {
+  ciuffo(x, y, z, ox, oz, colCima, cielo, densita = 1, blocco = 0) {
     const f = FORME[Math.floor(hash(x, z, 3) * FORME.length)];
     const n = Math.max(1, Math.round(f.n * densita * (0.82 + 0.36 * hash(x, z, 5))));
     const yb = y + 1 - this.yBase;
@@ -71,10 +73,11 @@ export class CostruttoreErba {
       const alto = Math.min(0.8, f.alto * (0.62 + 0.8 * hash(x, z, k * 17 + 71)) * (0.5 + 0.6 * Math.pow(g, 1.5)));
       const largo = f.largo * (0.8 + 0.4 * j);
       const inclina = (hash(x, z, k * 17 + 83) - 0.5) * 0.5;   // la punta pende un po' da una parte
-      const punta = chiarisci(colCima, 1.0 + 0.18 * hash(x, z, k * 17 + 89));
+      // la punta: quasi sempre come la base (±3%), ogni tanto un po' più chiara o più scura (±10%)
+      const t = hash(x, z, k * 17 + 89), scosta = t < 0.15 ? 0.90 + 0.03 * t : t > 0.85 ? 1.07 + 0.03 * (t - 0.85) : 0.97 + 0.06 * (t - 0.15) / 0.7;
       const X = Math.max(0, Math.min(128, Math.round((cx - ox) * 8))), Z = Math.max(0, Math.min(128, Math.round((cz - oz) * 8)));
       const seme = Math.floor(hash(x, z, k * 17 + 97) * 255);
-      this._lamella(X, Z, Math.round(yb * 8), seme, punta, cielo, Math.round(alto * 64), Math.round(largo * 128), Math.round(inclina * 128));
+      this._lamella(X, Z, Math.round(yb * 8), seme, colCima, cielo, Math.round(alto * 64), Math.round(largo * 128), Math.round(inclina * 128), blocco, Math.round((scosta - 0.9) / 0.2 * 15));
     }
     return n;
   }

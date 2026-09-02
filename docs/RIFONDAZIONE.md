@@ -303,6 +303,35 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   con la bocca azzurra; anello del mulinello; rete a cono. Verificati a
   schermo da davanti e di lato (scatti nel banco). Restano modelli di codice,
   non asset d'artista: i .glb veri li sostituiranno con lo stesso nome.
+  ⚠ Le forme tornite giravano verso DENTRO («mesh invertite»): ora ogni
+  triangolo si avvolge come dice la sua normale dichiarata, per costruzione.
+- **02/09, la luce non più a quadrati** (verdetto: «un sistema di illuminazione
+  a quadrati e ombre quadratiche»). La luce cotta è PER VERTICE: media delle
+  otto celle attorno al vertice spostato di mezzo blocco verso fuori
+  (`Pennello._luceVertice`), interpolata sulla faccia, e le BANDE (cielo a 4,
+  lampada a 4) si fanno nel fragment sulla luce interpolata: pozze tonde,
+  angoli che si scuriscono da soli (l'occlusione ambientale di Minecraft), il
+  sole diretto sfuma dove il cielo cala. L'ombra del sole è MORBIDA: mappa
+  delle altezze filtrata linearmente e penombra che cresce con la distanza
+  dall'ostacolo (copertura = (cima − raggio)/(0,3 + 0,1·cammino)); la chioma
+  dell'albero è un disco a cupola, non una croce. Stessi 8 passi di prima.
+- **02/09, i colori** («molto diversi da Leafy e dalla concept»): a mezzogiorno
+  il sole è BIANCO, quindi al sole pieno si vede la palette esatta; il caldo
+  entra solo col sole basso; l'ombra è scura ma meno blu. L'erba: le lamelle
+  partono dal colore della cima del blocco d'erba sotto (che già cambia con la
+  quota) e la punta se ne scosta di poco (quasi sempre ±3%, ogni tanto ±10%):
+  è il cel shading alla Zelda che il committente ha descritto, non un
+  gradiente scuro-chiaro. Le lamelle prendono anche la luce dei lampioni.
+- **⏳ PUNTO A PARTE — post-processing all'antica** (richiesta: «bloom, volume,
+  emissività: la parte gialla dei lampioni accesi manca di glow»). Da studiare
+  come lo facevano i vecchi giochi con pochissima RAM: (1) il GLOW dei
+  lampioni come SPRITE ADDITIVI a cartello (un quad per lanterna, additivo,
+  che scala con la distanza — Quake, Ocarina): zero passate, un disegno a
+  istanze per tutte le lanterne; (2) il BLOOM come passata a un quarto di
+  risoluzione, soglia sull'emissivo e due sfocature separabili 5-tap
+  (~0,3 ms sul Mali, da misurare), acceso solo se il 🩺 lo permette; (3) i
+  raggi «volumetrici» come cartelli sfumati del sole basso, non ray marching.
+  Prima gli sprite additivi: costano niente e danno il 90% dell'effetto.
 
 ## 4c. Il mandato sullo stile (02/09, ripetuto dal committente)
 

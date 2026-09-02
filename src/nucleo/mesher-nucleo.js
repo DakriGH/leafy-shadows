@@ -61,10 +61,28 @@ const IV = (dx, dy, dz) => ((dy + 1) * 3 + (dz + 1)) * 3 + (dx + 1);
  * non costa un pixel.
  */
 class Pennello {
-  constructor(c, ox, oz) { this.c = c; this.ox = ox; this.oz = oz; this._materia = 0; this._luce = null; }
+  constructor(c, ox, oz, luceDi) { this.c = c; this.ox = ox; this.oz = oz; this._materia = 0; this.luceDi = luceDi; }
   materia(i) { this._materia = i | 0; }
-  luce(f) { this._luce = f; }
-  _v(p, ni, colore, l) { return [p[0] - this.ox, p[1] + SCARTO_Y, p[2] - this.oz, ni, l[0], l[1], colore, 0, this._materia]; }
+  /**
+   * ⚠ LA LUCE È PER VERTICE, NON PER FACCIA: la media delle otto celle attorno
+   * al punto spostato di mezzo blocco verso fuori. Un vertice sullo spigolo
+   * legge metà celle d'aria e metà del vicino, e la faccia SFUMA da un
+   * vertice all'altro: le pozze dei lampioni sono tonde e la luce del cielo
+   * si abbassa negli angoli (l'occlusione ambientale di Minecraft, gratis).
+   * Prima ogni faccia leggeva la sua cella e basta, e il committente vedeva
+   * «un sistema di illuminazione a quadrati».
+   */
+  _luceVertice(p, f) {
+    const l = Math.hypot(f[0], f[1], f[2]) || 1;
+    const qx = p[0] + f[0] / l * 0.5, qy = p[1] + f[1] / l * 0.5, qz = p[2] + f[2] / l * 0.5;
+    let ci = 0, bl = 0;
+    for (const dx of [-0.45, 0.45]) for (const dy of [-0.45, 0.45]) for (const dz of [-0.45, 0.45]) {
+      const [c1, b1] = this.luceDi(Math.floor(qx + dx), Math.floor(qy + dy), Math.floor(qz + dz));
+      ci += c1; bl += b1;
+    }
+    return [Math.round(ci / 8), Math.round(bl / 8)];
+  }
+  _v(p, ni, colore, f) { const l = this._luceVertice(p, f); return [p[0] - this.ox, p[1] + SCARTO_Y, p[2] - this.oz, ni, l[0], l[1], colore, 0, this._materia]; }
   _giro(a, b, c, fuori) {
     const abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
     const acx = c[0] - a[0], acy = c[1] - a[1], acz = c[2] - a[2];
@@ -73,13 +91,13 @@ class Pennello {
   }
   tri(a, b, c, colore, fuori) {
     if (this._giro(a, b, c, fuori)) { const t = b; b = c; c = t; }
-    const ni = indiceNormale(fuori[0], fuori[1], fuori[2]), l = this._luce ? this._luce(fuori) : [15, 0];
-    this.c.quadDa(this._v(a, ni, colore, l), this._v(b, ni, colore, l), this._v(c, ni, colore, l), this._v(c, ni, colore, l));
+    const ni = indiceNormale(fuori[0], fuori[1], fuori[2]);
+    this.c.quadDa(this._v(a, ni, colore, fuori), this._v(b, ni, colore, fuori), this._v(c, ni, colore, fuori), this._v(c, ni, colore, fuori));
   }
   quad(a, b, c, d, colore, fuori) {
-    const ni = indiceNormale(fuori[0], fuori[1], fuori[2]), l = this._luce ? this._luce(fuori) : [15, 0];
+    const ni = indiceNormale(fuori[0], fuori[1], fuori[2]);
     if (this._giro(a, b, c, fuori)) { const t = b; b = d; d = t; }
-    this.c.quadDa(this._v(a, ni, colore, l), this._v(b, ni, colore, l), this._v(c, ni, colore, l), this._v(d, ni, colore, l));
+    this.c.quadDa(this._v(a, ni, colore, fuori), this._v(b, ni, colore, fuori), this._v(c, ni, colore, fuori), this._v(d, ni, colore, fuori));
   }
 }
 
@@ -118,7 +136,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   const lc = (luce && yLo <= yHi) ? cuociLuce(mondo, kc, yLo - 2, yHi + 3) : null;
   const ce = new CostruttoreErba(Number.isFinite(yLo) ? yLo : 0);   // l'erba a fili, con la sua base
   const luceDi = (x, y, z) => (lc ? lc.leggi(x, y, z) : [15, 0]);
-  const pen = new Pennello(c, ox, oz);
+  const pen = new Pennello(c, ox, oz, luceDi);
   const vicini = new Uint8Array(27);
   // ⚠ IL BIT «VENTO» PER L'ACQUA DICE «VERTICE IN CIMA ALLA CELLA»: il vertex
   // shader abbassa al pelo anche gli orli delle pareti, se no una parete
@@ -129,13 +147,15 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   mondo.perOgniDelChunk(kc, (x, y, z, tipo) => {
     const def = defDi(tipo);
     if (def.forma === 'modello' && def.modello === 'albero') {
-      // ⚠ L'ALBERO STA NELLA MAPPA DELLE ALTEZZE con la sua chioma (una croce
-      // di celle a quota +3): è così che fa ombra col sole, senza mappa d'ombra.
-      for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      // ⚠ L'ALBERO STA NELLA MAPPA DELLE ALTEZZE con la sua chioma: un DISCO di
+      // raggio 2 (cupola: +4 al centro, +3 attorno, +2 sull'orlo), così l'ombra
+      // del sole è tonda e non una croce di quadrati.
+      for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+        const r2 = dx * dx + dz * dz; if (r2 > 4) continue;
         const lx = x + dx - ox, lz = z + dz - oz;
         if (lx < 0 || lx >= CHUNK || lz < 0 || lz >= CHUNK) continue;
-        const i = lx * CHUNK + lz;
-        if (y + 3 > altezze[i]) altezze[i] = y + 3;
+        const i = lx * CHUNK + lz, h = y + (r2 === 0 ? 4 : r2 <= 2 ? 3 : 2);
+        if (h > altezze[i]) altezze[i] = h;
       }
     }
     if (FORME_VUOTE.has(def.forma)) return;          // piante, lastre, modelli: F3
@@ -163,18 +183,6 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
         if (opaco(mondo.tipo(x + dx, y + dy, z + dz))) vicini[IV(dx, dy, dz)] = 1;
       }
       const vicinoSolido = (dx, dy, dz) => vicini[IV(dx, dy, dz)] === 1;
-      // ⚠ LA LUCE DEL PEZZO È QUELLA DELLE CELLE D'ARIA VERSO CUI GUARDA: una
-      // faccia legge la cella davanti, uno smusso o un angolo il massimo fra le
-      // celle dei suoi versi (uno smusso fra +x e +y è illuminato se lo è una delle due).
-      pen.luce((f) => {
-        let ci = 0, bl = 0, letti = 0;
-        for (let a = 0; a < 3; a++) {
-          if (!f[a]) continue;
-          const [c1, b1] = luceDi(x + (a === 0 ? f[0] : 0), y + (a === 1 ? f[1] : 0), z + (a === 2 ? f[2] : 0));
-          if (c1 > ci) ci = c1; if (b1 > bl) bl = b1; letti++;
-        }
-        return letti ? [ci, bl] : luceDi(x, y + 1, z);
-      });
       pen.materia(mat);
       const cxm = x + 0.5, cym = y + 0.5, czm = z + 0.5;
       const extra = def.forma && FORME_EXTRA[def.forma];
@@ -219,8 +227,8 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
     // un ciuffo di fili a triangolo come il prato di oggi (nucleo/erba.js),
     // con la luce del cielo della cella sopra.
     if (def.cappello && erba > 0 && !mondo.tipo(x, y + 1, z)) {
-      const [ce15] = luceDi(x, y + 1, z);
-      ce.ciuffo(x, y, z, ox, oz, pal.cima, ce15, erba / 2);
+      const [ce15, bl15] = luceDi(x, y + 1, z);
+      ce.ciuffo(x, y, z, ox, oz, pal.cima, ce15, erba / 2, bl15);
       if (y + 2 + SCARTO_Y > maxY) maxY = y + 2 + SCARTO_Y;
     }
   });

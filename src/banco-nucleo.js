@@ -156,10 +156,13 @@ function sole(dt) {
   resa.sole.verso = [-Math.cos(az) * Math.cos(Math.asin(alt)), -alt, -Math.sin(az) * Math.cos(Math.asin(alt))];
   const giorno = Math.max(0, Math.min(1, (Math.sin(a) + 0.1) * 2));
   resa.sole.forza = giorno;
-  resa.sole.colore = [1.0, 0.86 + 0.1 * giorno, 0.66 + 0.2 * giorno];
+  // ⚠ A MEZZOGIORNO IL SOLE È BIANCO: al sole pieno si vede la palette ESATTA
+  // (vivace, come le concept); il caldo entra solo col sole basso.
+  const caldo = Math.min(1, Math.max(0, (alt - 0.24) / 0.4));
+  resa.sole.colore = [1.0, 0.78 + 0.22 * caldo, 0.55 + 0.45 * caldo];
   // ⚠ IL CIELO DI NOTTE È BLU SCURO, ed è lui il colore dell'ombra: senza
   // questa riga la notte era un giorno spento, e le lampade non risaltavano.
-  resa.sole.cielo = [0.10 + 0.50 * giorno, 0.12 + 0.56 * giorno, 0.24 + 0.58 * giorno];
+  resa.sole.cielo = [0.10 + 0.54 * giorno, 0.12 + 0.56 * giorno, 0.24 + 0.50 * giorno];   // l'ombra: scura ma non blu
   resa.nebbia.colore = [0.25 + 0.47 * giorno, 0.35 + 0.5 * giorno, 0.5 + 0.42 * giorno];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }
