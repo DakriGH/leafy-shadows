@@ -389,6 +389,34 @@ export class Rig {
     // restare quasi zero, che è dove il bordo è pulito.
     this.ombre.bias = 0.002;
     this.ombre.normalBias = 0.006;
+    // ⚠ E L'ACNE CHE RESTAVA — sole basso, cascate lontane, il terreno che sembra
+    // «sporco» — SI CURA CAMBIANDO FACCIA, non manopola. La mappa d'ombra del
+    // MONDO si disegna con le facce di dietro: quelle che il sole non vede. Il
+    // mesher emette solo facce fra pieno e vuoto, quindi ogni rilievo è un
+    // guscio: il raggio del sole entra da una faccia illuminata (che NON viene
+    // scritta) ed esce da una faccia in ombra per geometria (che viene scritta,
+    // e sta esattamente sullo spigolo che fa la sagoma). Così:
+    //  · una faccia al sole non è mai nella mappa → non può farsi ombra da
+    //    sola, e l'acne sparisce PER COSTRUZIONE, a qualunque altezza del sole
+    //    e a qualunque risoluzione della cascata;
+    //  · l'ombra parte dallo spigolo vero, senza staccarsi da terra
+    //    (il «peter-panning» nasce solo con gusci SPESSI: qui la faccia di
+    //    dietro è la parete stessa del rilievo);
+    //  · la faccia di dietro, che sì fa acne con sé stessa, è già nera per
+    //    `facciaAlSole` (stile.js): non la guarda nessuno.
+    // ⚠ NON `forceBackFacesOnly`, che è globale: le chiome degli alberi sono
+    // piani incrociati a doppia faccia, e con le sole facce di dietro metà
+    // chioma sparirebbe dall'ombra. Si gira la cullatura MESH PER MESH, e la
+    // chiede solo chi ha un dietro chiuso (`_ombraDalRetro`, fabbrica.js).
+    // L'osservatore scatta dopo che Babylon ha messo lo stato del materiale e
+    // prima del disegno; quello di dopo rimette le cose a posto.
+    this.ombreDalRetro = true;
+    this.ombre.onBeforeShadowMapRenderMeshObservable.add((mesh) => {
+      if (this.ombreDalRetro && mesh._ombraDalRetro) this.motore.setState(true, 0, false, true);
+    });
+    this.ombre.onAfterShadowMapRenderMeshObservable.add((mesh) => {
+      if (this.ombreDalRetro && mesh._ombraDalRetro) this.motore.setState(true, 0, false, false);
+    });
 
     // ---- L'ANTIALIASING DEI BORDI SOTTILI ------------------------------------
     // ⚠ L'MSAA DELLA TELA NON BASTA QUI, e il motivo è la geometria: le terrazze
@@ -815,6 +843,12 @@ export function registroOmbre(rig) {
       { chiave: 'normalBias', nome: 'normal bias', tipo: 'numero', min: 0, max: 0.05, passo: 0.001,
         nota: 'ALZARLO È LA CURA SBAGLIATA all\'acne: accende una lineetta sul bordo dell\'ombra (vedi CLAUDE.md)',
         leggi: () => rig.ombre.normalBias, scrivi: (v) => (rig.ombre.normalBias = v) },
+      { chiave: 'retro', nome: 'il mondo proietta con le facce di dietro', tipo: 'interruttore',
+        nota: 'la cura dell\'acne senza bias: la faccia al sole non sta nella mappa. Spegnerlo serve solo a confrontare',
+        leggi: () => !!rig.ombreDalRetro, scrivi: (v) => { rig.ombreDalRetro = v; rig._sporcaOmbre(); } },
+      { chiave: 'fusione', nome: 'fusione fra cascate', tipo: 'numero', min: 0, max: 0.3, passo: 0.01,
+        nota: 'quanto del bordo di una cascata sfuma nella successiva: a zero il passaggio è una riga',
+        leggi: () => rig.ombre.cascadeBlendPercentage, scrivi: (v) => (rig.ombre.cascadeBlendPercentage = v) },
       { chiave: 'stabili', nome: 'cascate stabilizzate', tipo: 'interruttore',
         leggi: () => !!rig.ombre.stabilizeCascades, scrivi: (v) => (rig.ombre.stabilizeCascades = v) },
       { chiave: 'viva', nome: 'la mappa si rinnova adesso', tipo: 'lettura',

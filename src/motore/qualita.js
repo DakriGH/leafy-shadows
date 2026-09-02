@@ -187,10 +187,16 @@ export const LIVELLI = {
     // ⚠ E NON È UN FISSO: si accende e si spegne a caldo, quindi sta nella scala
     // e non in `fissiDiAvvio`.
     //
-    // ⚠ LE OMBRE OGNI TRE GIRI SU MOBILE, e il numero viene da una misura sul
-    // telefono del committente (Mali-G68): la mappa d'ombra costava 5,22 ms
-    // spalmati su un fotogramma da 25,6 — il venti per cento del tempo, per una
-    // cosa che cambia di un quarto di grado al minuto. A tre giri sono 3,5.
+    // ⚠ LE OMBRE OGNI DUE GIRI SU MOBILE IN ALTO, tre più giù. Il numero nasce
+    // da una misura sul telefono del committente (Mali-G68): la mappa d'ombra
+    // costava 5,22 ms spalmati su un fotogramma da 25,6 — il venti per cento
+    // del tempo. A tre giri erano 3,5. ⚠ MA TRE GIRI A TRENTA FOTOGRAMMI SONO
+    // CENTO MILLISECONDI: l'ombra del giocatore che cammina avanza a scatti
+    // visibili, ed è una delle «ombre a scatti» che il committente odia. Da
+    // quando la mappa si CONGELA da sola a scena ferma (rig.quieteOmbre) il
+    // risparmio grosso viene da lì, non dal passo: due giri sui primi gradini
+    // costano ~0,4 ms in più e tolgono metà dello scatto. Tre restano dove
+    // la scala sta già stringendo.
     // ⚠ E NON È «abbassare la qualità»: la mappa resta 1024 a due cascate, cioè
     // l'ombra è LA STESSA. Cambia solo ogni quanto la si ridisegna.
     //
@@ -204,9 +210,9 @@ export const LIVELLI = {
     // due secondi e mezzo (sotto i 24 fps le basta UNA misura, vedi
     // `gioco/adatta.js`). Tarare il tetto è indovinare; far scendere la scala è
     // misurare.
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, ombraOgni: 3, ombraAcqua: true , fxaa: false, particelle: true,
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 110, erba: 4.0, erbaR: 3, ombraOgni: 2, ombraAcqua: true , fxaa: false, particelle: true,
       acquaVera: 3, acquaSpecchio: true , acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
-    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: true,
+    { scala: 1.00, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist: 100, erba: 2.0, erbaR: 2, ombraOgni: 2, ombraAcqua: false, fxaa: false, particelle: true,
       acquaVera: 2, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
     { scala: 0.85, cascate: 2, mappa:  768, ombraZ: 34, pcf: false, sole: true,  dist:  85, erba: 1.2, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false,
       acquaVera: 1, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.40 },
@@ -233,11 +239,11 @@ export const LIVELLI = {
     // quella che si vede, la decidono `mappa/ombraZ` e lambda, e non cambiano.
     { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 150, erba: 7.8, erbaR: 6, ombraOgni: 1, ombraAcqua: true , fxaa: true,  particelle: true,
       acquaVera: 3, acquaSpecchio: true , acquaLato: 256, acquaOgni: 2, acquaProf: 1.00 },
-    { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 130, erba: 6.0, erbaR: 5, ombraOgni: 2, ombraAcqua: true , fxaa: true,  particelle: true,
+    { scala: 1.00, cascate: 3, mappa: 2048, ombraZ: 90, pcf: true,  sole: true,  dist: 130, erba: 6.0, erbaR: 5, ombraOgni: 1, ombraAcqua: true , fxaa: true,  particelle: true,
       acquaVera: 3, acquaSpecchio: true , acquaLato: 256, acquaOgni: 2, acquaProf: 0.75 },
-    { scala: 0.85, cascate: 2, mappa: 1024, ombraZ: 45, pcf: true,  sole: true,  dist: 110, erba: 4.5, erbaR: 4, ombraOgni: 2, ombraAcqua: true , fxaa: true,  particelle: true,
+    { scala: 0.85, cascate: 2, mappa: 1024, ombraZ: 45, pcf: true,  sole: true,  dist: 110, erba: 4.5, erbaR: 4, ombraOgni: 1, ombraAcqua: true , fxaa: true,  particelle: true,
       acquaVera: 3, acquaSpecchio: true , acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
-    { scala: 0.70, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist:  90, erba: 3.0, erbaR: 3, ombraOgni: 3, ombraAcqua: false, fxaa: true,  particelle: false,
+    { scala: 0.70, cascate: 2, mappa: 1024, ombraZ: 45, pcf: false, sole: true,  dist:  90, erba: 3.0, erbaR: 3, ombraOgni: 2, ombraAcqua: false, fxaa: true,  particelle: false,
       acquaVera: 2, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
     { scala: 0.60, cascate: 2, mappa:  512, ombraZ: 22, pcf: false, sole: false, dist:  70, erba: 1.5, erbaR: 2, ombraOgni: 3, ombraAcqua: false, fxaa: false, particelle: false,
       acquaVera: 1, acquaSpecchio: false, acquaLato: 256, acquaOgni: 3, acquaProf: 0.50 },
