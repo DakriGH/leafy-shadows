@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Leafy-Shadows · banco del nucleo</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd0e8; touch-action: none; }
+  #tela { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+  #fps { position: fixed; right: 8px; top: 8px; z-index: 10; font: 600 13px/1.4 ui-monospace, monospace; color: #0d2a1a;
+         background: rgba(255,255,255,.72); padding: 5px 9px; border-radius: 6px; pointer-events: none; text-align: right; white-space: pre; }
+  #stato { position: fixed; left: 8px; top: 8px; z-index: 10; font: 11px/1.45 ui-monospace, monospace; color: #0d2a1a;
+           background: rgba(255,255,255,.72); padding: 6px 9px; border-radius: 6px; white-space: pre-wrap; pointer-events: none; max-width: 70vw; }
+  #guasto { position: fixed; inset: 12px; z-index: 100; display: none; font: 13px/1.55 ui-monospace, monospace; color: #fff;
+            background: #8b1d1d; padding: 14px; border-radius: 8px; overflow: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <canvas id="tela"></canvas>
+  <div id="stato">avvio…</div>
+  <div id="fps">—</div>
+  <pre id="guasto"></pre>
+  <script type="module">
+    const guasto = (e) => {
+      const p = document.getElementById('guasto');
+      p.style.display = 'block';
+      p.textContent += (e && e.stack ? e.stack : String(e)) + '\n';
+    };
+    window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
+    window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
+    import('./banco-nucleo.js?v=3da47d4.3b4f5c33').catch(guasto);
+  </script>
+  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">02/09, 13:58 · 3da47d4</div>
+</body>
+</html>
