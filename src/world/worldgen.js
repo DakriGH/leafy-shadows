@@ -305,3 +305,47 @@ export function generaMondoGigante(mondo, seme = 1, estensione = 90) {
   }
   return { alberi, lampioni };
 }
+
+// ---- L'OPEN WORLD PER CHUNK, a richiesta ------------------------------------
+//
+// ⚠ È LA STESSA TERRA di `generaOpenWorld` (stesso rumore, stesse quote, stessi
+// materiali, stessa regola di alberi e lampioni) MENO due cose che presuppongono
+// di conoscere il mondo intero: l'anello di spiaggia al bordo (qui non c'è un
+// bordo) e i fiumi (le sorgenti si scelgono fra TUTTI i rilievi e scendono
+// attraverso chunk che potrebbero non esistere ancora). L'acqua resta quella a
+// livello del mare, che è locale per costruzione.
+//
+// ⚠ E NIENTE TETTI GLOBALI su alberi e lampioni: `generaOpenWorld` si ferma a
+// 90 alberi e 14 lampioni, che dipende dall'ORDINE in cui visita le colonne. Un
+// chunk generato a richiesta non sa quanti alberi ci sono altrove: la densità la
+// fa la soglia del rumore e basta, che è la stessa (0,988 e 0,004).
+//
+// Torna le decorazioni [x, h, z, tipo] senza posarle: le posa la frontiera
+// NON silenziose, perché il registro delle decorazioni impara dagli eventi.
+export function generaChunkOpenWorld(mondo, cx, cz, seme = 1) {
+  const decorazioni = [];
+  const x0 = cx * 16, z0 = cz * 16;
+  for (let x = x0; x < x0 + 16; x++) {
+    for (let z = z0; z < z0 + 16; z++) {
+      const n =
+        0.55 * rumore(x * 0.028, z * 0.028, seme) +
+        0.30 * rumore(x * 0.07, z * 0.07, seme + 11) +
+        0.15 * rumore(x * 0.16, z * 0.16, seme + 29);
+      const h = Math.max(2, 1 + Math.round(Math.pow(Math.max(0, n), 1.6) * 22));
+      const spiaggia = h <= LIVELLO_ACQUA + 1;
+      for (let y = 0; y < h; y++) {
+        const cima = y === h - 1;
+        const tipo = cima ? (spiaggia ? 'sabbia' : 'erba') : (y < h - 3 ? 'roccia' : 'terra');
+        mondo.metti(x, y, z, tipo, true);
+      }
+      if (h <= LIVELLO_ACQUA) {
+        for (let y = h; y <= LIVELLO_ACQUA; y++) mondo.metti(x, y, z, 'acqua', true);
+      } else if (!spiaggia) {
+        const r = hash2(x * 3 + 1, z * 3 + 7, seme + 101);
+        if (r > 0.988) decorazioni.push([x, h, z, 'albero']);
+        else if (r < 0.004) decorazioni.push([x, h, z, 'lampione']);
+      }
+    }
+  }
+  return decorazioni;
+}

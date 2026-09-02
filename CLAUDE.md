@@ -1171,6 +1171,20 @@ provati in Node (257 prove) e a schermo. Le trappole già pagate:
   Per pixel: emissione (scavalca ombra e notte), brillio a step verso il sole,
   cielo dello specchio simulato (la tinta dell'ombra, che È il cielo), curva
   della banda delle lampade — tutto piatto, tutto binario. Il §13 è completo.
+- **La frontiera** (`world/frontiera.js`, `?infinito` o `?infinito=seme`): il
+  mondo si genera per chunk davanti a chi cammina (fino a `resa` + 32 blocchi,
+  quattro chunk per giro, dal più vicino) e si scarica dietro (oltre `resa` +
+  96). ⚠ Un chunk è il suo SEME più le MODIFICHE del giocatore: il mondo le
+  annota per chunk (`mondo.modifiche`, solo scritture NON silenziose) e le
+  riapplica alla rigenerazione — un albero tagliato resta tagliato. ⚠ Le
+  decorazioni si posano NON silenziose e allo scarico si emette un `togli`
+  per ciascuna: `gioco/decoro.js` impara dagli eventi, e una posa silenziosa
+  darebbe l'albero nel mondo e nessun modello a schermo. ⚠ Con la frontiera
+  la griglia dei muri è SPENTA (è una texture 3D sulla scatola del mondo
+  intero, e un mondo che cresce la rifarebbe a ogni chunk): le lampade
+  attraversano i muri finché non c'è la griglia che segue la camera.
+  `generaChunkOpenWorld` è la stessa terra dell'open world senza l'anello di
+  bordo e senza i fiumi (non locali); niente tetti globali su alberi e lampioni.
 - **Le uniform delle lampade si scrivono una volta per fotogramma per
   PROGRAMMA** (stile.js): `onBindObservable` scatta per ogni mesh in ogni
   passata, e riscriveva tre array da 24 sempre uguali. Il programma si timbra

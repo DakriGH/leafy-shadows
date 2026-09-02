@@ -79,9 +79,14 @@
   in una chiamata di disegno; §13 completo: emissione, brillio, cielo, curva);
 - ✅ uniform delle lampade una volta per programma per fotogramma;
 - ✅ Officina nel sorgente (`src/officina/`, `officina.html`);
-- ⏳ catalogo asset dichiarativo, LOD/impostor dei modelli, streaming della
-  GENERAZIONE (oggi il mondo si genera tutto: a r400 sono 2 minuti e 9 GB —
-  serve worldgen per chunk a richiesta, ora che le mesh sanno scaricarsi);
+- ✅ streaming della GENERAZIONE (`world/frontiera.js`, `?infinito`): il mondo
+  si genera per chunk davanti a chi cammina e si scarica dietro, con le
+  modifiche del giocatore conservate per chunk; misurato: 316 chunk generati
+  camminando 360 blocchi, mai più di ~150 in memoria, decorazioni al seguito;
+- ⏳ la griglia dei muri che SEGUE la camera (con lo streaming oggi è spenta:
+  le lampade attraversano i muri), i fiumi nel generatore per chunk (oggi
+  solo nell'open world a estensione fissa), catalogo asset dichiarativo,
+  LOD/impostor dei modelli;
 - ⏳ luci in cluster (oltre 24 lampade) e UBO per fotogramma.
 
 ### Fase R4 — Il look di Leafy, riconquistato
