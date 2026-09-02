@@ -26,8 +26,8 @@ uniform vec3 uCam;
 flat out vec3 vBase;          // il colore cotto, lineare
 flat out float vSole;         // quanto sole prende la faccia, a bande (l'horizon map lo può togliere)
 flat out float vEmis;         // materia emissiva
-out float vCielo;             // ⚠ INTERPOLATE: la luce sfuma da un vertice all'altro
-out float vBlocco;
+flat out float vCielo;        // il cielo è PER FACCIA (la regola di Leafy: niente sfumature sui solidi)
+out float vBlocco;            // la luce di blocco sfuma: le pozze dei lampioni sono tonde
 out float vNebbia;
 out vec3 vPos;
 void main() {
@@ -48,10 +48,11 @@ void main() {
   // ⚠ IL COLORE È QUELLO COTTO DAL MESHER (la palette di Leafy), in spazio lineare
   vBase = pow(vec3(aC.xyz) / 255.0, vec3(2.2));
   vEmis = uMaterie[materia].x;
-  // ⚠ LA FACCIA VEDE IL SOLE O NO: la soglia a 0,12 è la cura dell'acne di Leafy.
-  // L'erba (vento) è tinta piatta: vede sempre il sole. Tre bande.
-  float faccia = (vento == 1u) ? 1.0 : step(0.12, dot(n, -uSoleVerso));
-  vSole = floor(faccia * uSoleForza * 3.0 + 0.5) / 3.0;
+  // ⚠ NIENTE SHADING PER FACCIA (la regola di Leafy, ribadita dal committente:
+  // «non ci devono essere face shading come i blocchi di Minecraft»): la
+  // normale non entra nel colore. Si scurisce solo chi è in ombra (horizon
+  // mapping) o senza cielo. Tre bande sulla forza del sole, e basta.
+  vSole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   float d = distance(p, uCam);
   vNebbia = clamp((d - uNebbia.x) / (uNebbia.y - uNebbia.x), 0.0, 1.0);
   vPos = p;
@@ -64,7 +65,7 @@ precision mediump sampler2D;
 flat in vec3 vBase;
 flat in float vSole;
 flat in float vEmis;
-in float vCielo;
+flat in float vCielo;
 in float vBlocco;
 in float vNebbia;
 in vec3 vPos;
@@ -83,10 +84,11 @@ void main() {
   if (vPos.y < uTaglio) discard;   // lo specchio non guarda sott'acqua
   float luce = 1.0;
   if (uOmbra > 0.5) {
-    // ⚠ HORIZON MAPPING MORBIDO: si cammina verso il sole sulla mappa delle
-    // altezze (filtrata linearmente: il bordo dell'ombra segue il pendio, non
-    // il texel). Quanto la cima supera il raggio, diviso per la distanza,
-    // fa la PENOMBRA: vicino all'ostacolo l'ombra è netta, lontano sfuma.
+    // ⚠ HORIZON MAPPING: si cammina verso il sole sulla mappa delle altezze
+    // (un texel per colonna, NEAREST: filtrata, ogni gradino faceva una rampa
+    // d'ombra sul blocco accanto — «artefatti ovunque»). Quanto la cima supera
+    // il raggio, diviso per la distanza, fa la PENOMBRA: vicino all'ostacolo
+    // l'ombra è netta, lontano sfuma.
     vec3 dir = -uSoleVerso;
     vec3 q = vPos + dir * 0.35 + vec3(0.0, 0.15, 0.0);
     float passo = 0.6, cammino = 0.35, copertura = 0.0;
@@ -99,12 +101,11 @@ void main() {
     }
     luce = 1.0 - copertura;
   }
-  // ⚠ LE BANDE SI FANNO QUI, SULLA LUCE INTERPOLATA: il cielo a quattro, la
-  // lampada a quattro, il sole diretto solo dove il cielo è pieno (sfumato,
-  // non a gradino: una faccia mezza coperta non ha una riga netta in mezzo).
+  // le bande: il cielo a quattro (per faccia), la lampada a quattro (sulla luce
+  // interpolata: pozze tonde), il sole diretto solo dove il cielo è pieno
   float cieloB = floor(vCielo * 4.0 + 0.5) / 4.0;
   float lamp = floor(vBlocco * 4.0 + 0.5) / 4.0;
-  float sole = vSole * smoothstep(0.80, 0.98, vCielo) * luce;
+  float sole = vSole * step(0.99, vCielo) * luce;
   vec3 ombra = vBase * uCieloCol * (0.25 + 0.75 * cieloB);
   vec3 pieno = vBase * uSoleCol;
   if (vEmis > 0.0) { ombra = mix(ombra, vBase * 1.15, vEmis); pieno = mix(pieno, vBase * 1.15, vEmis); }   // emissiva: scavalca ombra e notte
@@ -403,8 +404,8 @@ export class Resa {
     if (!this.altezze) this.altezze = gl.createTexture();
     this.finestra = { lato, x0: 0, z0: 0, vuota: new Uint8Array(lato * lato), spostamenti: 0 };
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this._centraFinestra(x, z, true);
@@ -480,9 +481,9 @@ precision mediump float; uniform vec3 uColore; out vec4 colore; void main() { co
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, larghezza, profondita, 0, gl.RED, gl.UNSIGNED_BYTE, byte);
-    // ⚠ FILTRO LINEARE: il bordo dell'ombra segue il pendio fra due colonne, non il texel
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    // ⚠ NEAREST, non lineare: filtrata, ogni gradino faceva una rampa d'ombra sul blocco accanto
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.altRett = [x0, z0, 1 / larghezza, 1 / profondita];

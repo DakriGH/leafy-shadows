@@ -54,8 +54,8 @@ void main() {
   int materia = int(aMat);
   vec3 base = pow(aCol.rgb * aTinta.rgb, vec3(2.2));
   vec4 mat = uMaterie[materia];
-  float faccia = step(0.12, dot(n, -uSoleVerso));
-  float sole = floor(faccia * uSoleForza * 3.0 + 0.5) / 3.0;
+  // niente shading per faccia (la regola di Leafy): la normale non entra nel colore
+  float sole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   vec3 ombra = base * uCieloCol;
   vec3 pieno = base * uSoleCol;
   if (mat.x > 0.0) { ombra = mix(ombra, base * 1.15, mat.x); pieno = mix(pieno, base * 1.15, mat.x); }
