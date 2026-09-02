@@ -759,6 +759,50 @@ Un workflow ha letto nove shader di riferimento; la sintesi e le integrazioni:
   faceva ondeggiare il FONDALE (codersnotes); il nostro Z-reject è il metodo
   che lì costava troppo, e a noi è gratis perché lo Z serve già allo spessore.
 
+### ⚠ RIFRAZIONE E PROFONDITÀ SONO UNA PASSATA SOLA (02/09), e la vecchia mappa MENTIVA
+Erano due rese complete della STESSA scena, con la stessa lista e la stessa
+camera, e nessuno l'aveva notato perché avevano nomi diversi: un
+`RenderTargetTexture` a colori e un `DepthRenderer`. Adesso c'è
+`sottAcquaCondivisa`: un solo bersaglio, colore + **attacco di profondità
+campionabile** (`createDepthStencilTexture`), e la Z di camera si RICOSTRUISCE:
+
+    z = f·n / ((f − n)·d − f)      (destrorso, niente reverse-Z; uniform `uZReco`)
+
+verificata contro la matrice di proiezione vera su otto distanze: errore zero.
+
+⚠ **Tre trappole pagate, tutte mute:**
+- **il legame vuole `setDepthStencilTexture`**, non `AddUniform(..., texture)`:
+  il legame automatico di `CustomMaterial` passa da `effect.setTexture`, che è
+  la strada delle texture normali. Con quella il campionatore resta sull'unità
+  vuota e ogni lettura torna ZERO — cioè spessore zero ovunque, cioè un lago
+  limpido che sembra una scelta di stile;
+- **`resize()` butta via l'attacco di profondità** (ricrea il render target
+  dalle sole opzioni iniziali): va richiamato `createDepthStencilTexture` dopo
+  ogni ridimensionamento, e l'involucro (`ThinTexture`) deve restare LO STESSO
+  oggetto, se no vanno rilegate tutte le uniform;
+- **la profondità non si filtra**: `DEPTH_COMPONENT24` non è filtrabile in
+  WebGL2, e col bilineare la texture diventa «incompleta» e legge zero.
+
+⚠ **E la vecchia mappa sbagliava lo spessore di un fattore ~8.** Misurato con
+`?acquaz` (dipinge lo spessore verticale a schermo, scala 0–8 blocchi) contro
+la colonna d'acqua letta dalla griglia: dove il lago è profondo UN blocco, la
+vecchia mappa diceva «otto o più» — quindi virata violacea piena dappertutto.
+Era il sospetto già scritto qui sopra («se un'acqua ora sembra troppo
+trasparente, la taratura era compensata, non giusta»), adesso è un numero.
+**`lago` si vede più chiara di quella approvata il 31/08**: le manopole per
+rimetterla dove piace sono `vera[1]` e `assorbi`, ma il verdetto è del
+committente e va dato guardando.
+
+### ⚠ LE PASSATE SI CULLANO AL FRUSTUM, E LO SPECCHIO PURE
+Una `renderList` fissa Babylon la disegna TUTTA, dietro la camera compresa.
+`getCustomRenderList` filtra sulle mesh dentro `scena.frustumPlanes`; funziona
+anche per lo specchio perché `MirrorTexture` monta la sua matrice di vista in
+`onBeforeRenderObservable`, che Babylon notifica PRIMA di
+`_prepareRenderingManager` — quindi lì i piani sono già quelli RIFLESSI.
+⚠ E le liste ora si SVUOTANO (`onMeshRemovedObservable`): `dispose()` toglie una
+mesh dalle mappe d'ombra e non dai `customRenderTargets`. All'avvio le liste
+contavano 114 e 124 voci contro 78 e 83 mesh vive.
+
 ### ⚠ LE RISORSE DI PASSATA SONO DEL RIG, NON DEL MATERIALE
 Ogni materiale col riflesso creava il SUO specchio e lo registrava fra i render
 target; i materiali si tengono in cache → cambiando ricetta gli specchi si

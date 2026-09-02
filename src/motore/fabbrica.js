@@ -16,7 +16,7 @@ import { RawTexture3D } from '@babylonjs/core/Materials/Textures/rawTexture3D.js
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Prato } from './prato.js';
-import { Acqua, governaPassate, misuraPassate, misuraProfondita } from './acqua.js';
+import { Acqua, governaPassate, misuraPassate, misuraSottAcqua } from './acqua.js';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { Mesh as MeshCostanti } from '@babylonjs/core/Meshes/mesh.js';
 import '@babylonjs/core/Meshes/Builders/capsuleBuilder.js';
@@ -172,6 +172,7 @@ export class Fabbrica {
     this._tettoAcqua = { vera: 3, riflesso: true };
     this._ricettaAcqua = null;
     this._profAcqua = 1;
+    this._misuraAcqua = null;
     this.acqua = new Acqua(rig, { ricca: rig.fissi.acquaRicca, tetto: this._tettoAcqua });
     this.matAcqua = this.acqua.materiale;
 
@@ -870,14 +871,16 @@ export class Fabbrica {
       // quando la finestra cambia, né quando il profilo cambia `scala`. Un
       // controllo ogni trenta giri è gratis e chiude tutt'e due i buchi con
       // una riga sola invece che con due osservatori.
-      if (this._profAcqua) misuraProfondita(this.rig, this._profAcqua);
+      if (this._profAcqua) misuraSottAcqua(this.rig, this._profAcqua);
     }
     const piani = this.scena.frustumPlanes;
     const visibile = !piani || this._mesheAcqua.some((m) => m.isEnabled() && m.isInFrustum(piani));
     governaPassate(this.rig, {
       specchio: !!this.acqua.riflesso,
-      rifrazione: !!this.acqua.rifrazione,
-      profondita: !!this.acqua.profondita,
+      // ⚠ UNA SOLA CONDIZIONE PER DUE LETTURE: dal 02/09 rifrazione e
+      // profondità escono dalla stessa passata (colore + attacco di profondità
+      // campionabile), quindi basta che la ricetta chieda la profondità.
+      sotto: !!this.acqua.profondita,
     }, visibile);
   }
 
@@ -950,6 +953,15 @@ export class Fabbrica {
       if (mesh.name.startsWith('acqua')) mesh.material = this.matAcqua;
     }
     if (this._quotaSpecchio !== undefined) this.acqua.quotaSpecchio(this._quotaSpecchio);
+    // ⚠ E LE MISURE DELLE PASSATE, per la STESSA ragione della quota: specchio
+    // e rifrazione nascono la prima volta che un materiale le chiede, con le
+    // misure di fabbrica (512², ogni fotogramma). Partendo da un'acqua che non
+    // le usa — ed è il caso normale da quando la ricetta di partenza è `ghibli`
+    // — il profilo di qualità aveva già parlato quando non c'era nessuno ad
+    // ascoltarlo. Misurato prima di questa riga: q0 con `lago` scelta a mano
+    // teneva lo specchio a 512² ogni fotogramma invece dei 256² ogni due del
+    // profilo, in silenzio.
+    if (this._misuraAcqua) misuraPassate(this.rig, this._misuraAcqua);
   }
 
   /**
@@ -982,7 +994,8 @@ export class Fabbrica {
       else this.cambiaStileAcqua(this.acqua.stile, this.acqua.onde, this.acqua.modello, this.acqua.riflesso, this.acqua.vera);
     }
     this._profAcqua = p.acquaProf ?? 1;
-    misuraPassate(this.rig, { lato: p.acquaLato ?? 512, ogni: p.acquaOgni ?? 1, prof: this._profAcqua });
+    this._misuraAcqua = { lato: p.acquaLato ?? 512, ogni: p.acquaOgni ?? 1, prof: this._profAcqua };
+    misuraPassate(this.rig, this._misuraAcqua);
   }
 
   /** Dove sta il pelo da riflettere: un riflesso planare ha UN piano solo. */

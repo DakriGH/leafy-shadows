@@ -373,6 +373,54 @@ E la pillola ⚙ segue il gradino (`mostra`, che sposta l'etichetta senza
 riapplicare niente): una pillola che dice ULTRA mentre il gioco gira a MEDIA è
 peggio di non averla.
 
+## 02/09 — PASSO 3: una passata sola, liste cullate, specchio piccolo
+
+Stesso banco, stessa posa, 1280×720, ricetta `lago` forzata a mano.
+
+| | disegni | p50 |
+|---|---|---|
+| fine passo 2 (specchio 512², rifrazione 512², profondità 1280) | 547 | 5,0 ms |
+| **fine passo 3** (specchio 256² ogni 2, **sott'acqua 1280 unica**) | **487** | **4,0 ms** |
+| passo 3 con il cull spento | 545 | 4,5 ms |
+| q2 | 271 | 3,2 ms |
+| q5 | 116 | 1,4 ms |
+
+Il cull al frustum da solo vale **58 disegni e 0,5 ms** in questa posa (le liste
+passano da 78–83 voci a ~68 guardando il lago; da un'altra inquadratura è molto
+di più: misurato 697 → 554 disegni girando la camera verso le montagne).
+
+### ⚠ E LA PROFONDITÀ ERA SBAGLIATA DA SEMPRE — trovata unendo le passate
+
+La passata unica ricostruisce la Z di camera dall'attacco di profondità
+hardware (`z = f·n / ((f−n)·d − f)`, verificata contro la matrice di proiezione
+vera: errore zero su otto distanze da 0,5 a 172,5 blocchi). Fatto questo,
+l'acqua è diventata VISIBILMENTE più chiara — e la domanda giusta non era
+«quale delle due è più bella» ma «quale delle due è VERA».
+
+Misurato dipingendo lo spessore a schermo (`?acquaz`) e confrontandolo con la
+colonna d'acqua letta dalla griglia del mondo, sei punti del lago:
+
+| pixel | colonna VERA (griglia) | vecchia mappa | passata unica |
+|---|---|---|---|
+| 900,460 | 1 blocco | **≥ 8** | 2,45 |
+| 700,500 | 1 blocco | **≥ 8** | 4,80 |
+| 1000,430 | 1 blocco | **≥ 8** | 3,26 |
+| 600,560 | 1 blocco | **≥ 8** | 2,51 |
+| 1100,500 | 2 blocchi | **≥ 8** | 0,94 |
+| 800,470 | 1 blocco | **≥ 8** | 0,03 |
+
+La vecchia mappa diceva «otto blocchi o più» su un lago profondo UNO. Con la
+scala del fondale a 0,22 e la virata a +78°, otto blocchi vogliono dire
+violaceo pieno: ecco perché il lago era viola dappertutto. Era il sospetto già
+scritto in CLAUDE.md — «se un'acqua ora sembra troppo trasparente, la taratura
+era compensata, non giusta» — e adesso è un numero.
+
+⚠ **Conseguenza per il committente**: `lago` adesso si vede più chiara e più
+turchese di quella approvata il 31/08. Non è una resa: è che la profondità
+finalmente dice la verità. Le manopole per rimetterla dove piace sono `vera[1]`
+(scala del fondale) e `assorbi` nella ricetta — ma il verdetto è suo, e va dato
+guardando.
+
 ## Da raccogliere
 - [ ] Il quadro `?misura` dal **telefono** (posa standard, percentili veri):
       `https://dakrigh.github.io/leafy-shadows/?misura`, aspettare il riquadro

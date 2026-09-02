@@ -57,6 +57,13 @@ import { Matrix, Vector3, Vector4 } from '@babylonjs/core/Maths/math.vector.js';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture.js';
 import { MirrorTexture } from '@babylonjs/core/Materials/Textures/mirrorTexture.js';
 import { RenderTargetTexture } from '@babylonjs/core/Materials/Textures/renderTargetTexture.js';
+// ⚠ SERVE A LEGARE LA PROFONDITÀ COME CAMPIONATORE: l'attacco di profondità di
+// un render target è una `InternalTexture`, non una texture di scena, e
+// `CustomMaterial` sa legare solo oggetti-texture. `ThinTexture` è
+// l'involucro minimo che Babylon offre proprio per questo — e tenerne UNO solo,
+// riusandolo a ogni ridimensionamento, evita di dover rilegare la uniform in
+// tutti i materiali dell'acqua ogni volta che il profilo cambia gradino.
+import { ThinTexture } from '@babylonjs/core/Materials/Textures/thinTexture.js';
 // ⚠ L'IMPORT È L'INTERRUTTORE: `enableDepthRenderer` è un metodo che questo
 // modulo AGGIUNGE a Scene come effetto collaterale. Senza, «is not a function»
 // a runtime — la stessa famiglia degli shader importati a mano (CLAUDE.md).
@@ -1195,7 +1202,7 @@ export const GLSL_ACQUA_CASCATA = `
  * fragment. Quello che distingue l'acqua di un gioco vero non è la palette — è
  * che LEGGE IL MONDO: sa quanto è profonda (depth), mostra il fondo deformato
  * (rifrazione), e ci dipinge sopra la luce (caustiche). Tre passate condivise
- * (`profonditaCondivisa`, `rifrazioneCondivisa`) e questi innesti.
+ * (`sottAcquaCondivisa`: una passata sola, colore + profondità) e questi innesti.
  *
  * ── PRIMA DEL COLORE: lo spessore, e cosa se ne ricava ──
  *
@@ -1267,8 +1274,9 @@ export const GLSL_ACQUA_CASCATA = `
  */
 export const GLSL_ACQUA_VERA_PRIMA = `
   vec2 acquaSchermoDritta = gl_FragCoord.xy / uSchermo;
-  float acquaZScena = texture2D(uProfondita, acquaSchermoDritta).r;
-  float acquaVuoto = step(-0.02, acquaZScena);
+  float acquaDprof = texture2D(uProfondita, acquaSchermoDritta).r;
+  float acquaZScena = uZReco.x / (uZReco.y * acquaDprof - uZReco.z);
+  float acquaVuoto = step(0.999995, acquaDprof);
   float acquaScalaZ = mix(acquaZScena / min(vAcquaVistaZ, -0.02), 40.0, acquaVuoto);
   float acquaSpessoreGiu = max(vPositionW.y * (1.0 - acquaScalaZ), 0.0);
   acquaSpessore = clamp(length(vPositionW) * (acquaScalaZ - 1.0), 0.0, 8.0);
@@ -1314,11 +1322,12 @@ export const GLSL_ACQUA_VERA_PRIMA = `
  * colore (abbiamo l'immagine rifratta), e lasciare anche il blending farebbe
  * vedere il fondo DUE volte — una deformata e una ferma, una sopra l'altra.
  * L'alpha del MATERIALE resta 0,9 solo per tenere l'acqua nella coda dei
- * trasparenti e fuori dalla mappa di profondità (vedi `profonditaCondivisa`).
+ * trasparenti; fuori dalla passata sott'acqua ci resta per NOME, che è la
+ * ragione giusta (vedi `sottAcquaCondivisa`).
  */
 export const GLSL_ACQUA_VERA_DOPO = `
   vec2 acquaRifraUV = acquaSchermoDritta + acquaNormale.xz * uAcquaVera.z * clamp(acquaSpessore * 0.8, 0.12, 1.3);
-  float acquaZRifra = texture2D(uProfondita, acquaRifraUV).r;
+  float acquaZRifra = uZReco.x / (uZReco.y * texture2D(uProfondita, acquaRifraUV).r - uZReco.z);
   acquaRifraUV = mix(acquaSchermoDritta, acquaRifraUV, step(acquaZRifra, vAcquaVistaZ));
   vec3 acquaFondoVisto = textureLod(uRifrazione, acquaRifraUV, clamp(acquaSpessore * uSfocaK, 0.0, 3.0)).rgb;
 `;
@@ -2214,6 +2223,66 @@ function entraNelloSpecchio(mesh) {
   return !FUORI_DALLO_SPECCHIO.test(mesh.name);
 }
 
+/**
+ * UN ELENCO DI MESH CHE RESTA VERO — quelle che entrano, e SOLO quelle.
+ *
+ * ⚠ IL DIFETTO CHE CURA È SILENZIOSO E CRESCE: le liste delle passate si
+ * riempivano con `onNewMeshAddedObservable` e non si svuotavano MAI, perché
+ * `mesh.dispose()` toglie una mesh dalle mappe d'ombra e NON dai render target
+ * personalizzati. Misurato all'avvio: a mondo costruito le liste contavano 114
+ * e 124 voci contro le 78 e 83 mesh vive — una trentina di chunk ricostruiti
+ * durante la generazione, morti e ancora in elenco. Ogni voce morta è un
+ * controllo per passata, per fotogramma, per sempre; e in una sessione lunga,
+ * dove i chunk si ricostruiscono a ogni blocco posato, cresce senza fermarsi.
+ */
+function elencoVivo(rig, entra) {
+  const lista = rig.scena.meshes.filter(entra);
+  rig.scena.onNewMeshAddedObservable.add((m) => { if (entra(m)) lista.push(m); });
+  rig.scena.onMeshRemovedObservable.add((m) => {
+    const i = lista.indexOf(m);
+    if (i >= 0) lista.splice(i, 1);
+  });
+  return lista;
+}
+
+/**
+ * IL CULL AL FRUSTUM DELLE PASSATE — quello che Babylon NON fa per una lista
+ * esplicita.
+ *
+ * ⚠ È LA DIFFERENZA FRA «TUTTO IL MONDO» E «QUELLO CHE SI VEDE». Con una
+ * `renderList` fissa l'`ObjectRenderer` disegna ogni voce dell'elenco, dietro
+ * la camera compresa; la resa principale disegna solo le mesh attive del
+ * fotogramma. Misurato a 1280×720: 73 mesh attive nella scena principale, 114
+ * in ognuna delle tre passate dell'acqua — cioè si pagava il 56% in più di
+ * geometria per tre volte, per disegnare quello che nessuno guarda.
+ *
+ * ⚠ E FUNZIONA ANCHE PER LO SPECCHIO, che è il caso in cui sarebbe stato facile
+ * sbagliare: la camera dello specchio guarda ALTROVE (è quella riflessa), e
+ * cullare col frustum della camera vera farebbe sparire dal riflesso proprio
+ * quello che sta dietro le spalle. Non succede perché `MirrorTexture` monta la
+ * sua matrice di vista in `onBeforeRenderObservable`, che Babylon notifica
+ * PRIMA di `_prepareRenderingManager` — quindi quando questa funzione legge
+ * `scena.frustumPlanes` quei piani sono già quelli riflessi (verificato nel
+ * sorgente di `objectRenderer.js` e `mirrorTexture.pure.js`).
+ *
+ * ⚠ IN DUBBIO SI DISEGNA TUTTO: senza piani (primo fotogramma) si torna `null`,
+ * che per Babylon vuol dire «usa la lista di sempre». Una passata di troppo è
+ * niente; un riflesso vuoto per un fotogramma si vede.
+ */
+function cullaAlFrustum(rig) {
+  const dentro = [];
+  return (passIndex, lista) => {
+    const piani = rig.scena.frustumPlanes;
+    if (!piani || !lista) return null;
+    dentro.length = 0;
+    for (let i = 0; i < lista.length; i++) {
+      const m = lista[i];
+      if (m.isEnabled() && m.isInFrustum(piani)) dentro.push(m);
+    }
+    return dentro;
+  };
+}
+
 function creaSpecchio(rig) {
   const dim = rig.dispositivo.mobile ? 256 : 512;
   const specchio = new MirrorTexture('specchio-acqua', dim, rig.scena, true);
@@ -2223,7 +2292,8 @@ function creaSpecchio(rig) {
   // «render target». Sfocandolo diventa una macchia di colore che si muove con
   // la scena, che è quello che di un riflesso si legge davvero da lontano.
   specchio.adaptiveBlurKernel = 12;
-  specchio.renderList = rig.scena.meshes.filter(entraNelloSpecchio);
+  specchio.renderList = elencoVivo(rig, entraNelloSpecchio);
+  specchio.getCustomRenderList = cullaAlFrustum(rig);
   // ⚠ E VA REGISTRATA FRA I RENDER TARGET DELLA SCENA, O NON LA DISEGNA NESSUNO.
   // Babylon rende una `MirrorTexture` solo se la trova in
   // `scene.customRenderTargets` — e ce la mette DA SOLO quando la si assegna a
@@ -2233,9 +2303,6 @@ function creaSpecchio(rig) {
   // una cosa che si può quasi credere. Misurato con `readPixels`: media (0,0,0)
   // e il 100% dei texel sotto soglia, cioè non un pixel disegnato.
   if (!rig.scena.customRenderTargets.includes(specchio)) rig.scena.customRenderTargets.push(specchio);
-  rig.scena.onNewMeshAddedObservable.add((mesh) => {
-    if (entraNelloSpecchio(mesh) && specchio.renderList) specchio.renderList.push(mesh);
-  });
   return specchio;
 }
 
@@ -2255,74 +2322,119 @@ export function specchioCondiviso(rig) {
 }
 
 /**
- * LA RIFRAZIONE: la scena SENZA l'acqua, vista dalla stessa camera.
+ * LA PASSATA SOTT'ACQUA — una sola, e prima erano due.
  *
- * ⚠ È IL PEZZO CHE MANCAVA DAVVERO, e senza il quale ogni «trasparenza» era
- * una mezza bugia da alpha blending: il fondo si vedeva, ma FERMO — una lastra
- * colorata sopra un'immagine immobile. Un liquido si riconosce perché quello
- * che sta sotto si DEFORMA col pelo; per deformarlo bisogna averlo in una
- * texture, e per averla bisogna disegnare i solidi una seconda volta.
+ * Qui dentro c'è quello che sta SOTTO il pelo, disegnato una volta e letto due
+ * volte: il COLORE (la rifrazione: il fondale che si deforma col pelo) e la
+ * PROFONDITÀ (lo spessore d'acqua per pixel, da cui nascono assorbimento,
+ * fondale vero e schiuma di contatto).
+ *
+ * ⚠ ERANO DUE RESE COMPLETE DELLA STESSA IDENTICA SCENA, e nessuno l'aveva
+ * notato perché avevano nomi diversi: un `RenderTargetTexture` a colori e un
+ * `DepthRenderer`, con la STESSA lista di mesh, dalla STESSA camera, nello
+ * stesso fotogramma. Misurato a 1280×720 con la ricetta «lago»: 68 chiamate di
+ * disegno l'una. Adesso il colore e la profondità escono dalla stessa passata —
+ * l'attacco di profondità del render target si dichiara CAMPIONABILE
+ * (`createDepthStencilTexture`) invece di essere un renderbuffer buttato via.
+ *
+ * ⚠ E LA Z SI RICOSTRUISCE, non si scrive. Il `DepthRenderer` aveva
+ * `storeCameraSpaceZ`: scriveva a mano la Z in spazio camera, che è comoda e
+ * costa una passata. Un attacco di profondità hardware contiene la profondità
+ * NON lineare in [0,1], e da lì la Z di camera si ricava esattamente:
+ *
+ *     z = f·n / ((f − n)·d − f)          (destrorso, niente reverse-Z)
+ *
+ * Verificata contro la matrice di proiezione VERA di questa scena, su otto
+ * distanze da 0,5 a 172,5 blocchi: errore zero a sei decimali. Il conto sta in
+ * `uZReco` (f·n, f−n, f), riletto a ogni fotogramma perché `maxZ` cambia con la
+ * distanza di resa del profilo.
+ *
+ * ⚠ LA PROFONDITÀ NON SI FILTRA. In WebGL2 `DEPTH_COMPONENT24` non è
+ * filtrabile: chiedendo il bilineare la texture diventa «incompleta» e ogni
+ * lettura torna zero — cioè spessore zero ovunque, cioè schiuma piena su tutto
+ * il pelo. È esattamente il difetto muto che questo file ha già pagato due
+ * volte (vedi la nota sul latte a vista radente). Si passa `false`.
+ *
+ * ⚠ E L'ACQUA NON ENTRA NELLA PROPRIA PASSATA — ma adesso per il motivo GIUSTO.
+ * Prima ci restava fuori perché il `DepthRenderer` salta i materiali che
+ * fondono, e il nostro ha alpha 0,9: una proprietà del materiale che teneva in
+ * piedi una regola di scena, cioè il genere di legame che si rompe in silenzio.
+ * Adesso è la LISTA a escluderla, per nome, come tutto il resto.
  *
  * ⚠ NIENTE ERBA NELLA LISTA: centomila lamelle ridisegnate in una passata che
  * serve a vedere il FONDALE sono il modo più caro di non vedere niente —
- * sott'acqua l'erba non c'è. Stessa esclusione dello specchio.
+ * sott'acqua l'erba non c'è. E nella profondità sarebbe pure un DIFETTO: ogni
+ * ciuffo che sporge sull'acqua diventerebbe «qualcosa che tocca il pelo», cioè
+ * un anello di schiuma di contatto attorno all'erba della riva.
  */
-export function rifrazioneCondivisa(rig) {
-  if (!rig._rifrazioneAcqua) {
-    const dim = rig.dispositivo.mobile ? 256 : 512;
+export function sottAcquaCondivisa(rig) {
+  if (!rig._sottAcqua) {
     // ⚠ CON I MIP, ed è la sfocatura del fondale: `textureLod` per spessore fa
     // il fondo nitido a tre dita e morbido a tre metri — il segnale visivo più
     // forte di «c'è acqua di mezzo» (boujie lo fa con la roughness sul mip).
-    // ⚠ La catena mip si rigenera OGNI fotogramma: su desktop è nel rumore, su
-    // una GPU a tile è da misurare — ma lì questa texture non esiste proprio.
-    const rt = new RenderTargetTexture('rifrazione-acqua', dim, rig.scena, true);
-    rt.renderList = rig.scena.meshes.filter(entraNellePassate);
-    rig.scena.onNewMeshAddedObservable.add((m) => { if (entraNellePassate(m) && rt.renderList) rt.renderList.push(m); });
+    const rt = new RenderTargetTexture('sott-acqua', latoSotto(rig, rig._profAcquaFraz), rig.scena, true);
+    rt.renderList = elencoVivo(rig, entraNellePassate);
+    rt.getCustomRenderList = cullaAlFrustum(rig);
     rig.scena.customRenderTargets.push(rt);
-    rig._rifrazioneAcqua = rt;
+    rig._sottAcqua = rt;
+    apriProfondita(rig);
   }
-  return rig._rifrazioneAcqua;
+  return rig._sottAcqua;
+}
+
+/** La misura della passata: una frazione dello schermo VERO (scala hardware compresa). */
+function latoSotto(rig, frazione) {
+  const f = Math.max(0.2, Math.min(1, frazione || 1));
+  return {
+    width: Math.max(64, Math.round(rig.motore.getRenderWidth() * f)),
+    height: Math.max(64, Math.round(rig.motore.getRenderHeight() * f)),
+  };
 }
 
 /**
- * LA PROFONDITÀ: quanto è lontano quello che sta DIETRO il pelo.
+ * DICHIARA CAMPIONABILE L'ATTACCO DI PROFONDITÀ, e rimette in sesto l'involucro.
  *
- * ⚠ `storeCameraSpaceZ` (l'ultimo argomento), ed è la scelta che rende il conto
- * verificabile: la mappa tiene la Z in spazio camera, e il fragment dell'acqua
- * calcola la SUA con la stessa matrice di vista (`uVista`) — stessa fonte,
- * stesse convenzioni, anche con l'origine mobile accesa. La differenza fra le
- * due è lo SPESSORE d'acqua in quel pixel: il numero da cui nascono
- * l'assorbimento, la schiuma di contatto attorno a QUALSIASI cosa (anche
- * mobile, senza che il mesher ne sappia niente) e il fondale vero al posto
- * della bugia «distanza dalla sponda in pianta».
+ * ⚠ `resize()` BUTTA VIA L'ATTACCO DI PROFONDITÀ. Nel sorgente di Babylon
+ * (`renderTargetTexture.pure.js`) il ridimensionamento fa `dispose()` del render
+ * target e ne crea uno nuovo dalle sole opzioni iniziali — dove la texture di
+ * profondità non compare. Senza questa chiamata dopo ogni resize, al primo
+ * cambio di gradino di qualità l'acqua leggerebbe una texture morta: nessun
+ * errore, e a schermo spessore zero ovunque.
  *
- * ⚠ L'ACQUA NON ENTRA NELLA PROPRIA MAPPA: il DepthRenderer salta i materiali
- * che fondono, e il nostro ha alpha 0,9. Per questo l'alpha del MATERIALE resta
- * sotto l'uno anche quando il fragment scrive `color.a = 1`: portarlo a 1 lo
- * farebbe diventare opaco, entrerebbe nella mappa di profondità, e lo spessore
- * misurato diventerebbe zero dappertutto — cioè schiuma piena su tutto il pelo.
+ * ⚠ E L'INVOLUCRO RESTA LO STESSO OGGETTO, con dentro la texture nuova: i
+ * materiali dell'acqua hanno già legato QUELL'oggetto alla loro uniform, e
+ * sostituirlo vorrebbe dire rilegarne uno per uno — cioè ricordarsi di farlo.
  */
+function apriProfondita(rig) {
+  const rt = rig._sottAcqua;
+  if (!rt) return;
+  rt.createDepthStencilTexture(0, false, false, 1);
+  const z = rt.depthStencilTexture;
+  if (!rig._zAcqua) rig._zAcqua = new ThinTexture(z);
+  else rig._zAcqua._texture = z;
+  return rig._zAcqua;
+}
+
 /**
  * IL GOVERNO DELLE PASSATE — fase R2 del rework: una passata gira SOLO se
  * qualcuno la sta guardando.
  *
- * ⚠ IL DIFETTO CHE CURA È SILENZIOSO E CUMULATIVO: specchio, rifrazione e
- * profondità sono risorse condivise del rig — giusto per non accumularle — ma
+ * ⚠ IL DIFETTO CHE CURA È SILENZIOSO E CUMULATIVO: specchio e passata
+ * sott'acqua sono risorse condivise del rig — giusto per non accumularle — ma
  * una volta CREATE restavano registrate per sempre. Provavi la cristallina,
- * passavi a ghibli (che non ne usa nessuna), e le tre passate continuavano a
+ * passavi a ghibli (che non ne usa nessuna), e le passate continuavano a
  * ridisegnare la scena ogni fotogramma per un materiale che non le campiona
  * più. Peggio: l'acqua può essere DIETRO la camera — guardi il cielo o la
- * montagna, e paghi specchio+rifrazione+profondità per pixel che non esistono.
+ * montagna, e le paghi per pixel che non esistono.
  *
  * Due condizioni, tutte e due necessarie:
  *  · la ricetta ATTIVA le usa (`servono`, lo sa la fabbrica);
  *  · almeno una mesh d'acqua è ABILITATA e NEL FRUSTUM (`visibile`, che la
  *    fabbrica calcola col some() più economico possibile).
  *
- * ⚠ Lo specchio e la rifrazione si tolgono da `customRenderTargets` (è la
- * lista che Babylon percorre: fuori = zero costo), la profondità ha il suo
- * `enabled`. Al rientro non serve nessun riscaldo: la texture del fotogramma
- * vecchio vive un giro solo, e su un rientro in campo non si nota.
+ * ⚠ Si tolgono da `customRenderTargets`, che è la lista che Babylon percorre:
+ * fuori = zero costo. Al rientro non serve nessun riscaldo — la texture del
+ * fotogramma vecchio vive un giro solo, e su un rientro in campo non si nota.
  */
 export function governaPassate(rig, servono, visibile) {
   const lista = rig.scena.customRenderTargets;
@@ -2333,35 +2445,43 @@ export function governaPassate(rig, servono, visibile) {
     else if (!serve && dentro >= 0) lista.splice(dentro, 1);
   };
   regola(rig._specchioAcqua, visibile && servono.specchio);
-  regola(rig._rifrazioneAcqua, visibile && servono.rifrazione);
-  if (rig._profonditaAcqua) rig._profonditaAcqua.enabled = !!(visibile && servono.profondita);
+  regola(rig._sottAcqua, visibile && servono.sotto);
 }
 
 /**
  * QUANTO GRANDI SONO LE PASSATE — e ogni quanto si rifanno.
  *
- * ⚠ QUESTE TRE SONO LE UNICHE MANOPOLE DELL'ACQUA CHE SI GIRANO A CALDO: il
- * resto (`vera`, `riflesso`) sta nello shader e vuole un materiale nuovo. Qui
- * si cambia solo quanti PIXEL costano, e si può fare a ogni cambio di gradino
+ * ⚠ QUESTE SONO LE UNICHE MANOPOLE DELL'ACQUA CHE SI GIRANO A CALDO: il resto
+ * (`vera`, `riflesso`) sta nello shader e vuole un materiale nuovo. Qui si
+ * cambia solo quanti PIXEL costano, e si può fare a ogni cambio di gradino
  * senza una ricompilazione.
  *
- * ⚠ E LA MAPPA DI PROFONDITÀ NON SI RIDIMENSIONA DA SOLA. Babylon la crea
- * grande quanto la tela nell'istante in cui nasce e non la tocca più
- * (`depthRenderer.pure.js`: `{ width: engine.getRenderWidth(), … }`, nessun
- * osservatore sul resize). Quindi era l'unica passata a PIENA RISOLUZIONE ×
- * DPR, sorda sia alla finestra che cambia sia a `scala` del profilo: al livello
- * «bassa», con la scena renderizzata a metà lato, la mappa di profondità restava
- * intera. Si rimisura da fuori, ed è questa funzione a farlo.
+ * ⚠ E LA PASSATA SOTT'ACQUA È UNA FRAZIONE DELLO SCHERMO, non un lato fisso.
+ * Prima la profondità era l'unica passata a PIENA RISOLUZIONE × DPR, e sorda
+ * sia alla finestra che cambia sia a `scala` del profilo: Babylon crea la mappa
+ * del `DepthRenderer` grande quanto la tela nell'istante in cui nasce e non la
+ * tocca più (`depthRenderer.pure.js`, nessun osservatore sul resize). Al
+ * livello «bassa», con la scena renderizzata a metà lato, la mappa di
+ * profondità restava intera.
  *
- * @param p  `{ lato, ogni, prof }` — lato di specchio e rifrazione in pixel,
- *           ogni quanti fotogrammi si rifà lo specchio, e la mappa di
- *           profondità come frazione dello schermo.
+ * @param p  `{ lato, ogni, prof }` — il lato dello specchio in pixel, ogni
+ *           quanti fotogrammi si rifà, e la passata sott'acqua come frazione
+ *           dello schermo vero.
  */
 export function misuraPassate(rig, p) {
   const lato = Math.max(64, p.lato | 0);
   const sp = rig._specchioAcqua;
   if (sp) {
     if (sp.getSize().width !== lato) sp.resize(lato);
+    // ⚠ LA SFOCATURA È IN TEXEL, QUINDI SEGUE IL LATO: il 12 di fabbrica era
+    // tarato su 512², e lasciato tale e quale su uno specchio da 256 sfocherebbe
+    // il DOPPIO in unità di mondo — cioè un'immagine riflessa diversa a ogni
+    // gradino di qualità. In proporzione l'aspetto resta quello, e le due
+    // passate di sfocatura costano un quarto.
+    // ⚠ `adaptiveBlurKernel` è un setter SENZA getter: rileggerlo torna
+    // `undefined`, quindi non si può confrontare col valore voluto. Si riscrive
+    // e basta — costa un assegnamento a cambio di gradino.
+    sp.adaptiveBlurKernel = Math.max(2, Math.round(12 * lato / 512));
     // ⚠ LO SPECCHIO NON HA BISOGNO DI ESSERE DI QUESTO FOTOGRAMMA. È
     // un'immagine sfocata di una scena che si muove piano; rifarla ogni due o
     // tre giri non si vede, e vale una resa completa della scena in meno ogni
@@ -2369,37 +2489,22 @@ export function misuraPassate(rig, p) {
     const ogni = Math.max(1, p.ogni | 0);
     if (sp.refreshRate !== ogni) { sp.refreshRate = ogni; sp.resetRefreshCounter(); }
   }
-  const rf = rig._rifrazioneAcqua;
-  if (rf && rf.getSize().width !== lato) rf.resize(lato);
-  misuraProfondita(rig, p.prof);
+  misuraSottAcqua(rig, p.prof);
 }
 
-/** La mappa di profondità come frazione dello schermo VERO (scala hardware compresa). */
-export function misuraProfondita(rig, frazione) {
-  const dr = rig._profonditaAcqua;
-  if (!dr) return;
-  const mappa = dr.getDepthMap();
-  const f = Math.max(0.2, Math.min(1, frazione || 1));
-  const l = Math.max(64, Math.round(rig.motore.getRenderWidth() * f));
-  const a = Math.max(64, Math.round(rig.motore.getRenderHeight() * f));
-  const d = mappa.getSize();
-  if (d.width !== l || d.height !== a) mappa.resize({ width: l, height: a });
-}
-
-export function profonditaCondivisa(rig) {
-  if (!rig._profonditaAcqua) {
-    rig._profonditaAcqua = rig.scena.enableDepthRenderer(rig.camera, false, undefined, undefined, true);
-    // ⚠ ANCHE QUI LA LISTA È ESPLICITA: senza, la mappa di profondità disegna
-    // TUTTO — erba compresa, cioè centomila lamelle in una passata che serve a
-    // sapere quanto è fondo il lago. E l'erba nella mappa sarebbe pure un
-    // DIFETTO, non solo un costo: ogni ciuffo che sporge sull'acqua diventerebbe
-    // «qualcosa che tocca il pelo», cioè un anello di schiuma di contatto
-    // attorno all'erba della riva.
-    const mappa = rig._profonditaAcqua.getDepthMap();
-    mappa.renderList = rig.scena.meshes.filter(entraNellePassate);
-    rig.scena.onNewMeshAddedObservable.add((m) => { if (entraNellePassate(m) && mappa.renderList) mappa.renderList.push(m); });
-  }
-  return rig._profonditaAcqua;
+/** La passata sott'acqua come frazione dello schermo VERO (scala hardware compresa). */
+export function misuraSottAcqua(rig, frazione) {
+  rig._profAcquaFraz = frazione;
+  const rt = rig._sottAcqua;
+  if (!rt) return;
+  const voluta = latoSotto(rig, frazione);
+  const d = rt.getSize();
+  if (d.width === voluta.width && d.height === voluta.height) return;
+  rt.resize(voluta);
+  // ⚠ E SI RIAPRE LA PROFONDITÀ: il ridimensionamento butta via l'attacco
+  // (vedi `apriProfondita`), e senza questa riga l'acqua leggerebbe una texture
+  // morta al primo cambio di gradino — spessore zero ovunque, schiuma piena.
+  apriProfondita(rig);
 }
 
 /**
@@ -2503,6 +2608,8 @@ export class Acqua {
     // più della lista). Non è una manopola da girare a caldo.
     this.riflesso = !!riflesso && this.tetto.riflesso;
     this.uSchermo = new Vector2(1, 1);
+    /** (f·n, f−n, f): riporta la profondità hardware in Z di camera. Vedi `sottAcquaCondivisa`. */
+    this.uZReco = new Vector3(1, 1, 1);
     // ⚠ LA TINTA PUÒ ARRIVARE DALLA RICETTA. Di fabbrica viene da `blocks.js`,
     // che resta l'unico posto dove sta scritto di che colore è l'acqua del
     // gioco; ma una ricetta che imita l'acqua di un altro gioco ha bisogno del
@@ -2629,14 +2736,33 @@ export class Acqua {
       m.AddUniform('uRiflTetto', 'float', this.R.riflTetto);
     }
     if (this.profondita) {
-      this.mappaZ = profonditaCondivisa(this.rig);
-      m.AddUniform('uProfondita', 'sampler2D', this.mappaZ.getDepthMap());
+      this.mappaZ = sottAcquaCondivisa(this.rig);
+      // ⚠ LA PROFONDITÀ SI LEGA A MANO, e NON con `AddUniform(..., texture)`.
+      // Provato, e il difetto era muto nel modo peggiore: il legame automatico
+      // di `CustomMaterial` passa da `effect.setTexture`, che è la strada delle
+      // texture normali; un ATTACCO di profondità vuole `setDepthStencilTexture`
+      // (Babylon ha un metodo apposta proprio per questo). Con la strada
+      // sbagliata il campionatore restava sull'unità vuota e ogni lettura
+      // tornava ZERO — cioè spessore zero ovunque, cioè un lago limpido e senza
+      // fondale che sembrava una scelta di stile. Trovato dipingendo la
+      // profondità a schermo (`?zdebug`), non leggendo il codice.
+      m.AddUniform('uProfondita', 'sampler2D');
+      m.onBindObservable.add(() => {
+        const eff = m.getEffect();
+        if (eff && this.rig._sottAcqua) eff.setDepthStencilTexture('uProfondita', this.rig._sottAcqua);
+      });
+      // ⚠ I TRE NUMERI CHE RIPORTANO LA PROFONDITÀ HARDWARE IN SPAZIO CAMERA
+      // (f·n, f−n, f): `z = x / (y·d − z)`. Si rileggono a ogni fotogramma
+      // perché `maxZ` è la distanza di resa, e quella la muove il profilo di
+      // qualità — inchiodarli qui vorrebbe dire uno spessore d'acqua sbagliato
+      // di un fattore, in silenzio, dal primo cambio di gradino in poi.
+      m.AddUniform('uZReco', 'vec3', this.uZReco);
       m.AddUniform('uVista', 'mat4');
       // (bordo schiuma in Z camera, scala del fondale, forza rifrazione, densità del corpo)
       m.AddUniform('uAcquaVera', 'vec4', this.uVera);
     }
     if (this.rifrazione) {
-      this.vetro = rifrazioneCondivisa(this.rig);
+      this.vetro = sottAcquaCondivisa(this.rig);
       m.AddUniform('uRifrazione', 'sampler2D', this.vetro);
       // ⚠ L'ASSORBIMENTO SI RICAVA DALLA TINTA: un'acqua blu mangia il rosso.
       // «Complementare per canale» è la versione a spanne di Beer-Lambert, ed è
@@ -2790,8 +2916,19 @@ export class Acqua {
       ? `\n  acquaLinea = acquaMotivo(acquaUvFerma * uMotivoScala, uTempo);\n`
       : STILI[this.stile];
     if (this.motivo) m.AddUniform('uMotivoScala', 'float', this.motivoScala);
+    // ⚠ `?acquaz` DIPINGE LO SPESSORE INVECE DELL'ACQUA, e questo strumento si
+    // tiene perché è quello che ha trovato il difetto più grosso di tutta la
+    // storia dell'acqua vera. Grigio = quanti blocchi d'acqua ci sono in
+    // verticale sotto quel pixel, su una scala di otto (bianco = 8 o più).
+    // Si confronta con la colonna VERA letta dalla griglia del mondo, e la
+    // prima volta che l'ho fatto la vecchia mappa di profondità diceva «8 o
+    // più» dappertutto su un lago profondo UN blocco.
+    // ⚠ Costa zero quando è spenta: non è un `if` nello shader, è un pezzo di
+    // sorgente che senza il flag non viene nemmeno concatenato.
+    const spia = this.profondita && typeof location === 'object' && /[?&]acquaz/.test(location.search)
+      ? '\n  acquaTinta = vec3(acquaSpessoreGiu / 8.0);\n  acquaAlfa = 1.0;\n' : '';
     m.Fragment_Custom_Diffuse(GLSL_ACQUA_UV + campo + GLSL_ACQUA_CADUTA + GLSL_ACQUA_NORMALE + GLSL_ACQUA_CASCATA
-      + veraPrima + talenti + disegno + GLSL_ACQUA_COLORE + (this.sss ? GLSL_ACQUA_SSS : '') + veraDopo + rifl + brillio);
+      + veraPrima + talenti + disegno + GLSL_ACQUA_COLORE + (this.sss ? GLSL_ACQUA_SSS : '') + veraDopo + rifl + brillio + spia);
     return m;
   }
 
@@ -2860,6 +2997,15 @@ export class Acqua {
         this._vistaRot.setTranslationFromFloats(0, 0, 0);
         this.materiale._newUniformInstances['mat4-uVista'] = this._vistaRot;
       }
+      // ⚠ E I TRE NUMERI DELLA PROFONDITÀ, riletti dalla camera VERA a ogni
+      // giro: `maxZ` è la distanza di resa, e quella la muove il profilo di
+      // qualità (`impostaDistanza`). Con i numeri inchiodati alla costruzione,
+      // dal primo cambio di gradino lo spessore d'acqua sarebbe sbagliato di un
+      // fattore — e a schermo si leggerebbe come «l'acqua è troppo torbida», non
+      // come un difetto.
+      const cam = this.rig.camera;
+      const zn = cam.minZ, zf = cam.maxZ;
+      this.uZReco.set(zf * zn, zf - zn, zf);
     }
     // ⚠ ANCHE SENZA SPECCHIO: la condizione era `if (this.specchio)`, e le
     // ricette con la profondità ma senza riflesso (New Horizons, BotW, la
