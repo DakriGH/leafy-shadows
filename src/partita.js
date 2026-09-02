@@ -16,7 +16,7 @@ import { Modelli, leggiModello, modelloCubo } from './nucleo/modelli.js';
 import { Mondo, CHUNK } from './world/world.js';
 import { generaChunkOpenWorld } from './world/worldgen.js';
 import { registraDecorazioni } from './world/decorazioni.js';
-import { defDi, tipoBase } from './world/blocks.js';
+import { defDi, tipoBase, registraBlocco, BLOCCHI } from './world/blocks.js';
 import { paletteBlocco } from './world/stagioni.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
 import { mira, PORTATA } from './gioco/mira.js';
@@ -64,6 +64,8 @@ modelli.registra('cubo', modelloCubo());
 modelli.registra('omino', gatto(TAVOLOZZE.blu));
 registraArredi();
 for (const [id, a] of Object.entries(ARREDI)) modelli.registra(id, a.costruisci());
+// il lampione spento è un blocco come il lampione, senza luce
+if (!BLOCCHI.lampioneSpento) registraBlocco('lampioneSpento', { ...defDi('lampione'), nome: 'Lampione spento', modello: 'lampioneSpento', luce: undefined, notte: false });
 
 // ── il mondo, in streaming ───────────────────────────────────────────────────
 registraDecorazioni();
@@ -94,8 +96,14 @@ async function caricaModello(nome) {
   try {
     const r = await fetch(`./modelli/nucleo/${nome}.bin`);
     if (!r.ok) throw new Error(`${r.status}`);
-    modelli.registra(nome, leggiModello(await r.arrayBuffer()));
+    const modello = leggiModello(await r.arrayBuffer());
+    modelli.registra(nome, modello);
     registro.sporchi.add(nome);
+    if (nome === 'lampione') {
+      // ⚠ IL LAMPIONE SPENTO: stessa geometria, il vetro non emette ed è grigio
+      const b = new Uint8Array(modello.byte); for (let i = 0; i < modello.vertici; i++) if (b[i * 20 + 15] === 1) { b[i * 20 + 15] = 0; b[i * 20 + 16] = 0x7a; b[i * 20 + 17] = 0x78; b[i * 20 + 18] = 0x6a; }
+      modelli.registra('lampioneSpento', { ...modello, byte: b }); modelliCaricati.add('lampioneSpento'); registro.sporchi.add('lampioneSpento');
+    }
   } catch (e) { console.warn(`modello ${nome}: ${e.message}`); }
 }
 function aggiornaModelli() {
@@ -133,12 +141,12 @@ window.addEventListener('keyup', (e) => giu.delete(e.code));
 window.addEventListener('blur', () => giu.clear());
 // ⚠ LA ROTELLA È LO ZOOM DELLA TERZA PERSONA (il committente non poteva allontanarsi); la cassetta va coi numeri
 let distanzaTerza = 6;
-window.addEventListener('wheel', (e) => { if (terza) distanzaTerza = Math.max(1.5, Math.min(16, distanzaTerza * (e.deltaY > 0 ? 1.12 : 0.89))); }, { passive: true });
+window.addEventListener('wheel', (e) => { if (terza) distanzaTerza = Math.max(1.5, Math.min(40, distanzaTerza * (e.deltaY > 0 ? 1.12 : 0.89))); }, { passive: true });
 let pizzico = 0;
 tela.addEventListener('touchmove', (e) => {
   if (e.touches.length !== 2) return;
   const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-  if (pizzico > 0 && terza) distanzaTerza = Math.max(1.5, Math.min(16, distanzaTerza * pizzico / d));
+  if (pizzico > 0 && terza) distanzaTerza = Math.max(1.5, Math.min(40, distanzaTerza * pizzico / d));
   pizzico = d;
 }, { passive: true });
 tela.addEventListener('touchend', () => { pizzico = 0; }, { passive: true });
@@ -156,7 +164,16 @@ if (terza) document.getElementById('terza').classList.add('acceso');
  *  (`posizioneDisegnata()`), se no a 90 Hz con passi a 60 il gatto va a scatti. */
 const PASSO = 1 / 60; let resto = 0;
 const prima = { x: passeggero.x, y: passeggero.y, z: passeggero.z };
-function posizioneDisegnata() { const a = Math.min(1, resto / PASSO); return [prima.x + (passeggero.x - prima.x) * a, prima.y + (passeggero.y - prima.y) * a, prima.z + (passeggero.z - prima.z) * a]; }
+// ⚠ LO SCALINO NON È UN TELETRASPORTO: salendo di un blocco (SCALINO del
+// passeggero) la quota disegnata insegue quella vera in ~120 ms; scendendo
+// e cadendo si segue subito, se no il gatto galleggia.
+let yDolce = passeggero.y, tDolce = 0;
+function posizioneDisegnata() {
+  const a = Math.min(1, resto / PASSO);
+  const y = prima.y + (passeggero.y - prima.y) * a;
+  if (y < yDolce) yDolce = y; else yDolce += (y - yDolce) * (1 - Math.exp(-tDolce / 0.12));
+  return [prima.x + (passeggero.x - prima.x) * a, yDolce, prima.z + (passeggero.z - prima.z) * a];
+}
 function cammina(dt) {
   resto = Math.min(resto + dt, PASSO * 4);
   const av = sguardo.avantiPiano();
@@ -185,13 +202,15 @@ function cammina(dt) {
  * di visuale nel fragment lascia vedere il gatto lo stesso); con
  * `cameraTira` invece si tira dentro davanti a un muro, come prima.
  */
-const cam3 = { mira: null, occhio: null, tira: false };
-let giroGatto = Math.PI, giroVoluto = Math.PI;
+const cam3 = { mira: null, occhio: null, tira: false, buco: false };
+let giroGatto = 0, giroVoluto = 0;   // di spalle alla camera, come si parte
 function camera(dt = 0) {
+  tDolce = dt;
   const v = sguardo.verso();
   const [px, py, pz] = posizioneDisegnata();
-  const testa = [px, py + 0.8, pz];
-  if (!terza) { cam3.mira = null; return { occhio: testa, centro: [testa[0] + v[0], testa[1] + v[1], testa[2] + v[2]], fov: 1.05, rapporto: tela.width / tela.height }; }
+  const testa = [px, py + (terza ? 0.8 : 1.0), pz];
+  // ⚠ PRIMA PERSONA: occhio all'altezza della testa del gatto e campo largo (78°): «troppo bassa e con un fov troppo ravvicinato»
+  if (!terza) { cam3.mira = null; return { occhio: testa, centro: [testa[0] + v[0], testa[1] + v[1], testa[2] + v[2]], fov: 1.36, rapporto: tela.width / tela.height }; }
   let d = distanzaTerza;
   if (cam3.tira) for (let s = 0.5; s <= distanzaTerza; s += 0.5) { if (mondo.solido(Math.floor(testa[0] - v[0] * s), Math.floor(testa[1] - v[1] * s), Math.floor(testa[2] - v[2] * s))) { d = Math.max(0.6, s - 0.6); break; } }
   const voluto = [testa[0] - v[0] * d, testa[1] - v[1] * d, testa[2] - v[2] * d];
@@ -199,11 +218,12 @@ function camera(dt = 0) {
   if (!cam3.mira) { cam3.mira = testa.slice(); cam3.occhio = voluto.slice(); }
   const km = 1 - Math.exp(-dt / 0.09), ko = 1 - Math.exp(-dt / 0.06);
   for (let i = 0; i < 3; i++) { cam3.mira[i] += (testa[i] - cam3.mira[i]) * km; cam3.occhio[i] += (voluto[i] - cam3.occhio[i]) * ko; }
-  return { occhio: cam3.occhio.slice(), centro: cam3.mira.slice(), fov: 1.0, rapporto: tela.width / tela.height };
+  return { occhio: cam3.occhio.slice(), centro: cam3.mira.slice(), fov: 1.15, rapporto: tela.width / tela.height };
 }
 
 // ── la cassetta e il cantiere ────────────────────────────────────────────────
 const barra = document.getElementById('barra');
+const azioneEl = document.getElementById('azione');
 let scelto = 1;
 const CASSETTA_PARTITA = [...CASSETTA, ...Object.keys(ARREDI)];
 const bottoni = CASSETTA_PARTITA.map((t, i) => {
@@ -223,6 +243,42 @@ scegli(1);
 const scavo = new Scavo();
 let bersaglio = null;   // { cella, faccia, prima } della mira, o null
 let tienePremuto = false;
+// ⚠ LA MIRA È LIBERA: si mira DOVE STA IL DITO (o il mouse), in prima e in terza
+// persona, entro la portata del gatto; il mirino al centro resta un'opzione
+// (`miraCentro`). `punto` è l'ultimo puntatore visto, in coordinate della tela.
+const puntatore = { x: 0, y: 0, visto: false };
+let miraCentro = false;
+tela.addEventListener('pointermove', (e) => { puntatore.x = e.clientX; puntatore.y = e.clientY; puntatore.visto = true; });
+tela.addEventListener('pointerdown', (e) => { puntatore.x = e.clientX; puntatore.y = e.clientY; puntatore.visto = true; });
+/** Il raggio dalla camera attraverso il punto della tela (o il centro). */
+function raggioDiMira(cam) {
+  const f = [cam.centro[0] - cam.occhio[0], cam.centro[1] - cam.occhio[1], cam.centro[2] - cam.occhio[2]];
+  const fl = Math.hypot(...f) || 1; f[0] /= fl; f[1] /= fl; f[2] /= fl;
+  const r = [f[2], 0, -f[0]]; const rl = Math.hypot(...r) || 1; r[0] /= rl; r[2] /= rl;   // destra = f × su
+  const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+  let nx = 0, ny = 0;
+  if (!miraCentro && puntatore.visto) { nx = (puntatore.x / tela.clientWidth) * 2 - 1; ny = 1 - (puntatore.y / tela.clientHeight) * 2; }
+  const t = Math.tan(cam.fov / 2), sx = nx * t * cam.rapporto, sy = ny * t;
+  const d = [f[0] + r[0] * sx + u[0] * sy, f[1] + r[1] * sx + u[1] * sy, f[2] + r[2] * sx + u[2] * sy];
+  const dl = Math.hypot(...d); return { x: d[0] / dl, y: d[1] / dl, z: d[2] / dl };
+}
+/** Il lampione sotto una cella (la base, o fino a due celle sotto: il palo è aria). */
+function lampioneIn(x, y, z) {
+  for (let dy = 0; dy <= 2; dy++) { const t = mondo.tipo(x, y - dy, z); if (t === 'lampione' || t === 'lampioneSpento') return [x, y - dy, z, t]; if (t && dy === 0) return null; }
+  return null;
+}
+function accendiSpegni(x, y, z, t) { mondo.togli(x, y, z); mondo.metti(x, y, z, t === 'lampione' ? 'lampioneSpento' : 'lampione'); streaming.tocca(x, z); salvaFra = 1000; }
+/** Cosa farebbe il tocco adesso: [verbo, etichetta]. */
+function azioneCorrente() {
+  if (!bersaglio) return ['niente', puntatore.visto ? 'troppo lontano' : ''];
+  const tipo = CASSETTA_PARTITA[scelto];
+  const [x, y, z] = bersaglio.cella; const t = mondo.tipo(x, y, z);
+  const lamp = lampioneIn(x, y, z);
+  if (comandi.demolisci) return ['rompi', `rompi: ${t ? defDi(t).nome : ''} (tieni premuto)`];
+  if (lamp && (!tipo || ATTREZZI[tipo])) return ['lampione', lamp[3] === 'lampione' ? 'spegni il lampione' : 'accendi il lampione'];
+  if (tipo && !ATTREZZI[tipo]) return ['posa', `posa: ${defDi(tipo).nome}`];
+  return ['tocca', `tocca: ${t ? defDi(t).nome : ''}`];
+}
 function cambiaBlocco(x, y, z, tipo) {
   if (tipo) mondo.metti(x, y, z, tipo); else mondo.togli(x, y, z);
   streaming.tocca(x, z);
@@ -244,8 +300,12 @@ function rompiMirato() { if (!bersaglio) return; const [x, y, z] = bersaglio.cel
 tela.addEventListener('contextmenu', (e) => e.preventDefault());
 ascoltaClic(tela, (e) => {
   if (sguardo.trascinato > 6) return;
-  if (e.button === 2) posa();
-  else if (e.pointerType === 'touch' && !comandi.demolisci) posa();
+  const [verbo] = azioneCorrente();
+  // il destro (o il tocco senza piccone): posa, o accende/spegne, o tocca
+  if (e.button === 2 || (e.pointerType === 'touch' && !comandi.demolisci)) {
+    if (verbo === 'lampione') { const l = lampioneIn(...bersaglio.cella); accendiSpegni(l[0], l[1], l[2], l[3]); }
+    else if (verbo === 'posa') posa();
+  } else if (e.button === 0 && verbo === 'lampione' && e.pointerType !== 'touch') { const l = lampioneIn(...bersaglio.cella); accendiSpegni(l[0], l[1], l[2], l[3]); }
 });
 ascoltaPressione(tela, {
   onInizio: (e) => { tienePremuto = !(e.pointerType === 'touch' && !comandi.demolisci); },
@@ -306,10 +366,14 @@ function giro(adesso) {
   resa.seguiAltezze(passeggero.x, passeggero.z);
   aggiornaModelli();
   const cam = camera(dt);
-  resa.buco = terza ? [cam.centro[0], cam.centro[1] - 0.2, cam.centro[2], 0.75] : [0, 0, 0, 0];
+  resa.buco = terza && cam3.buco ? [cam.centro[0], cam.centro[1] - 0.2, cam.centro[2], 0.75] : [0, 0, 0, 0];
   // la mira, dall'occhio
   const v = sguardo.verso();
-  bersaglio = mira(mondo, { x: cam.occhio[0], y: cam.occhio[1], z: cam.occhio[2] }, { x: v[0], y: v[1], z: v[2] }, PORTATA + (terza ? distanzaTerza : 0));
+  const rm = raggioDiMira(cam);
+  bersaglio = mira(mondo, { x: cam.occhio[0], y: cam.occhio[1], z: cam.occhio[2] }, rm, PORTATA + (terza ? distanzaTerza : 0));
+  // ⚠ ENTRO LA PORTATA DEL GATTO, non della camera: in terza persona a 40 blocchi non si scava la collina di fronte
+  if (bersaglio && Math.hypot(bersaglio.cella[0] + 0.5 - passeggero.x, bersaglio.cella[1] + 0.5 - passeggero.y - 0.5, bersaglio.cella[2] + 0.5 - passeggero.z) > PORTATA + 1.5) bersaglio = null;
+  void v;
   if (tienePremuto && bersaglio) {
     const [x, y, z] = bersaglio.cella;
     scavo.premi(x + ',' + y + ',' + z, durataPer(defDi(mondo.tipo(x, y, z))), adesso);
@@ -326,7 +390,20 @@ function giro(adesso) {
   if (terza) modelli.istanze('omino', [gx, gy + passo, gz, 1, 1, 1, 1, giroGatto], 8); else modelli.istanze('omino', [], 8);
   resa.disegna(cam, dt, modelli);
   modelli.disegna(resa, cam);
-  if (bersaglio) resa.evidenzia(bersaglio.cella[0], bersaglio.cella[1], bersaglio.cella[2], scavo.progresso(adesso));
+  // ⚠ SI VEDE COSA SI STA PER FARE: il blocco mirato pieno e traslucido (giallo;
+  // arancio mentre si scava; rosso col piccone), il fantasma di dove si posa
+  // (bianco-azzurro), gli spigoli, e l'etichetta in basso
+  if (bersaglio) {
+    const [verbo, etichetta] = azioneCorrente();
+    const pr = scavo.progresso(adesso);
+    const [x, y, z] = bersaglio.cella;
+    if (verbo === 'rompi' || pr > 0) resa.scatola(x, y, z, 1.0, 0.35 - 0.2 * pr, 0.25, 0.28 + 0.25 * pr);
+    else if (verbo === 'lampione') resa.scatola(x, y, z, 1.0, 0.9, 0.4, 0.3);
+    else resa.scatola(x, y, z, 1.0, 0.95, 0.5, 0.22);
+    if (verbo === 'posa' && !mondo.pieno(...bersaglio.prima)) resa.scatola(bersaglio.prima[0], bersaglio.prima[1], bersaglio.prima[2], 0.6, 0.85, 1.0, 0.35, 0.0);
+    resa.evidenzia(x, y, z, pr);
+    azioneEl.textContent = etichetta;
+  } else azioneEl.textContent = azioneCorrente()[1];
   resa.disegnaAcqua();
   bagliori.disegna(resa, cam);   // il glow delle lanterne: sprite additivi, dopo tutto
   const js = performance.now() - tj;
@@ -348,14 +425,14 @@ function stampa() {
     `${opz.zoo ? 'ZOO' : 'PARTITA'} sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
     + `disegni ${st.disegni + modelli.statistiche.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio} · triangoli ${(st.triangoli + modelli.statistiche.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio).toLocaleString('it')} · chunk ${st.chunkVisti}/${st.chunkTotali} (coda ${sm.inCoda}${lavoro ? `, in volo ${sm.inVolo} su ${lavoro.operai.length} worker` : ''}, ${sm.ultimaMs.toFixed(1)} ms) · corpi ${corpi.statistiche.corpi} (${corpi.statistiche.svegli} svegli)\n`
     + `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)} · ${volo ? 'volo' : passeggero.aTerra ? 'a terra' : 'in aria'} · modifiche ${contaModifiche(mondo)}${salvate > 0 ? ` (${salvate} ricaricate)` : ''} · in mano: ${bottoni[scelto].textContent}${bersaglio ? ` · miri ${mondo.tipo(...bersaglio.cella)}` : ''}\n`
-    + `WASD/joystick cammina · trascina guarda · doppio clic/L cattura il mouse · sinistro tieni = scava · destro/tocco = posa · ⛏ col dito scava · F vola · V terza (rotella/pizzico = zoom) · C cubi · 1-9 cassetta`;
+    + `WASD/joystick cammina · trascina guarda · doppio clic/L cattura il mouse · si mira dove sta il dito o il mouse · sinistro tieni = scava · destro/tocco = posa o accendi · ⛏ col dito scava · F vola · V terza (rotella/pizzico = zoom fino a 40) · C cubi · 1-9 cassetta`;
 }
 requestAnimationFrame(giro);
 
 // ── l'Officina: `?officina` o il tasto 🛠, caricata solo se la si chiede ────
 let officina = null, passoOfficina = null;
 async function apriOfficinaPartita() {
-  if (officina) { officina.pannello.apri(true); return; }
+  if (officina) { document.body.classList.toggle('con-officina'); return; }   // il 🛠 apre e chiude
   const { apriOfficina } = await import('./officina/index.js');
   const statoGiocatore = {
     get volo() { return volo; }, get terza() { return terza; }, impostaVolo, impostaTerza,
@@ -369,13 +446,15 @@ async function apriOfficinaPartita() {
   document.body.classList.add('con-officina');
   const dock = document.getElementById('dock');
   statoGiocatore.cameraTira = () => cam3.tira; statoGiocatore.impostaCameraTira = (v) => (cam3.tira = !!v);
+  statoGiocatore.buco = () => cam3.buco; statoGiocatore.impostaBuco = (v) => (cam3.buco = !!v);
+  statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = (v) => { miraCentro = !!v; document.body.classList.toggle('mira-centro', miraCentro); };
   officina = apriOfficina({
     registri: [registroGiornoPartita(giorno), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, seme: opz.seme })],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
     autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),
   });
-  document.getElementById('chiudiDock').addEventListener('click', () => { document.body.classList.remove('con-officina'); officina.pannello.radice.remove(); officina = null; passoOfficina = null; });
+  document.getElementById('chiudiDock').addEventListener('click', () => document.body.classList.remove('con-officina'));
 }
 document.getElementById('officina').addEventListener('click', apriOfficinaPartita);
 if (params.has('officina')) apriOfficinaPartita();

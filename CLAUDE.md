@@ -1468,6 +1468,15 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   world: passa dalla stessa frontiera e dallo stesso streaming. Fuori dal
   piano i chunk sono vuoti: lo streaming li segna in `_vuoti` e non li rimette
   in coda a ogni giro.
+- **La mira è libera** (`raggioDiMira`: il raggio dalla camera per il punto
+  della tela dove sta il dito), entro la portata del GATTO; il mirino al centro
+  è un'opzione. Il verbo del tocco lo decide `azioneCorrente()` in un posto
+  solo, e l'etichetta a schermo lo dice. ⚠ Il gatto coperto si vede in
+  sagoma (`Modelli.sagoma`, profondità GREATER, niente scrittura): il buco di
+  visuale (`resa.buco`) è spento di fabbrica.
+- **I lampioni si spengono** diventando `lampioneSpento` (stesso .bin col
+  vetro grigio e materia 0, registrato in `partita.js`): togli + metti non
+  silenziosi, così registro, luce cotta e bagliori si aggiornano da soli.
 - ⚠ **Niente `const` omonimi dentro le funzioni del modulo**: un `const giorno`
   dentro `sole()` oscurava l'oggetto `giorno` del modulo prima di nascere
   (TDZ) e la pagina moriva bianca al primo fotogramma.
