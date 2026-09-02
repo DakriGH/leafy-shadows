@@ -1334,6 +1334,22 @@ toccare un file dell'altra corsia, si lascia una riga qui sotto prima di
 farlo. Il cloud rilegge `sorgente` a ogni controllo: una nota in CLAUDE.md
 spinta su `sorgente` arriva.
 
+## ⚠ IL NUCLEO (`src/nucleo/`, dal 02/09): la rifondazione, fase per fase
+
+Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
+- **Niente Babylon in `nucleo/`**, mai: parla WebGL2 direttamente. La regola
+  «fuori da `src/motore/` non si nomina Babylon» vale anche qui, al contrario:
+  dentro `nucleo/` non si nomina neanche `motore/`.
+- **Il formato del vertice sono otto byte** (`nucleo/formato.js`) e gli indici
+  sono condivisi: un chunk = un VAO + un VBO + un `drawElements`. Si prova in
+  Node come `world/`.
+- **La luce è cotta** nel vertice (cielo 4 bit, blocco 4 bit); il sole
+  direzionale è horizon mapping sulla mappa delle altezze, nel fragment.
+- ⚠ Un uniform usato in tutti e due gli shader deve avere la STESSA precisione
+  (`highp` dichiarato nel fragment), o il link fallisce con «precisions differ».
+- Il banco `nucleo.html` ha il 🩺 del gioco: la porta di ogni fase si legge da
+  lì, sul Mali, non da SwiftShader.
+
 ## «Desktop» non vuol dire «GPU da desktop»
 
 ⚠ **Il Chromebook del committente ha una Intel HD 400 del 2015, che è più debole

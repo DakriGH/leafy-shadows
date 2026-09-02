@@ -59,7 +59,9 @@ const esito = await build({
   // quindi deve esistere come file suo accanto a main.js, con lo stesso nome.
   // esbuild non segue i Worker da sé: se manca da qui, in rete il mesher
   // torna in linea in silenzio (il ripiego c'è, ma non è quello che si vuole).
-  entryPoints: [join(radice, 'src/main.js'), join(radice, 'src/zoo.js'), join(radice, 'src/banco-acqua.js'), join(radice, 'src/world/mesher-worker.js')],
+  entryPoints: [join(radice, 'src/main.js'), join(radice, 'src/zoo.js'), join(radice, 'src/banco-acqua.js'), join(radice, 'src/world/mesher-worker.js'),
+    // ⚠ IL QUINTO È IL BANCO DEL NUCLEO (rifondazione, F0): senza Babylon, 30 KB.
+    join(radice, 'src/banco-nucleo.js')],
 
   bundle: true,
   format: 'esm',
@@ -124,6 +126,7 @@ function preparaPagina(nomeHtml, modulo) {
 preparaPagina('index.html', 'main');
 preparaPagina('zoo.html', 'zoo');
 preparaPagina('water.html', 'banco-acqua');
+preparaPagina('nucleo.html', 'banco-nucleo');
 writeFileSync(join(www, '.nojekyll'), '');
 cpSync(join(radice, 'modelli'), join(www, 'modelli'), { recursive: true });
 
@@ -135,7 +138,7 @@ if (!existsSync(join(lavoro, '.git'))) {
 } else {
   esegui('git fetch -q origin && git reset -q --hard origin/main', lavoro);
 }
-for (const n of ['index.html', 'zoo.html', 'water.html', 'main.js', 'zoo.js', 'banco-acqua.js', 'mesher-worker.js', '.nojekyll']) {
+for (const n of ['index.html', 'zoo.html', 'water.html', 'nucleo.html', 'main.js', 'zoo.js', 'banco-acqua.js', 'mesher-worker.js', 'banco-nucleo.js', '.nojekyll']) {
   cpSync(join(www, n), join(lavoro, n));
 }
 // i modelli: sono dati, non codice, e vanno accanto alla pagina
@@ -154,4 +157,5 @@ esegui('git push -q origin HEAD:main', lavoro);
 console.log(`\n✅ Fatto. Fra un minuto sono aggiornate:`);
 console.log(`   https://dakrigh.github.io/${DESTINAZIONE}/`);
 console.log(`   https://dakrigh.github.io/${DESTINAZIONE}/zoo.html`);
-console.log(`   https://dakrigh.github.io/${DESTINAZIONE}/water.html\n`);
+console.log(`   https://dakrigh.github.io/${DESTINAZIONE}/water.html`);
+console.log(`   https://dakrigh.github.io/${DESTINAZIONE}/nucleo.html\n`);
