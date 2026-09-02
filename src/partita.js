@@ -456,7 +456,9 @@ async function apriOfficinaPartita() {
   });
   document.getElementById('chiudiDock').addEventListener('click', () => document.body.classList.remove('con-officina'));
 }
-document.getElementById('officina').addEventListener('click', apriOfficinaPartita);
+// ⚠ IL TASTO NON SI CHIAMA «officina»: è l'id del PANNELLO dell'Officina, e il suo
+// foglio di stile lo prendeva per sé (fisso, senza puntatore): il tasto spariva.
+document.getElementById('apriOfficina').addEventListener('click', apriOfficinaPartita);
 if (params.has('officina')) apriOfficinaPartita();
 
 // ── il 🩺 ────────────────────────────────────────────────────────────────────
