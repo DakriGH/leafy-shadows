@@ -191,14 +191,21 @@ export function miraCompleta(mondo, origine, verso, scatole, portata = PORTATA) 
     // e quindi non si posava niente. La cella confinante la dà solo la faccia
     // della CELLA, che è lo stesso conto che si fa per un blocco.
     const c = miglior.dato && miglior.dato.cella;
-    let prima = blocco && blocco.prima;
+    let prima = blocco && blocco.prima, faccia = blocco && blocco.faccia;
     if (c) {
       const f = [0, 0, 0];
-      const d = incrociaScatola(origine, verso,
+      let d = incrociaScatola(origine, verso,
         { x: c[0], y: c[1], z: c[2] }, { x: c[0] + 1, y: c[1] + 1, z: c[2] + 1 }, portata, f);
-      if (d >= 0) prima = [c[0] + f[0], c[1] + f[1], c[2] + f[2]];
+      // ⚠ LA PARTE ALTA DI UN LAMPIONE STA FUORI DALLA SUA CELLA: mirando la
+      // lanterna col cielo dietro il raggio manca la cella, e `prima` restava
+      // NULL — la partita moriva al primo fotogramma («w.prima is not
+      // iterable»). Allora la faccia è quella della scatola visiva, e se anche
+      // quella manca (occhio dentro la scatola) si posa sopra la cella.
+      if (d < 0) d = incrociaScatola(origine, verso, miglior.min, miglior.max, portata, f);
+      if (d >= 0 && (f[0] || f[1] || f[2])) { prima = [c[0] + f[0], c[1] + f[1], c[2] + f[2]]; faccia = f; }
+      if (!prima) { prima = [c[0], c[1] + 1, c[2]]; faccia = [0, 1, 0]; }
     }
-    return { ...blocco, scatola: miglior, dato: miglior.dato, distanza: dMiglior, prima };
+    return { ...blocco, cella: blocco ? blocco.cella : (c || null), faccia, scatola: miglior, dato: miglior.dato, distanza: dMiglior, prima };
   }
   return blocco;
 }
