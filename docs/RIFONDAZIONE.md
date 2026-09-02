@@ -172,6 +172,16 @@ porta non passa, non si va avanti: si misura e si cambia tecnica.
   Chromium software. Ancora fuori: alberi e lampioni (modelli, F3), l'acqua
   vera (F3), la luce cotta di grotte e lampade (F2), il greedy meshing e gli
   array tipizzati del mondo (seconda metà di F1).
+- **02/09, modelli a istanze** (anticipo di F3, su richiesta del committente:
+  «importa i modelli cuboid»): `scripts/converti-nucleo.mjs` cuoce i .glb in
+  triangoli piatti (posizione, normale, colore campionato dalla texture a
+  palette al centro del triangolo, schiarito ×1,6 come in gioco, la testa del
+  lampione emissiva col colore della sua luce) in `modelli/nucleo/*.bin`, con
+  un decodificatore PNG scritto in casa: niente Babylon neanche offline.
+  `nucleo/modelli.js` li disegna A ISTANZE: un disegno per TIPO. Nel banco:
+  61 alberi e lampioni in 2 disegni, 23k triangoli. ⚠ I modelli di Blockbench
+  (cuboidi in JSON) entreranno nello stesso .bin: è il formato dell'Officina
+  per «programmare nuovi modelli», e il convertitore è il posto dove aggiungerlo.
 - Decisioni prese dal committente («vai con i consigli»): pannello di
   riferimento il Mali a 90 Hz finché non se ne misura un altro; ombre del sole
   direzionali via horizon mapping; Babylon solo attrezzo offline.

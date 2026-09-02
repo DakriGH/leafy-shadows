@@ -1354,6 +1354,13 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   il mesher del nucleo (`nucleo/mesher-nucleo.js`) riusa `paletteBlocco`,
   `tintaPalette`, `tingiMateria` e `coloreFaccia` del mondo, quindi i colori
   sono ESATTAMENTE quelli del gioco. La materia (emissione ecc.) sta in 4 bit.
+- **I modelli sono triangoli piatti cotti offline** (`scripts/converti-nucleo.mjs`
+  → `modelli/nucleo/*.bin`, formato `LNM1`) e si disegnano a istanze in
+  `nucleo/modelli.js`: un disegno per tipo. Il convertitore legge il GLB e il
+  PNG da sé (niente Babylon, niente dipendenze): se si cambia un modello si
+  rilancia lui, e `pubblica.mjs` copia `modelli/` intera. ⚠ La materia sta nel
+  byte 15 e si legge con `vertexAttribIPointer`: come BYTE normalizzato si
+  perderebbe.
 - ⚠ Il fragment lavora in spazio lineare e RICODIFICA in sRGB alla fine
   (`pow(1/2.2)`): senza, tutto esce scuro e saturo. ⚠ La mappa delle altezze
   per l'horizon mapping è in QUOTA DI MONDO (lo scarto del chunk è dentro
