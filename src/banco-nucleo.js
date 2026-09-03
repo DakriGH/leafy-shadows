@@ -151,7 +151,7 @@ let ora = opz.ora ?? 0.35;
 function sole(dt) {
   if (opz.ora === null) ora = (ora + dt / 300) % 1;
   const a = ora * Math.PI * 2 - Math.PI / 2;
-  const alt = Math.max(0.24, Math.sin(a));     // il pavimento a 14°, come giorno.js
+  const alt = 0.24 + 0.5 * Math.max(0, Math.sin(a));   // da 14° a 48°: mai a picco, se no il mondo è piatto (vedi partita.js)
   const az = a * 0.5;
   resa.sole.verso = [-Math.cos(az) * Math.cos(Math.asin(alt)), -alt, -Math.sin(az) * Math.cos(Math.asin(alt))];
   const giorno = Math.max(0, Math.min(1, (Math.sin(a) + 0.1) * 2));
@@ -164,7 +164,7 @@ function sole(dt) {
   // questa riga la notte era un giorno spento, e le lampade non risaltavano.
   // ⚠ L'OMBRA DEL CEL SHADING SI DEVE VEDERE: a mezzogiorno vale circa il 60 % del
   // sole (in sRGB), appena fredda. Con lo 0,54 di prima era all'80 %: invisibile.
-  resa.sole.cielo = [0.10 + 0.24 * giorno, 0.12 + 0.26 * giorno, 0.24 + 0.24 * giorno];
+  resa.sole.cielo = [0.10 + 0.18 * giorno, 0.12 + 0.20 * giorno, 0.24 + 0.18 * giorno];
   resa.nebbia.colore = [0.25 + 0.47 * giorno, 0.35 + 0.5 * giorno, 0.5 + 0.42 * giorno];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }

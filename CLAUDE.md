@@ -1359,8 +1359,24 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   dopo. ⚠ L'URL del worker è relativo a `nucleo/lavoro.js` e nel bundle deve
   chiamarsi `mesher-nucleo-worker.js` (entry di pubblica.mjs): stesso nome, o
   in rete si torna in linea in silenzio.
-- **La luce è cotta** nel vertice (cielo 4 bit, blocco 4 bit); il sole
-  direzionale è una **mappa delle ombre per colonna** (`resa._calcolaOmbre`):
+- **La luce del sole è a DUE BANDE per direzione** (`vFaccia` nei vertex):
+  una faccia che guarda il sole ha il colore pieno, una di spalle ha il
+  colore d'ombra, lo stesso di chi sta nell'ombra portata. Non è lo shading
+  di Minecraft (che scurisce i lati SEMPRE): due oggetti dello stesso colore
+  hanno lo stesso colore, cambia solo chi è al sole. Senza, «tutto piatto».
+  ⚠ Il sole non va mai a picco (14°→48°, `partita.js` e `banco-nucleo.js`),
+  se no a mezzogiorno ogni parete è di spalle.
+- **L'ombra portata vicina è una MAPPA D'OMBRA VERA** (`resa._aggiornaMappa`,
+  `ombraMappa` nei fragment): profondità ortografica vista dal sole, raggio 40
+  attorno alla mira della camera, due texture: `stat` 2048² (terreno + modelli
+  fermi) rifatta solo se il sole si sposta di ¼°, cambia un chunk o un
+  modello fermo, o ci si allontana di 8 blocchi; `din` 1024² (omino, cubo:
+  `modelli.dinamici`) ogni fotogramma. Confronto in hardware
+  (`sampler2DShadow`, 2×2), scostamento lungo la normale + bias + polygon
+  offset contro l'acne. Così l'ombra ha la FORMA della cosa (il palo del
+  lampione, le orecchie del gatto), non della colonna. `?mappa=no` la spegne.
+- **La luce è cotta** nel vertice (cielo 4 bit, blocco 4 bit); oltre il raggio
+  della mappa il sole è una **mappa delle ombre per colonna** (`resa._calcolaOmbre`):
   la GPU marcia sulla mappa delle altezze (48 passi da mezzo blocco verso il
   sole) e scrive per ogni colonna la quota sotto cui si è in ombra, in R16F
   (o R8 a quarti di blocco); si rifà solo quando il sole si sposta di mezzo

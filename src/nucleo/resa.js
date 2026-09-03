@@ -9,7 +9,7 @@
 // d'ombra, niente acne per costruzione. È accendibile, per misurarla.
 import { compila } from './gl.js';
 import { BYTE_VERTICE, indiciCondivisi, QUAD_MAX } from './formato.js';
-import { prospettiva, guarda, moltiplica, pianiFrustum, scatolaNelFrustum } from './matrici.js';
+import { prospettiva, guarda, moltiplica, pianiFrustum, scatolaNelFrustum, ortografica } from './matrici.js';
 
 const VS = `#version 300 es
 precision highp float;
@@ -27,6 +27,8 @@ flat out vec3 vBase;          // il colore cotto, lineare
 flat out float vSole;         // quanto sole prende la faccia, a bande (l'horizon map lo può togliere)
 flat out float vEmis;         // materia emissiva
 flat out float vCielo;        // il cielo è PER FACCIA (la regola di Leafy: niente sfumature sui solidi)
+flat out float vFaccia;       // 1 = la faccia guarda il sole, 0 = è di spalle (ombra propria, a gradino)
+flat out vec3 vN;             // la normale geometrica: serve alla mappa d'ombra per non avere acne
 out float vBlocco;            // la luce di blocco sfuma: le pozze dei lampioni sono tonde
 out float vNebbia;
 out vec3 vPos;
@@ -48,10 +50,14 @@ void main() {
   // ⚠ IL COLORE È QUELLO COTTO DAL MESHER (la palette di Leafy), in spazio lineare
   vBase = pow(vec3(aC.xyz) / 255.0, vec3(2.2));
   vEmis = uMaterie[materia].x;
-  // ⚠ NIENTE SHADING PER FACCIA (la regola di Leafy, ribadita dal committente:
-  // «non ci devono essere face shading come i blocchi di Minecraft»): la
-  // normale non entra nel colore. Si scurisce solo chi è in ombra (horizon
-  // mapping) o senza cielo. Tre bande sulla forza del sole, e basta.
+  // ⚠ LA LUCE È A DUE BANDE PER DIREZIONE DEL SOLE, come nel cel shading: una
+  // faccia che guarda il sole ha il colore pieno, una di spalle ha il colore
+  // d'ombra — lo STESSO di chi sta nell'ombra portata. Non è lo shading di
+  // Minecraft (che scurisce i lati sempre, per convenzione): due oggetti dello
+  // stesso colore hanno lo stesso colore, e cambia solo chi è al sole o in
+  // ombra. Senza questo tutto era piatto («come se tutto fosse piatto»).
+  vFaccia = dot(n, -uSoleVerso) > 0.05 ? 1.0 : 0.0;
+  vN = n;
   vSole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   float d = distance(p, uCam);
   vNebbia = clamp((d - uNebbia.x) / (uNebbia.y - uNebbia.x), 0.0, 1.0);
@@ -66,6 +72,8 @@ flat in vec3 vBase;
 flat in float vSole;
 flat in float vEmis;
 flat in float vCielo;
+flat in float vFaccia;
+flat in vec3 vN;
 in float vBlocco;
 in float vNebbia;
 in highp vec3 vPos;   // ⚠ highp: l'ombra si legge a coordinate di mondo (±256), in mediump ballerebbe di un quarto di blocco
@@ -73,6 +81,7 @@ uniform vec3 uNebbiaCol;
 uniform vec3 uSoleCol;
 uniform vec3 uCieloCol;          // il colore dell'ombra: È il cielo
 uniform float uOmbra;            // 1 = ombra del sole accesa
+uniform highp float uSoleForza;  // ⚠ highp come nel vertex, o il link fallisce («precisions differ»)
 uniform highp float uTaglio;     // sotto questa quota non si disegna (la passata dello specchio)
 // ⚠ STESSA PRECISIONE DEL VERTEX: un uniform condiviso fra i due shader deve
 // avere la stessa precisione, o il link fallisce («precisions differ»).
@@ -82,6 +91,25 @@ uniform vec2 uOmbreScala;        // come si decodifica: quota = r * x + y
 uniform highp vec4 uAltRett;           // x0, z0, 1/larghezza, 1/profondita
 uniform highp vec4 uBuco;        // il buco di visuale della terza persona: il giocatore (xyz) e il raggio (0 = spento)
 uniform highp vec3 uOcchio;      // da dove guarda la camera
+uniform highp sampler2DShadow uMappaStat;   // la mappa d'ombra FERMA: terreno, lampioni, alberi (si rifà quando serve)
+uniform highp sampler2DShadow uMappaDin;    // quella di chi si muove (gatto, corpi): ogni fotogramma, piccola
+uniform highp mat4 uLuceVP;                 // mondo → clip del sole
+uniform float uMappaOn;                     // 1 = la mappa vale
+uniform vec2 uMappaSbieco;                  // x: scostamento lungo la normale (blocchi), y: bias di profondità (clip 0..1)
+// ⚠ LA MAPPA D'OMBRA VERA (Resa._aggiornaMappa): profondità vista dal sole,
+// quindi l'ombra ha la FORMA della cosa — il palo del lampione, il gatto, la
+// chioma — non della colonna. Il confronto lo fa la texture (sampler2DShadow,
+// 2×2 in hardware: bordo netto ma senza scalini); lo scostamento lungo la
+// normale e il bias tolgono l'acne. Fuori dalla mappa torna -1 e si usa la
+// mappa per colonna (ombraSole), che copre tutto il mondo in streaming.
+float ombraMappa(highp vec3 pos, vec3 n) {
+  if (uMappaOn < 0.5) return -1.0;
+  highp vec4 q = uLuceVP * vec4(pos + n * uMappaSbieco.x, 1.0);
+  highp vec3 u = q.xyz * 0.5 + 0.5;
+  if (u.x < 0.004 || u.x > 0.996 || u.y < 0.004 || u.y > 0.996 || u.z > 1.0) return -1.0;
+  highp vec3 c = vec3(u.xy, u.z - uMappaSbieco.y);
+  return min(texture(uMappaStat, c), texture(uMappaDin, c));
+}
 out vec4 colore;
 // ⚠ L'OMBRA DEL SOLE È UNA LETTURA SOLA: la mappa delle ombre (uOmbre, per
 // colonna: la quota sotto cui si è in ombra, calcolata dalla GPU quando il sole
@@ -102,11 +130,13 @@ void main() {
     float t = dot(vPos - uOcchio, dir);
     if (t > 0.0 && t < lung - 0.35 && length(vPos - uOcchio - dir * t) < uBuco.w) discard;
   }
-  float luce = uOmbra > 0.5 ? ombraSole(vPos) : 1.0;
+  float luce = vFaccia;
+  if (uOmbra > 0.5 && luce > 0.0) { float m = ombraMappa(vPos, vN); luce = m >= 0.0 ? m : ombraSole(vPos); }
   // le bande: il cielo a quattro (per faccia), la lampada a quattro (sulla luce
   // interpolata: pozze tonde), il sole diretto solo dove il cielo è pieno
   float cieloB = floor(vCielo * 4.0 + 0.5) / 4.0;
-  float lamp = floor(vBlocco * 4.0 + 0.5) / 4.0;
+  // ⚠ DI GIORNO LE POZZE DELLE LAMPADE QUASI NON SI VEDONO (il sole le sovrasta): a mezzogiorno restano al 12 %
+  float lamp = floor(vBlocco * 4.0 + 0.5) / 4.0 * mix(1.0, 0.12, uSoleForza);
   float sole = vSole * step(0.99, vCielo) * luce;
   vec3 ombra = vBase * uCieloCol * (0.25 + 0.75 * cieloB);
   vec3 pieno = vBase * uSoleCol;
@@ -238,6 +268,8 @@ out float vCielo;
 out float vBlocco;
 out float vNebbia;
 out vec3 vPos;
+out float vFaccia;
+out vec3 vN;
 void main() {
   vec3 base = uChunk + vec3(float(aA.x), float(aA.z), float(aA.y)) / 8.0;
   float seme = float(aA.w) / 255.0;
@@ -269,20 +301,35 @@ void main() {
   // gradiente scuro-chiaro. Cel shading alla Zelda: la lamella è del prato.
   float scosta = 0.9 + 0.2 * float(aC.w >> 4u) / 15.0;
   vBase = pow(vec3(aB.xyz) / 255.0, vec3(2.2)) * mix(1.0, scosta, punta);
-  // l'erba è tinta piatta: vede il sole se ha il cielo, senza normale
+  // l'erba è del prato: guarda il sole come la cima del blocco (normale in su), senza bande sue
   vSole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
+  vFaccia = 1.0; vN = vec3(0.0, 1.0, 0.0);
   vCielo = cielo; vBlocco = float(aC.w & 15u) / 15.0; vEmis = 0.0;
   vNebbia = clamp((distance(p, uCam) - uNebbia.x) / (uNebbia.y - uNebbia.x), 0.0, 1.0);
   vPos = p;
   gl_Position = uVP * vec4(p, 1.0);
 }`;
 
+// ── LA PASSATA D'OMBRA: la profondità vista dal sole, e basta ─────────────
+const VS_OMBRA = `#version 300 es
+layout(location = 0) in uvec2 aAB;
+uniform mat4 uVP;
+uniform vec3 uChunk;
+void main() {
+  uint A = aAB.x, B = aAB.y;
+  vec3 p = uChunk + vec3(float(A & 511u) - 16.0, float(B & 65535u), float((A >> 9u) & 511u) - 16.0) / 16.0;
+  gl_Position = uVP * vec4(p, 1.0);
+}`;
+const FS_VUOTO = `#version 300 es
+precision mediump float;
+void main() {}`;
+
 export class Resa {
   constructor(gl) {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio']) {
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uMappaOn', 'uMappaSbieco']) {
       this.u[n] = gl.getUniformLocation(this.programma, n);
     }
     // ⚠ UN SOLO BUFFER DI INDICI PER TUTTI I CHUNK (formato.js)
@@ -292,7 +339,10 @@ export class Resa {
     // stesso fragment dei solidi (horizon mapping, nebbia), ma con i colori INTERPOLATI: la lamella sfuma dalla base alla punta
     this.programmaErba = compila(gl, VS_ERBA, FS.replace(/flat in /g, 'in '));
     this.ue = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uMappaOn', 'uMappaSbieco']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
+    // ⚠ LA PASSATA D'OMBRA: solo posizione, niente colore (il fragment è vuoto)
+    this.programmaOmbra = compila(gl, VS_OMBRA, FS_VUOTO);
+    this.uo = { uVP: gl.getUniformLocation(this.programmaOmbra, 'uVP'), uChunk: gl.getUniformLocation(this.programmaOmbra, 'uChunk') };
     this.programmaAcqua = compila(gl, VS_ACQUA, FS_ACQUA);
     this.ua = {};
     for (const n of ['uVP', 'uChunk', 'uTempo', 'uCam', 'uNebbia', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbiaCol', 'uSpecchio', 'uSchermo']) this.ua[n] = gl.getUniformLocation(this.programmaAcqua, n);
@@ -328,6 +378,15 @@ export class Resa {
     this.ombre = { tex: null, fbo: null, w: 0, h: 0, sporco: null, sole: [0, 0, 0], scala: 1, offset: 0, mezzoFloat: false, calcoli: 0 };
     this._ombreMezzo = !!gl.getExtension('EXT_color_buffer_half_float') && !!gl.getExtension('OES_texture_half_float_linear');
     this.statistiche.calcoliOmbre = 0;
+    // ⚠ LA MAPPA D'OMBRA VERA (vedi ombraMappa nel fragment): due texture di
+    // profondità viste dal sole, ortografiche, centrate su chi si guarda.
+    // `stat` (terreno + modelli fermi) si rifà solo quando il sole si sposta
+    // di un quarto di grado, cambia un chunk o un modello fermo, o ci si
+    // allontana di 8 blocchi dal centro; `din` (chi si muove) ogni fotogramma.
+    // Oltre `raggio` blocchi dal centro vale la mappa per colonna qui sopra.
+    this.mappa = { attiva: true, lato: 2048, latoDin: 1024, raggio: 40, stat: null, din: null, vp: new Float32Array(16), centro: [1e9, 0, 1e9], sole: [0, 0, 0], sporca: true, on: false, calcoli: 0, disegni: 0, triangoli: 0 };
+    this._preparaMappa();
+    this.statistiche.calcoliMappa = 0; this.statistiche.disegniOmbra = 0; this.statistiche.triangoliOmbra = 0;
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
@@ -344,8 +403,15 @@ export class Resa {
   }
 
   /** Carica (o sostituisce) un chunk: un VAO, un VBO, otto byte per vertice. */
+  /** Un chunk a queste coordinate sta nella mappa d'ombra vera? Allora la sporca. */
+  _sporcaMappa(x0, z0) {
+    const m = this.mappa;
+    if (Math.hypot(x0 + 8 - m.centro[0], z0 + 8 - m.centro[2]) <= m.raggio + 12) m.sporca = true;
+  }
+
   carica(kc, dati) {
     const gl = this.gl;
+    this._sporcaMappa(dati.cx * 16, dati.cz * 16);
     let c = this.chunks.get(kc);
     if (!c) {
       c = { vao: gl.createVertexArray(), vbo: gl.createBuffer(), quad: 0 };
@@ -510,6 +576,7 @@ precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { co
 
   rimuovi(kc) {
     const c = this.chunks.get(kc); if (!c) return;
+    this._sporcaMappa(c.x0, c.z0);
     if (this.finestra && c.tegola) this._scriviTegola(c, true);
     this.gl.deleteVertexArray(c.vao); this.gl.deleteBuffer(c.vbo);
     if (c.vaoAcqua) { this.gl.deleteVertexArray(c.vaoAcqua); this.gl.deleteBuffer(c.vboAcqua); }
@@ -603,6 +670,104 @@ void main() {
     o.calcoli++; this.statistiche.calcoliOmbre = o.calcoli;
   }
 
+  /** Le due texture di profondità della mappa d'ombra, col confronto in hardware. */
+  _preparaMappa() {
+    const gl = this.gl, m = this.mappa;
+    const fai = (lato) => {
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, lato, lato, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+      const fbo = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, tex, 0);
+      gl.drawBuffers([gl.NONE]); gl.readBuffer(gl.NONE);
+      const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return { tex, fbo, lato, ok };
+    };
+    m.stat = fai(m.lato); m.din = fai(m.latoDin);
+    if (!m.stat.ok || !m.din.ok) m.attiva = false;
+  }
+
+  /** Lega le due mappe (unità 1 e 2) e le loro uniform a un programma già in uso. */
+  legaMappa(u) {
+    const gl = this.gl, m = this.mappa;
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, m.stat.tex); gl.uniform1i(u.uMappaStat, 1);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, m.din.tex); gl.uniform1i(u.uMappaDin, 2);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1f(u.uMappaOn, m.on ? 1 : 0);
+    gl.uniformMatrix4fv(u.uLuceVP, false, m.vp);
+    // un texel e mezzo lungo la normale, e un decimo di blocco di profondità (su 220 di intervallo)
+    gl.uniform2f(u.uMappaSbieco, 1.5 * (2 * m.raggio / m.lato), 0.1 / 220);
+  }
+
+  /**
+   * La mappa d'ombra vera. `stat` si rifà quando serve, `din` sempre. Il
+   * centro è la mira della camera (in terza persona il gatto), a passi di due
+   * blocchi, spostato solo quando ci si allontana di otto: fra uno spostamento
+   * e l'altro la matrice è ferma, e le ombre non tremano.
+   */
+  _aggiornaMappa(camera, modelli) {
+    const gl = this.gl, m = this.mappa, s = this.sole, st = this.statistiche;
+    m.on = false;
+    if (!m.attiva || !this.ombra) return;
+    // ⚠ NON PIÙ DI OTTO RIFACIMENTI AL SECONDO: nello streaming arrivano chunk
+    // a raffica, e rifare 2048² a ogni chunk mangiava il fotogramma. Solo il
+    // ricentraggio non aspetta (la matrice cambia, e con lei anche `din`).
+    const adesso = typeof performance !== 'undefined' ? performance.now() : 0;
+    const cx = camera.centro[0], cz = camera.centro[2];
+    let ricentra = false;
+    if (Math.hypot(cx - m.centro[0], cz - m.centro[2]) > 8) { m.centro = [Math.round(cx / 2) * 2, Math.round(camera.centro[1]), Math.round(cz / 2) * 2]; ricentra = true; }
+    const d = s.verso[0] * m.sole[0] + s.verso[1] * m.sole[1] + s.verso[2] * m.sole[2];
+    if (d < 0.99999) m.soleMosso = true;   // un quarto di grado
+    const vuole = m.sporca || m.soleMosso || (modelli && modelli.mappaSporca);
+    const rifai = ricentra || (vuole && adesso - (m.ultimo || 0) >= 120);
+    if (rifai) {
+      m.sole = s.verso.slice(); m.soleMosso = false; m.ultimo = adesso;
+      const v = s.verso, c = m.centro;
+      const occhio = [c[0] - v[0] * 120, c[1] - v[1] * 120, c[2] - v[2] * 120];
+      const su = Math.abs(v[1]) > 0.95 ? [0, 0, 1] : [0, 1, 0];
+      moltiplica(ortografica(m.raggio, 10, 230), guarda(occhio, c, su), m.vp);
+    }
+    gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.5, 4);
+    if (rifai) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, m.stat.fbo);
+      gl.viewport(0, 0, m.stat.lato, m.stat.lato);
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.useProgram(this.programmaOmbra);
+      gl.uniformMatrix4fv(this.uo.uVP, false, m.vp);
+      let disegni = 0, tri = 0;
+      const lim = m.raggio + 12;
+      for (const c of this.chunks.values()) {
+        if (c.quad === 0) continue;
+        if (Math.hypot(c.x0 + 8 - m.centro[0], c.z0 + 8 - m.centro[2]) > lim) continue;
+        gl.uniform3f(this.uo.uChunk, c.chunk[0], c.chunk[1], c.chunk[2]);
+        gl.bindVertexArray(c.vao);
+        gl.drawElements(gl.TRIANGLES, c.quad * 6, gl.UNSIGNED_SHORT, 0);
+        disegni++; tri += c.quad * 2;
+      }
+      gl.bindVertexArray(null);
+      if (modelli) { const [dm, tm] = modelli.disegnaOmbra(m.vp, false); disegni += dm; tri += tm; modelli.mappaSporca = false; }
+      m.sporca = false; m.calcoli++; m.disegni = disegni; m.triangoli = tri;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, m.din.fbo);
+    gl.viewport(0, 0, m.din.lato, m.din.lato);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    let dd = 0, td = 0;
+    if (modelli) [dd, td] = modelli.disegnaOmbra(m.vp, true);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    m.on = true;
+    st.calcoliMappa = m.calcoli; st.disegniOmbra = dd + (rifai ? m.disegni : 0); st.triangoliOmbra = td + (rifai ? m.triangoli : 0);
+  }
+
   /** La mappa delle altezze per l'ombra del sole: un byte per colonna. */
   impostaAltezze(byte, x0, z0, larghezza, profondita) {
     const gl = this.gl;
@@ -657,6 +822,8 @@ void main() {
     }
     // ── la mappa delle ombre, se il sole si è spostato o le altezze sono cambiate ──
     if (this.ombra && this.altezze) this._calcolaOmbre();
+    // ── la mappa d'ombra vera, vista dal sole ──
+    this._aggiornaMappa(camera, modelli);
     // ── lo specchio dell'acqua, prima di tutto: una passata a parte ──────────
     st.disegniSpecchio = 0; st.triangoliSpecchio = 0; st.pelo = null;
     this.specchio.pelo = null;
@@ -686,6 +853,7 @@ void main() {
       gl.uniform1f(ue.uErbaFinoA, this.erbaFinoA);
       gl.uniform4f(ue.uBuco, this.buco[0], this.buco[1], this.buco[2], this.buco[3]); gl.uniform3f(ue.uOcchio, camera.occhio[0], camera.occhio[1], camera.occhio[2]);
       if (this.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.ombre.tex); gl.uniform1i(ue.uOmbre, 0); gl.uniform2f(ue.uOmbreScala, this.ombre.scala, this.ombre.offset); gl.uniform4f(ue.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]); }
+      this.legaMappa(ue);
       gl.disable(gl.CULL_FACE);
       for (const c of this._visibiliErba) {
         // ⚠ LA BASE DELL'ERBA È GIÀ IN QUOTA DI MONDO (yLo del chunk): NON si somma
@@ -730,6 +898,7 @@ void main() {
       gl.uniform1i(u.uOmbre, 0); gl.uniform2f(u.uOmbreScala, this.ombre.scala, this.ombre.offset);
       gl.uniform4f(u.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]);
     }
+    this.legaMappa(u);
     let disegni = 0, tri = 0;
     for (const c of this.chunks.values()) {
       if (c.quad === 0) continue;
