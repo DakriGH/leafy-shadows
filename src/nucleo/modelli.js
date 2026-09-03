@@ -42,6 +42,8 @@ uniform vec2 uNebbia;
 uniform vec3 uCam;
 flat out vec3 vColOmbra;
 flat out vec3 vColSole;
+flat out float vFaccia;
+flat out vec3 vN;
 out float vNebbia;
 out vec3 vPos;
 void main() {
@@ -54,7 +56,10 @@ void main() {
   int materia = int(aMat);
   vec3 base = pow(aCol.rgb * aTinta.rgb, vec3(2.2));
   vec4 mat = uMaterie[materia];
-  // niente shading per faccia (la regola di Leafy): la normale non entra nel colore
+  // due bande per direzione del sole, come i blocchi (vedi resa.js): la faccia
+  // che guarda il sole è piena, quella di spalle ha il colore d'ombra
+  vFaccia = (mat.x > 0.0 || dot(n, -uSoleVerso) > 0.05) ? 1.0 : 0.0;
+  vN = n;
   float sole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   vec3 ombra = base * uCieloCol;
   vec3 pieno = base * uSoleCol;
@@ -70,6 +75,8 @@ precision mediump float;
 precision mediump sampler2D;
 flat in vec3 vColOmbra;
 flat in vec3 vColSole;
+flat in float vFaccia;
+flat in vec3 vN;
 in float vNebbia;
 in highp vec3 vPos;
 uniform highp vec4 uBuco;        // il buco di visuale (vedi resa.js); zero per il giocatore stesso
@@ -82,6 +89,25 @@ uniform highp vec3 uSoleVerso;
 uniform sampler2D uOmbre;
 uniform vec2 uOmbreScala;
 uniform highp vec4 uAltRett;
+uniform highp sampler2DShadow uMappaStat;   // la mappa d'ombra FERMA: terreno, lampioni, alberi (si rifà quando serve)
+uniform highp sampler2DShadow uMappaDin;    // quella di chi si muove (gatto, corpi): ogni fotogramma, piccola
+uniform highp mat4 uLuceVP;                 // mondo → clip del sole
+uniform float uMappaOn;                     // 1 = la mappa vale
+uniform vec2 uMappaSbieco;                  // x: scostamento lungo la normale (blocchi), y: bias di profondità (clip 0..1)
+// ⚠ LA MAPPA D'OMBRA VERA (Resa._aggiornaMappa): profondità vista dal sole,
+// quindi l'ombra ha la FORMA della cosa — il palo del lampione, il gatto, la
+// chioma — non della colonna. Il confronto lo fa la texture (sampler2DShadow,
+// 2×2 in hardware: bordo netto ma senza scalini); lo scostamento lungo la
+// normale e il bias tolgono l'acne. Fuori dalla mappa torna -1 e si usa la
+// mappa per colonna (ombraSole), che copre tutto il mondo in streaming.
+float ombraMappa(highp vec3 pos, vec3 n) {
+  if (uMappaOn < 0.5) return -1.0;
+  highp vec4 q = uLuceVP * vec4(pos + n * uMappaSbieco.x, 1.0);
+  highp vec3 u = q.xyz * 0.5 + 0.5;
+  if (u.x < 0.004 || u.x > 0.996 || u.y < 0.004 || u.y > 0.996 || u.z > 1.0) return -1.0;
+  highp vec3 c = vec3(u.xy, u.z - uMappaSbieco.y);
+  return min(texture(uMappaStat, c), texture(uMappaDin, c));
+}
 out vec4 colore;
 // ⚠ L'OMBRA DEL SOLE È UNA LETTURA SOLA: la mappa delle ombre (uOmbre, per
 // colonna: la quota sotto cui si è in ombra, calcolata dalla GPU quando il sole
@@ -102,7 +128,8 @@ void main() {
     float t = dot(vPos - uOcchio, dir);
     if (t > 0.0 && t < lung - 0.35 && length(vPos - uOcchio - dir * t) < uBuco.w) discard;
   }
-  float luce = uOmbra > 0.5 ? ombraSole(vPos) : 1.0;
+  float luce = vFaccia;
+  if (uOmbra > 0.5 && luce > 0.0) { float m = ombraMappa(vPos, vN); luce = m >= 0.0 ? m : ombraSole(vPos); }
   vec3 c = vColOmbra + vColSole * luce;
   c = pow(mix(c, pow(uNebbiaCol, vec3(2.2)), vNebbia), vec3(1.0 / 2.2));
   // ⚠ LA SAGOMA: quando il gatto è dietro un albero o un muro, si vede la sua
@@ -147,12 +174,33 @@ export function modelloCubo(colore = [255, 255, 255], sx = 1, sy = 1, sz = 1) {
   return { byte: out, vertici: n, triangoli: 12, minY: 0, maxY: sy, raggio: Math.hypot(sx, sz) / 2 };
 }
 
+// la passata d'ombra dei modelli: solo la posizione, con giro e scala dell'istanza
+const VS_OMBRA = `#version 300 es
+layout(location = 0) in vec3 aPos;
+layout(location = 3) in vec4 aIst;
+layout(location = 5) in vec4 aTinta;
+uniform mat4 uVP;
+void main() {
+  float cg = cos(aTinta.w), sg = sin(aTinta.w);
+  vec3 q = vec3(aPos.x * cg - aPos.z * sg, aPos.y, aPos.x * sg + aPos.z * cg);
+  gl_Position = uVP * vec4(aIst.xyz + q * aIst.w, 1.0);
+}`;
+const FS_VUOTO = `#version 300 es
+precision mediump float;
+void main() {}`;
+
 export class Modelli {
   constructor(gl) {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uMappaOn', 'uMappaSbieco']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    this.programmaOmbra = compila(gl, VS_OMBRA, FS_VUOTO);
+    this.uoVP = gl.getUniformLocation(this.programmaOmbra, 'uVP');
+    // ⚠ CHI SI MUOVE STA NELLA MAPPA D'OMBRA DINAMICA (ogni fotogramma); il
+    // resto in quella ferma, che si rifà quando un tipo fermo cambia istanze.
+    this.dinamici = new Set(['omino', 'cubo']);
+    this.mappaSporca = true;
     this.sagoma = 'omino';   // il tipo che si vede in sagoma attraverso i blocchi (null = nessuno)
     this.tipi = new Map();   // nome → { vao, vbo, ibo, vertici, istanze: Float32Array, n }
     this.statistiche = { disegni: 0, triangoli: 0, istanze: 0 };
@@ -184,6 +232,24 @@ export class Modelli {
     const t = this.tipi.get(nome); if (!t) return;
     t.istanze = allungaIstanze(lista, perIstanza);
     t.n = t.istanze.length / 8; t.sporco = true;
+    if (!this.dinamici.has(nome)) this.mappaSporca = true;
+  }
+
+  /** La passata d'ombra: i tipi che si muovono (`dinamici` vero) o quelli fermi. Torna [disegni, triangoli]. */
+  disegnaOmbra(vp, dinamici) {
+    const gl = this.gl;
+    gl.useProgram(this.programmaOmbra);
+    gl.uniformMatrix4fv(this.uoVP, false, vp);
+    let disegni = 0, tri = 0;
+    for (const [nome, t] of this.tipi) {
+      if (t.n === 0 || this.dinamici.has(nome) !== dinamici) continue;
+      gl.bindVertexArray(t.vao);
+      if (t.sporco) { gl.bindBuffer(gl.ARRAY_BUFFER, t.ibo); gl.bufferData(gl.ARRAY_BUFFER, t.istanze, gl.DYNAMIC_DRAW); t.sporco = false; }
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, t.vertici, t.n);
+      disegni++; tri += t.triangoli * t.n;
+    }
+    gl.bindVertexArray(null);
+    return [disegni, tri];
   }
 
   /** Disegna tutti i tipi con le stesse uniform della resa dei chunk, nella
@@ -206,6 +272,7 @@ export class Modelli {
     gl.uniform3f(u.uCam, camera.occhio[0], camera.occhio[1], camera.occhio[2]);
     gl.uniform1f(u.uOmbra, resa.ombra && resa.altezze ? 1 : 0);
     if (resa.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, resa.ombre.tex); gl.uniform1i(u.uOmbre, 0); gl.uniform2f(u.uOmbreScala, resa.ombre.scala, resa.ombre.offset); gl.uniform4f(u.uAltRett, resa.altRett[0], resa.altRett[1], resa.altRett[2], resa.altRett[3]); }
+    resa.legaMappa(u);
     let disegni = 0, tri = 0, ist = 0;
     gl.uniform1f(u.uSagoma, 0);
     for (const [nome, t] of this.tipi) {

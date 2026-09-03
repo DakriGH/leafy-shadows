@@ -4,6 +4,11 @@ export function prospettiva(fovY, rapporto, vicino, lontano) {
   const f = 1 / Math.tan(fovY / 2), nf = 1 / (vicino - lontano);
   return new Float32Array([f / rapporto, 0, 0, 0, 0, f, 0, 0, 0, 0, (lontano + vicino) * nf, -1, 0, 0, 2 * lontano * vicino * nf, 0]);
 }
+/** L'ortografica quadrata del sole: ±raggio in x e y, profondità da vicino a lontano. */
+export function ortografica(raggio, vicino, lontano) {
+  const d = 1 / (lontano - vicino);
+  return new Float32Array([1 / raggio, 0, 0, 0, 0, 1 / raggio, 0, 0, 0, 0, -2 * d, 0, 0, 0, -(lontano + vicino) * d, 1]);
+}
 export function guarda(occhio, centro, su = [0, 1, 0]) {
   let zx = occhio[0] - centro[0], zy = occhio[1] - centro[1], zz = occhio[2] - centro[2];
   let l = Math.hypot(zx, zy, zz) || 1; zx /= l; zy /= l; zz /= l;

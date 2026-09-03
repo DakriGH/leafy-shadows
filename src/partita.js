@@ -43,6 +43,7 @@ const opz = {
   erba: Math.max(0, Math.min(8, +(params.get('erba') ?? 8))),
   raggio: Math.max(48, Math.min(160, +(params.get('raggio') || 96))),
   ombra: params.get('ombra') !== 'no',
+  mappa: params.get('mappa') === 'no' ? 0 : Math.max(256, Math.min(4096, +(params.get('mappa') || 2048))),   // la mappa d'ombra vera: lato (2048), o `no` per misurare senza
   specchio: params.get('specchio') === 'no' ? 0 : Math.max(0.2, Math.min(1, +(params.get('specchio') ?? 0.5) || 0.5)),
   dprMax: +(params.get('dpr') || 1.5),
   ora: params.has('ora') ? +params.get('ora') : null,
@@ -55,6 +56,8 @@ const tela = document.getElementById('tela');
 const { gl, dpr, ridimensiona } = creaContesto(tela, { antialias: true, dprMax: opz.dprMax });
 const resa = new Resa(gl);
 resa.ombra = opz.ombra;
+resa.mappa.attiva = opz.mappa > 0;
+if (opz.mappa > 0 && opz.mappa !== resa.mappa.lato) { resa.mappa.lato = opz.mappa; resa.mappa.latoDin = Math.max(256, opz.mappa / 2); resa._preparaMappa(); }
 resa.specchio.attivo = opz.specchio > 0; resa.specchio.scala = opz.specchio || 0.5;
 const modelli = new Modelli(gl);
 modelli.registra('cubo', modelloCubo());
@@ -361,7 +364,9 @@ function sole(dt) {
   if (giorno.auto) giorno.ora = (giorno.ora + dt / giorno.durata) % 1;
   const ora = giorno.ora;
   const a = ora * Math.PI * 2 - Math.PI / 2;
-  const alt = Math.max(0.24, Math.sin(a));
+  // ⚠ IL SOLE NON VA MAI A PICCO: a mezzogiorno sta a 48° (0,74), se no ogni
+  // parete è di spalle e il mondo è piatto; all'alba a 14°, come prima.
+  const alt = 0.24 + 0.5 * Math.max(0, Math.sin(a));
   const az = a * 0.5;
   resa.sole.verso = [-Math.cos(az) * Math.cos(Math.asin(alt)), -alt, -Math.sin(az) * Math.cos(Math.asin(alt))];
   // ⚠ NON si chiama «giorno»: quello è l'oggetto qui sopra, e un const omonimo
@@ -374,7 +379,7 @@ function sole(dt) {
   resa.sole.colore = [1.0, 0.78 + 0.22 * caldo, 0.55 + 0.45 * caldo];
   // ⚠ L'OMBRA DEL CEL SHADING SI DEVE VEDERE: a mezzogiorno vale circa il 60 % del
   // sole (in sRGB), appena fredda. Con lo 0,54 di prima era all'80 %: invisibile.
-  resa.sole.cielo = [0.10 + 0.24 * luce, 0.12 + 0.26 * luce, 0.24 + 0.24 * luce];
+  resa.sole.cielo = [0.10 + 0.18 * luce, 0.12 + 0.20 * luce, 0.24 + 0.18 * luce];   // ~56 % del sole in sRGB, appena fredda
   resa.nebbia.colore = [0.25 + 0.47 * luce, 0.35 + 0.5 * luce, 0.5 + 0.42 * luce];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }
