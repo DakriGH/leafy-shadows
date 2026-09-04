@@ -19,7 +19,7 @@ import { registraDecorazioni, DECORAZIONI } from './world/decorazioni.js';
 import { defDi, tipoBase, registraBlocco, BLOCCHI } from './world/blocks.js';
 import { paletteBlocco } from './world/stagioni.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
-import { miraCompleta, PORTATA } from './gioco/mira.js';
+import { mira, miraCompleta, PORTATA } from './gioco/mira.js';
 import { CASSETTA, ATTREZZI } from './gioco/cantiere.js';
 import { Scavo, durataPer } from './gioco/scavo.js';
 import { ascoltaClic, ascoltaPressione } from './gioco/puntatore.js';
@@ -43,7 +43,7 @@ import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.j
 const params = new URLSearchParams(location.search);
 const opz = {
   seme: +(params.get('seme') || 4242),
-  erba: Math.max(0, Math.min(8, +(params.get('erba') ?? 1))),   // ⚠ RADI (1, non 8): nelle concept i ciuffi sono pochi e cupi, il prato è piatto
+  erba: Math.max(0, Math.min(8, +(params.get('erba') ?? 8))),
   raggio: Math.max(48, Math.min(160, +(params.get('raggio') || 96))),
   ombra: params.get('ombra') !== 'no',
   mappa: params.get('mappa') === 'no' ? 0 : Math.max(256, Math.min(4096, +(params.get('mappa') || 2048))),   // la mappa d'ombra vera: lato (2048), o `no` per misurare senza
@@ -72,10 +72,13 @@ modelli.registra('omino', gatto(TAVOLOZZE.blu));
 registraArredi();
 for (const [id, a] of Object.entries(ARREDI)) modelli.registra(id, a.costruisci());
 // il lampione spento è un blocco come il lampione, senza luce
-if (!BLOCCHI.lampioneSpento) registraBlocco('lampioneSpento', { ...defDi('lampione'), nome: 'Lampione spento', modello: 'lampioneSpento', luce: undefined, notte: false });
 
 // ── il mondo, in streaming ───────────────────────────────────────────────────
 registraDecorazioni();
+// ⚠ DOPO registraDecorazioni, non prima: copiando defDi('lampione') quando il
+// lampione non c'era ancora si copiava il «blocco perduto» (rosa, solido), e
+// spegnere un lampione lo trasformava in un cubo viola.
+if (!BLOCCHI.lampioneSpento) registraBlocco('lampioneSpento', { ...defDi('lampione'), nome: 'Lampione spento', modello: 'lampioneSpento', luce: undefined, notte: false });
 const mondo = new Mondo();
 const registro = new RegistroModelli();
 mondo.onEvento = (e) => registro.evento(e);
@@ -221,8 +224,15 @@ function cammina(dt) {
     }
     passeggero.aggiorna(PASSO, intentoDelPasso(av), av);
     // in acqua si galleggia: la caduta è lenta e il salto è una bracciata
-    const t = mondo.tipo(Math.floor(passeggero.x), Math.floor(passeggero.y + 0.3), Math.floor(passeggero.z));
-    if (t && defDi(t).acqua) { if (passeggero.vy < -1.2) passeggero.vy = -1.2; if (intento.salta) passeggero.vy = 3; passeggero.aTerra = false; }
+    // ⚠ IN ACQUA SI GALLEGGIA: se anche la testa è sott'acqua la spinta la
+    // riporta su (più della gravità), se ci sono solo i piedi si scende piano:
+    // il gatto dondola sul pelo. Salto = bracciata.
+    const inAcqua = (dy) => { const t = mondo.tipo(Math.floor(passeggero.x), Math.floor(passeggero.y + dy), Math.floor(passeggero.z)); return !!(t && defDi(t).acqua); };
+    if (inAcqua(0.3)) {
+      if (inAcqua(0.75)) passeggero.vy = Math.min(passeggero.vy + 40 * PASSO, 1.4); else if (passeggero.vy < -0.8) passeggero.vy = -0.8;
+      if (intento.salta) passeggero.vy = 2.5;
+      passeggero.aTerra = false;
+    }
   }
 }
 
@@ -321,8 +331,10 @@ function lampioneIn(x, y, z) {
 }
 function accendiSpegni(x, y, z, t) { mondo.togli(x, y, z); mondo.metti(x, y, z, t === 'lampione' ? 'lampioneSpento' : 'lampione'); streaming.tocca(x, z); salvaFra = 1000; }
 /** Cosa farebbe il tocco adesso: [verbo, etichetta]. */
+const mondoConAcqua = { solido: (x, y, z) => { if (mondo.solido(x, y, z)) return true; const t = mondo.tipo(x, y, z); return !!(t && defDi(t).acqua); } };
 function azioneCorrente() {
   if (!bersaglio) return ['niente', puntatore.visto ? 'troppo lontano' : ''];
+  if (bersaglio.acqua) return ['tocca', 'nuota fin lì'];
   const tipo = CASSETTA_PARTITA[scelto];
   const [x, y, z] = bersaglio.cella; const t = mondo.tipo(x, y, z);
   const lamp = lampioneIn(x, y, z);
@@ -337,7 +349,7 @@ function cambiaBlocco(x, y, z, tipo) {
   salvaFra = 1000;
 }
 function posa() {
-  if (!bersaglio) return;
+  if (!bersaglio || bersaglio.acqua) return;
   const tipo = CASSETTA_PARTITA[scelto];
   if (!tipo || ATTREZZI[tipo]) return;
   const [x, y, z] = bersaglio.prima;
@@ -484,10 +496,13 @@ function giro(adesso) {
   const occhio = { x: cam.occhio[0], y: cam.occhio[1], z: cam.occhio[2] };
   // ⚠ DISTANZA ILLIMITATA (per adesso): si interagisce con qualsiasi cosa si clicca, come in Leafy
   bersaglio = miraCompleta(mondo, occhio, rm, scatoleDaMirare(occhio), 200);
+  // ⚠ SI PUÒ CLICCARE ANCHE L'ACQUA (per andarci a nuoto): se il raggio non
+  // tocca niente di solido, si riprova fermandosi al pelo
+  if (!bersaglio) { const w = mira(mondoConAcqua, occhio, rm, 200); if (w) { w.acqua = true; bersaglio = w; } }
   // una scatola presa (lampione, fungo…): la cella mirata è la SUA, non il blocco dietro
   if (bersaglio && bersaglio.scatola) bersaglio.cella = bersaglio.dato.cella;
   void v;
-  if (tienePremuto && bersaglio) {
+  if (tienePremuto && bersaglio && !bersaglio.acqua) {
     const [x, y, z] = bersaglio.cella;
     scavo.premi(x + ',' + y + ',' + z, durataPer(defDi(mondo.tipo(x, y, z))), adesso);
     if (scavo.finito(adesso)) rompiMirato();
@@ -501,7 +516,7 @@ function giro(adesso) {
   const passo = (intento.avanti || intento.destra || meta) && passeggero.aTerra ? Math.abs(Math.sin(adesso / 90)) * 0.06 : 0;
   const [gx, gy, gz] = posizioneDisegnata();
   modelli.istanze('omino', [gx, gy + passo, gz, 1, 1, 1, 1, giroGatto], 8);
-  if (meta) resa.scatola(meta.cella[0], meta.cella[1], meta.cella[2], 1.0, 0.95, 0.6, 0.30, 0.0);   // dove sta andando
+  if (meta) resa.scatola(meta.cella[0], meta.cella[1], meta.cella[2], 1.0, 0.95, 0.6, 0.30, 0.02);   // dove sta andando
   resa.disegna(cam, dt, modelli);
   modelli.disegna(resa, cam);
   // ⚠ SI VEDE COSA SI STA PER FARE: il blocco mirato pieno e traslucido (giallo;
@@ -514,7 +529,7 @@ function giro(adesso) {
     if (verbo === 'rompi' || pr > 0) resa.scatola(x, y, z, 1.0, 0.35 - 0.2 * pr, 0.25, 0.28 + 0.25 * pr);
     else if (verbo === 'lampione') resa.scatola(x, y, z, 1.0, 0.9, 0.4, 0.3);
     else resa.scatola(x, y, z, 1.0, 0.95, 0.5, 0.22);
-    if (verbo === 'posa' && !mondo.pieno(...bersaglio.prima)) resa.scatola(bersaglio.prima[0], bersaglio.prima[1], bersaglio.prima[2], 0.6, 0.85, 1.0, 0.35, 0.0);
+    if (verbo === 'posa' && !mondo.pieno(...bersaglio.prima)) resa.scatola(bersaglio.prima[0], bersaglio.prima[1], bersaglio.prima[2], 0.6, 0.85, 1.0, 0.35, 0.1);
     resa.evidenzia(x, y, z, pr);
     azioneEl.textContent = etichetta;
   } else azioneEl.textContent = azioneCorrente()[1];

@@ -32,7 +32,7 @@ export class Sguardo {
     const fine = (e) => { if (e.pointerId === this.attivo) this.attivo = null; };
     tela.addEventListener('pointerup', fine);
     tela.addEventListener('pointercancel', fine);
-    tela.addEventListener('dblclick', () => { if (tela.requestPointerLock) tela.requestPointerLock(); });
+    // ⚠ NIENTE CATTURA DEL MOUSE AL DOPPIO CLIC («mi blocca il mouse»): solo col tasto L
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyL' && !/^(INPUT|TEXTAREA)$/.test(e.target && e.target.tagName)) {
         if (document.pointerLockElement === tela) document.exitPointerLock(); else if (tela.requestPointerLock) tela.requestPointerLock();

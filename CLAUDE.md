@@ -1511,6 +1511,23 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   si clicca dall'alto), segnata con una scatola gialla; fermo mezzo secondo
   contro qualcosa, il gatto salta. Nessun limite di distanza (per adesso).
   Il volo resta solo col tasto F, per provare.
+- ⚠ **`lampioneSpento` si registra DOPO `registraDecorazioni()`**: copiando
+  `defDi('lampione')` prima, si copiava il «blocco perduto» (rosa, solido) e
+  spegnere un lampione lo trasformava in un cubo viola. La mesh la faceva il
+  worker con la foto (che porta le def), ma la def stessa era sbagliata.
+- **Niente cattura del mouse al doppio clic** (solo il tasto L): «mi blocca il mouse».
+- **La selezione copre il supercubo** (`evidenzia` 0,11, `scatola` 0,1): la
+  cella nuda 16×16 era più piccola del blocco col brim.
+- **Le pozze non passano i muri** (`pozza(pos, cotto)`): la luce cotta a
+  distanza q dal lampione deve valere circa 1 − q; se è molto meno, in mezzo
+  c'è qualcosa e il cerchio si taglia lì.
+- **Acqua**: la profondità si campiona AL VERTICE (media delle celle
+  attorno), non per cella: per cella faceva quadrati netti di colore sul pelo.
+  Schiuma bianca pulsante dove l'acqua è bassa (la riva). Onde visibili anche
+  da calmo. Si può cliccare l'acqua (`mondoConAcqua`, «nuota fin lì»). Il
+  gatto GALLEGGIA (testa sott'acqua → spinta 40 > gravità 26, poi dondola sul
+  pelo; salto = bracciata) e i corpi pure (`corpi.js`: spinta 1,5 g e attrito).
+  Provato: `prova-nuoto.mjs`.
 - **Le pozze dei lampioni restano di giorno al 45 %** («i cerchi in
   trasparenza quando il lampione è acceso», come i lampioni di Leafy).
 - ⚠ **La mira va al centro da sola col mouse catturato** (`raggioDiMira`:

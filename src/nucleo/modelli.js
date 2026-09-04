@@ -123,13 +123,14 @@ uniform int uNLampade;
 // cotta nel vertice, interpolata sui triangoli, faceva poligoni («esagonale»).
 // La luce cotta resta come MASCHERA (dietro un muro non si passa) e per le
 // lampade-blocco, che non stanno nella lista.
-float pozza(highp vec3 pos) {
+float pozza(highp vec3 pos, float cotto) {
   float s = 0.0;
   for (int i = 0; i < 8; i++) {
     if (i >= uNLampade) break;
     highp vec3 d = pos - uLampade[i].xyz; d.y *= 0.7;
     float q = length(d) / uLampade[i].w;
-    s += q < 0.55 ? 1.0 : (q < 1.0 ? 0.45 : 0.0);
+    float passa = smoothstep((1.0 - q) - 0.45, (1.0 - q) - 0.2, cotto);
+    s += (q < 0.55 ? 1.0 : (q < 1.0 ? 0.45 : 0.0)) * passa;
   }
   return min(s, 1.0);
 }
@@ -198,7 +199,7 @@ void main() {
   if (uOmbra > 0.5 && luce > 0.0) { float m = ombraMappa(vPos, vN); luce *= m >= 0.0 ? m : ombraSole(vPos); }
   vec3 c = vColOmbra + vColSole * luce;
   // le pozze dei lampioni anche sui modelli (il gatto sotto il lampione, di notte)
-  c += vBase * vec3(1.30, 1.02, 0.58) * pozza(vPos) * mix(0.45, 1.0, 1.0 - smoothstep(0.30, 0.75, uSoleForza));
+  c += vBase * vec3(1.30, 1.02, 0.58) * pozza(vPos, 1.0) * mix(0.45, 1.0, 1.0 - smoothstep(0.30, 0.75, uSoleForza));   // i modelli non hanno luce cotta: passa
   c = pow(mix(c, pow(uNebbiaCol, vec3(2.2)), vNebbia), vec3(1.0 / 2.2));
   // ⚠ LA SAGOMA: quando il gatto è dietro un albero o un muro, si vede la sua
   // ombra piatta attraverso (il committente: «un cono che mostra il player

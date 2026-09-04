@@ -122,13 +122,16 @@ uniform int uNLampade;
 // cotta nel vertice, interpolata sui triangoli, faceva poligoni («esagonale»).
 // La luce cotta resta come MASCHERA (dietro un muro non si passa) e per le
 // lampade-blocco, che non stanno nella lista.
-float pozza(highp vec3 pos) {
+float pozza(highp vec3 pos, float cotto) {
   float s = 0.0;
   for (int i = 0; i < 8; i++) {
     if (i >= uNLampade) break;
     highp vec3 d = pos - uLampade[i].xyz; d.y *= 0.7;
     float q = length(d) / uLampade[i].w;
-    s += q < 0.55 ? 1.0 : (q < 1.0 ? 0.45 : 0.0);
+    // ⚠ DIETRO UN MURO NON SI PASSA: la luce cotta a questa distanza dovrebbe
+    // valere circa 1 - q; se è molto meno, fra qui e il lampione c'è qualcosa
+    float passa = smoothstep((1.0 - q) - 0.45, (1.0 - q) - 0.2, cotto);
+    s += (q < 0.55 ? 1.0 : (q < 1.0 ? 0.45 : 0.0)) * passa;
   }
   return min(s, 1.0);
 }
@@ -206,7 +209,7 @@ void main() {
   // le bande cotte per le lampade-blocco; di giorno si spengono (il sole le sovrasta)
   // ⚠ DI GIORNO I CERCHI RESTANO, in trasparenza (45 %): come i lampioni accesi di Leafy
   float notte = mix(0.45, 1.0, 1.0 - smoothstep(0.30, 0.75, uSoleForza));
-  float lamp = max(pozza(vPos) * step(0.02, vBlocco), floor(vBlocco * 4.0 + 0.5) / 4.0) * notte;
+  float lamp = max(pozza(vPos, vBlocco), floor(vBlocco * 4.0 + 0.5) / 4.0) * notte;
   float sole = vSole * step(0.99, vCielo) * luce;
   // l'ombra: il colore stilizzato (hue shift), tinto dal giorno/notte, più scuro senza cielo
   vec3 ombra = vOmbra * uCieloCol * (0.30 + 0.70 * cieloB);
@@ -266,7 +269,7 @@ void main() {
   float liv = float((B >> 20u) & 15u);
   // il pelo: peloDi() di world/pelo.js, e un'onda piccola (moto 0,018 del lago)
   if (cima) p.y -= (1.0 + 2.0 * liv) / 16.0;
-  p.y += mix(0.012, 0.07, uMare) * onde(p.xz, uTempo);
+  p.y += mix(0.03, 0.10, uMare) * onde(p.xz, uTempo);   // onde che si vedono anche da calmo
   vPos = p;
   vCol = pow(vec3(aC.xyz) / 255.0, vec3(2.2));
   vProf = prof;
@@ -335,7 +338,7 @@ void main() {
   // riflesso «tagliato» era il bordo che si spalmava.
   vec2 s = gl_FragCoord.xy * uSchermo.xy;
   float bordo = smoothstep(0.0, 0.08, min(min(s.x, 1.0 - s.x), min(s.y, 1.0 - s.y)));
-  vec2 uv = clamp(s + n.xz * mix(0.03, 0.10, uMare) * vPelo * bordo / (1.0 + dist * 0.02), 0.002, 0.998);
+  vec2 uv = clamp(s + n.xz * mix(0.06, 0.18, uMare) * vPelo * bordo / (1.0 + dist * 0.02), 0.002, 0.998);
   vec3 riflesso = mix(cielo, pow(texture(uSpecchio, uv).rgb, vec3(2.2)), uSchermo.z);
   // ⚠ IL CIELO CAPOVOLTO SOLO RADENTE quando non c'è specchio: a 45° il fresnel
   // cubico vale il 2%. Con lo specchio il riflesso c'è sempre un po' (22%) e
@@ -347,6 +350,10 @@ void main() {
   // il brillio del sole: una banda netta sulle onde lunghe (cel), più larga col mare mosso
   float brillio = step(mix(0.994, 0.982, uMare), dot(reflect(-vista, n), -uSoleVerso)) * uSoleForza * vPelo;
   acqua += vec3(0.8) * brillio;
+  // ⚠ LA SCHIUMA AI BORDI: dove l'acqua è bassa (la riva) una fascia bianca
+  // che pulsa e si sposta, come la risacca di Leafy
+  float riva = smoothstep(1.4, 0.0, vProf + 0.35 * sin(uTempo * 1.6 + vPos.x * 2.7 + vPos.z * 1.9) + 0.2 * sin(uTempo * 2.3 - vPos.x * 1.3 + vPos.z * 3.1));
+  acqua = mix(acqua, vec3(0.92), riva * 0.55 * vPelo);
   vec3 c = pow(mix(acqua, cielo, vNebbia), vec3(1.0 / 2.2));
   colore = vec4(c, mix(alfa, 1.0, vNebbia));
 }`;
@@ -438,9 +445,8 @@ void main() {
   // di poco (0,90…1,10, quasi sempre ±3%): la sfumatura di Leafy, non un
   // gradiente scuro-chiaro. Cel shading alla Zelda: la lamella è del prato.
   float scosta = 0.9 + 0.2 * float(aC.w >> 4u) / 15.0;
-  // ⚠ I CIUFFI SONO UN PO' PIÙ SCURI DEL PRATO (0,86: nelle concept i fili sono verde cupo sul verde pieno), radi
-  vBase = pow(vec3(aB.xyz) / 255.0, vec3(2.2)) * 0.86 * mix(1.0, scosta, punta);
-  vOmbra = pow(ombraStile(vec3(aB.xyz) / 255.0), vec3(2.2)) * 0.86 * mix(1.0, scosta, punta);
+  vBase = pow(vec3(aB.xyz) / 255.0, vec3(2.2)) * mix(1.0, scosta, punta);
+  vOmbra = pow(ombraStile(vec3(aB.xyz) / 255.0), vec3(2.2)) * mix(1.0, scosta, punta);
   // l'erba è del prato: guarda il sole come la cima del blocco (normale in su), senza bande sue
   vSole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   vFaccia = 1.0; vN = vec3(0.0, 1.0, 0.0);
@@ -717,9 +723,9 @@ precision mediump float; uniform vec3 uColore; out vec4 colore; void main() { co
     gl.useProgram(this.programmaSpigoli);
     gl.uniformMatrix4fv(u.uVP, false, this.vp);
     gl.bindVertexArray(this.vaoSpigoli);
-    gl.uniform4f(u.uCella, x, y, z, 0.012); gl.uniform3f(u.uColore, 0.05, 0.16, 0.10);
+    gl.uniform4f(u.uCella, x, y, z, 0.11); gl.uniform3f(u.uColore, 0.05, 0.16, 0.10);   // ⚠ 0,11: il supercubo sborda di 10/16, la cella nuda era troppo piccola
     gl.drawArrays(gl.LINES, 0, 24);
-    gl.uniform4f(u.uCella, x, y, z, 0.004); gl.uniform3f(u.uColore, 1.0, 1.0 - 0.45 * progresso, 1.0 - 0.8 * progresso);
+    gl.uniform4f(u.uCella, x, y, z, 0.10); gl.uniform3f(u.uColore, 1.0, 1.0 - 0.45 * progresso, 1.0 - 0.8 * progresso);
     gl.drawArrays(gl.LINES, 0, 24);
     gl.bindVertexArray(null);
   }
@@ -729,7 +735,7 @@ precision mediump float; uniform vec3 uColore; out vec4 colore; void main() { co
    * arancio con lo scavo) o il fantasma di dove si posa (bianco-azzurro). Con la
    * fusione, la profondità letta e non scritta; si vede anche dietro l'erba.
    */
-  scatola(x, y, z, r, g, b, alfa = 0.3, gonfia = 0.02) {
+  scatola(x, y, z, r, g, b, alfa = 0.3, gonfia = 0.1) {   // gonfia 0,1: la scatola copre il supercubo (brim a 10/16)
     const gl = this.gl;
     if (!this.programmaPieno) {
       this.programmaPieno = compila(gl, `#version 300 es

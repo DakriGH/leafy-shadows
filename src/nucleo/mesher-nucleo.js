@@ -220,6 +220,11 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
       liv = Math.max(0, Math.min(15, livelloAcqua(tipo) || 0));
       while (prof < 15 && eAcqua(mondo.tipo(x, y - 1 - prof, z))) prof++;
     }
+    // ⚠ LA PROFONDITÀ SI CAMPIONA AL VERTICE (media delle celle d'acqua attorno):
+    // per cella tutti e quattro i vertici erano uguali e il colore faceva
+    // QUADRATI netti sul pelo. Così sfuma da un vertice all'altro.
+    const profCella = (cx, cz) => { if (!eAcqua(mondo.tipo(cx, y, cz))) return -1; let p = 0; while (p < 15 && eAcqua(mondo.tipo(cx, y - 1 - p, cz))) p++; return p; };
+    const profV = (vx, vz) => { let s = 0, k = 0; for (const cx of [vx - 1, vx]) for (const cz of [vz - 1, vz]) { const p = profCella(cx, cz); if (p >= 0) { s += p; k++; } } return k ? Math.round(s / k) : prof; };
     if (acqua) for (const [dx, dy, dz, n, asse, segno] of FACCE) {
       const vic = mondo.tipo(x + dx, y + dy, z + dz);
       if (vic && (eAcqua(vic) || opaco(vic))) continue;   // il pelo verso l'aria, mai fra acqua e acqua
@@ -233,7 +238,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
       else if (dz === 1)  { a = [X + 1, Y, Z + 1]; b = [X + 1, Y + 1, Z + 1]; cc = [X, Y + 1, Z + 1]; d = [X, Y, Z + 1]; }
       else                { a = [X, Y, Z]; b = [X, Y + 1, Z]; cc = [X + 1, Y + 1, Z]; d = [X + 1, Y, Z]; }
       if (dy === 1) { const pelo = y + (15 - 2 * liv) / 16; if (pelo > peloMax) peloMax = pelo; }   // peloDi() di world/pelo.js
-      ca.quadDa(qa(...a, n, col, prof, liv, a[1] === Y + 1), qa(...b, n, col, prof, liv, b[1] === Y + 1), qa(...cc, n, col, prof, liv, cc[1] === Y + 1), qa(...d, n, col, prof, liv, d[1] === Y + 1));
+      ca.quadDa(qa(...a, n, col, profV(a[0], a[2]), liv, a[1] === Y + 1), qa(...b, n, col, profV(b[0], b[2]), liv, b[1] === Y + 1), qa(...cc, n, col, profV(cc[0], cc[2]), liv, cc[1] === Y + 1), qa(...d, n, col, profV(d[0], d[2]), liv, d[1] === Y + 1));
       if (ly < minY) minY = ly; if (ly + 1 > maxY) maxY = ly + 1;
     }
 
