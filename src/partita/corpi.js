@@ -19,6 +19,7 @@
 // non entra nella fisica. Il giorno che servirà un carrello su una rampa, si
 // vedrà; non prima.
 
+import { defDi } from '../world/blocks.js';
 export const PASSO = 1 / 60;
 const PASSI_MAX = 4;               // un fotogramma da 70 ms non fa più di 4 passi: non si teletrasporta e non si blocca
 const GRAVITA = 26;                // come il passeggero: il mondo è di cubi da un metro, la gravità vera è fiacca
@@ -87,6 +88,9 @@ export class Corpi {
       svegli++;
       const m = c.lato / 2;
       c.vy -= GRAVITA * PASSO;
+      // ⚠ IN ACQUA SI GALLEGGIA: spinta una volta e mezza la gravità e un po' d'attrito
+      const tw = this.mondo.tipo ? this.mondo.tipo(Math.floor(c.x), Math.floor(c.y), Math.floor(c.z)) : null;   // (le prove hanno un mondo finto senza tipo)
+      if (tw && defDi(tw).acqua) { c.vy += GRAVITA * 1.5 * PASSO; c.vx *= 0.96; c.vy *= 0.94; c.vz *= 0.96; }
       // ⚠ UN ASSE PER VOLTA, e a SOTTOPASSI se la velocità è alta: a 26 blocchi
       // al secondo un passo da 1/60 è 0,43 blocchi, quasi un lato; con due
       // sottopassi non si attraversa mai un blocco senza vederlo.
