@@ -43,8 +43,10 @@ out vec4 colore;
 void main() {
   float d = length(vUv);
   if (d > 1.0) discard;
-  // un alone morbido più un cuore stretto: la lanterna «brilla», non è una macchia
-  float a = 0.55 * pow(1.0 - d, 2.2) + 0.45 * pow(1.0 - d, 9.0);
+  // ⚠ DUE CERCHI CONCENTRICI PIATTI, dello stesso colore, in trasparenza: come le
+  // «fake point light» di Unity a cui ci ispiriamo. Niente alone bianco sfumato
+  // («fuori stile»): il cuore è lo stesso colore, solo più pieno.
+  float a = (d < 0.5 ? 0.16 : 0.0) + (d < 1.0 ? 0.14 : 0.0);   // tenui: additivi, sul verde diventavano bianchi
   colore = vec4(vCol.rgb * a, 1.0);
 }`;
 
