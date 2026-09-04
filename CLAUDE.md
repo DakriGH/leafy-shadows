@@ -1359,17 +1359,26 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   dopo. ⚠ L'URL del worker è relativo a `nucleo/lavoro.js` e nel bundle deve
   chiamarsi `mesher-nucleo-worker.js` (entry di pubblica.mjs): stesso nome, o
   in rete si torna in linea in silenzio.
-- **La luce del sole è a DUE BANDE per direzione** (`vFaccia` nei vertex):
-  una faccia che guarda il sole ha il colore pieno, una di spalle ha il
-  colore d'ombra, lo stesso di chi sta nell'ombra portata. Non è lo shading
-  di Minecraft (che scurisce i lati SEMPRE): due oggetti dello stesso colore
-  hanno lo stesso colore, cambia solo chi è al sole. Senza, «tutto piatto».
-  ⚠ Il sole non va mai a picco (14°→48°, `partita.js` e `banco-nucleo.js`),
-  se no a mezzogiorno ogni parete è di spalle.
-  ⚠ Sono TRE bande (`vFaccia`: piena > 0,42 · mezza 0,62 di sbieco · ombra
-  di spalle), come una rampa toon: con due sole gli smussi del supercubo erano
-  o bianchi o neri e il mondo sembrava «grezzo». La mappa d'ombra MOLTIPLICA
-  la banda (`luce *= …`), non la sostituisce.
+- **SUI BLOCCHI NIENTE BANDE PER DIREZIONE** (`vFaccia = 1`): tutte le facce,
+  smussi compresi, hanno il colore pieno; scurisce SOLO l'ombra portata (la
+  mappa) e la mancanza di cielo. Il committente l'ha detto tre volte («a
+  bordo dei blocchi vedo ancora un leggero face shading»): provate due e tre
+  bande, tolte. I MODELLI hanno due tinte (faccia al sole / di spalle), senza
+  mezza banda. Il sole non va mai a picco (14°→48°).
+- **L'OMBRA È IL COLORE CON HUE SHIFT** (`ombraStile` nei vertex, in sRGB):
+  tinta spostata del 7 % verso il blu, saturazione ×1,05, valore ×0,64, poi
+  in lineare. NON «base × grigio-blu». ⚠ Al 14 % il terracotta diventava
+  mattone rosso. `sole.cielo` è solo una TINTA giorno/notte (1 a mezzogiorno,
+  blu di notte), non più il colore dell'ombra.
+- **Le pozze dei lampioni sono CERCHI per pixel** (`pozza`, `uLampade[8]`: i
+  lampioni accesi più vicini, scritti dalla partita ogni fotogramma), a due
+  bande nette, mascherati dalla luce cotta (dietro un muro non passa) e
+  spenti di giorno. La luce cotta interpolata sui triangoli faceva poligoni
+  («esagonale»); resta per le lampade-blocco.
+- **La mappa d'ombra si legge con 4 letture a mezzo texel + soglia**
+  (`pcf`, `smoothstep(0.3, 0.7)`): bordo netto senza scalini («pixellate»).
+  La mappa di chi si muove ha una matrice SUA (`vpDin`, raggio 14, rifatta
+  ogni fotogramma): a 1024² sopra 80 blocchi il gatto era a 13 px per blocco.
 - **Il cielo è un triangolo a tutto schermo** (`resa._disegnaCielo`, VS/FS_CIELO):
   sfumato dall'orizzonte (= colore della nebbia, così il lontano ci si fonde)
   allo zenit, disco del sole e alone, senza profondità, PRIMA di tutto, anche
@@ -1381,10 +1390,11 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   `?mare=0.6` lo ferma; l'Officina ha il registro «Meteo».
 - **L'ombra portata vicina è una MAPPA D'OMBRA VERA** (`resa._aggiornaMappa`,
   `ombraMappa` nei fragment): profondità ortografica vista dal sole, raggio 40
-  attorno alla mira della camera, due texture: `stat` 2048² (terreno + modelli
-  fermi) rifatta solo se il sole si sposta di ¼°, cambia un chunk o un
-  modello fermo, o ci si allontana di 8 blocchi; `din` 1024² (omino, cubo:
-  `modelli.dinamici`) ogni fotogramma. Confronto in hardware
+  attorno alla mira della camera, due texture: `stat` 2048² (raggio 32:
+  terreno + modelli fermi) rifatta solo se il sole si sposta di ¼°, cambia
+  un chunk o un modello fermo, o ci si allontana di 6 blocchi, al più otto
+  volte al secondo; `din` 1024² (raggio 14: omino, cubo — `modelli.dinamici`)
+  ogni fotogramma. Confronto in hardware
   (`sampler2DShadow`, 2×2), scostamento lungo la normale + bias + polygon
   offset contro l'acne. Così l'ombra ha la FORMA della cosa (il palo del
   lampione, le orecchie del gatto), non della colonna. `?mappa=no` la spegne.
@@ -1451,6 +1461,11 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - ⚠ **Le modifiche passano da `streaming.tocca(x, z)`**: il mondo segna i
   chunk di bordo, ma la luce cotta arriva a SEI celle — un lampione a tre
   celle dal confine illumina il chunk accanto, che il mondo non segna.
+- ⚠ **La mira va al centro da sola col mouse catturato** (`raggioDiMira`:
+  `pointerLockElement === tela`): il puntatore non si muove più e restava
+  piantato dov'era l'ultimo clic («il puntatore è sballato»). Le coordinate
+  del puntatore si prendono dal rettangolo della tela (con l'Officina
+  agganciata la tela non parte dall'angolo). M cambia mirino/puntatore.
 - ⚠ **Si mira con le SCATOLE dei modelli** (`miraCompleta` + `scatoleDaMirare`):
   lampioni, funghi e attrezzi non sono solidi e il raggio di `mira` li
   attraversava («i lampioni non si possono spegnere»). La scatola del lampione
