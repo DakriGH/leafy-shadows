@@ -1359,12 +1359,12 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   dopo. ⚠ L'URL del worker è relativo a `nucleo/lavoro.js` e nel bundle deve
   chiamarsi `mesher-nucleo-worker.js` (entry di pubblica.mjs): stesso nome, o
   in rete si torna in linea in silenzio.
-- **SUI BLOCCHI NIENTE BANDE PER DIREZIONE** (`vFaccia = 1`): tutte le facce,
-  smussi compresi, hanno il colore pieno; scurisce SOLO l'ombra portata (la
-  mappa) e la mancanza di cielo. Il committente l'ha detto tre volte («a
-  bordo dei blocchi vedo ancora un leggero face shading»): provate due e tre
-  bande, tolte. I MODELLI hanno due tinte (faccia al sole / di spalle), senza
-  mezza banda. Il sole non va mai a picco (14°→48°).
+- **SUI BLOCCHI DUE TINTE E BASTA** (`vFaccia`: faccia al sole = colore
+  pieno, di spalle = colore d'ombra), come i fianchi dell'isola nelle concept
+  (#e69c67 / #bf6f4b). NIENTE mezza banda: era quella, sugli smussi, il
+  «leggero face shading a bordo dei blocchi» che il committente ha bocciato
+  tre volte. Uno smusso a 45° cade sempre nella tinta di una faccia vicina.
+  I modelli uguali. Il sole non va mai a picco (14°→48°).
 - **L'OMBRA È IL COLORE CON HUE SHIFT** (`ombraStile` nei vertex, in sRGB):
   tinta spostata del 7 % verso il blu, saturazione ×1,05, valore ×0,64, poi
   in lineare. NON «base × grigio-blu». ⚠ Al 14 % il terracotta diventava
@@ -1461,6 +1461,20 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - ⚠ **Le modifiche passano da `streaming.tocca(x, z)`**: il mondo segna i
   chunk di bordo, ma la luce cotta arriva a SEI celle — un lampione a tre
   celle dal confine illumina il chunk accanto, che il mondo non segna.
+- **LA VETRINA** (`?vetrina`, `partita/vetrina.js`): la concept art ricostruita
+  nel NERO (niente cielo, nebbia nera lontanissima): isola a due gradini,
+  pozza, albero, lampione, gatti, funghi, attrezzi. È il banco dei COLORI:
+  si campionano render e concept con `campiona.mjs` e si confrontano i numeri.
+  ⚠ COLORI MISURATI SULLE CONCEPT (da rispettare): erba piena #5ac650, erba
+  in ombra #33984c (tinta +14 %, valore ×0,77), fianco terracotta al sole
+  #e69c67, di spalle #bf6f4b (valore ×0,83), chioma dell'albero a gradini
+  #5ac64f → #1c6f4f → #114d4c, gatto blu scuro #00396e. Le concept HANNO due
+  tinte sui blocchi (fianco al sole / di spalle): il «face shading» da non
+  fare era la mezza banda sugli smussi, non le due tinte.
+  · La rampa dell'erba per quota (`stagioni.js`) sta attorno a #5ac650 (±8 %):
+    prima a quota 8 il prato era #43943c.
+  · I ciuffi sono radi (`erba` 1, non 8) e un po' più scuri del prato (0,86).
+  · L'albero (`caricaModello`) si ritinge per quota a tre scatti.
 - ⚠ **Nel dock i campi dell'Officina non si stirano** (`.off-campi`
   `align-content: start`): la griglia alta riempiva il pannello con una riga
   ogni cento pixel («storta, nasconde cose»), e le schede vanno a capo

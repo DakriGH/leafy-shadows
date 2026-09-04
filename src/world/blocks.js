@@ -4,8 +4,9 @@
 export const BLOCCHI = {
   // cappello: bordino 3D del GrassCell.fbx (brim a 20 px, cima a filo cella)
   // fam: quale attrezzo lo rompe in un colpo (scavo=vanga, mina=piccone, taglia=ascia)
-  erba:    { nome: 'Erba',    cima: 0x64bb4f, lato: 0xc98f60, fondo: 0xb57e50, solido: true,  nav: 10, cappello: true, fam: 'scavo' },
-  terra:   { nome: 'Terra',   cima: 0xc98f60, lato: 0xbc8153, fondo: 0xb57e50, solido: true,  nav: 10, fam: 'scavo' },
+  // ⚠ I COLORI SONO MISURATI SULLE CONCEPT (campiona.mjs): erba piena #5ac650, fianco terracotta al sole #e69c67
+  erba:    { nome: 'Erba',    cima: 0x5ac650, lato: 0xe69c67, fondo: 0xc98b60, solido: true,  nav: 10, cappello: true, fam: 'scavo' },
+  terra:   { nome: 'Terra',   cima: 0xe69c67, lato: 0xe69c67, fondo: 0xc98b60, solido: true,  nav: 10, fam: 'scavo' },
   sabbia:  { nome: 'Sabbia',  cima: 0xe9d49c, lato: 0xdec388, fondo: 0xd2b276, solido: true,  nav: 12, fam: 'scavo' },
   ghiaia:  { nome: 'Ghiaia',  cima: 0x9a948c, lato: 0x8b857d, fondo: 0x7f7972, solido: true,  nav: 12, fam: 'scavo' },
   neve:    { nome: 'Neve',    cima: 0xf2f7f7, lato: 0xe0eaea, fondo: 0xd0dcdc, solido: true,  nav: 12, fam: 'scavo' },

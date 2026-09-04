@@ -22,7 +22,10 @@ export function collegaFabbrica(f) { _fabbrica = f; }
 export const STAGIONI = {
   primavera: {
     nome: 'Primavera', emoji: '🌸',
-    erba: [0x7ecd60, 0x74c458, 0x6abb51, 0x60b24a, 0x56a845, 0x4c9e40, 0x43943c, 0x3a8a38],
+    // ⚠ LA RAMPA STA ATTORNO AL VERDE DELLE CONCEPT (#5ac650, misurato): prima
+    // andava da un verde giallino a uno spento, e a quota 8 il prato era #43943c
+    // invece di #5ac650. Otto passi stretti (±8 %), stessa tinta, stessa saturazione.
+    erba: [0x66d05a, 0x60cb55, 0x5ac650, 0x54bf4b, 0x4eb847, 0x48b143, 0x43aa3f, 0x3ea33b],
     fogliame: null, // texture originali
   },
   estate: {

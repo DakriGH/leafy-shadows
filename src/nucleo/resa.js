@@ -84,12 +84,12 @@ void main() {
   // Minecraft (che scurisce i lati sempre, per convenzione): due oggetti dello
   // stesso colore hanno lo stesso colore, e cambia solo chi è al sole o in
   // ombra. Senza questo tutto era piatto («come se tutto fosse piatto»).
-  // ⚠ SUI BLOCCHI NIENTE BANDE PER DIREZIONE (la regola di Leafy, ripetuta
-  // tre volte dal committente: «a bordo dei blocchi vedo ancora un leggero
-  // face shading e abbiamo detto di non farlo»): tutte le facce, smussi
-  // compresi, hanno il colore pieno; scurisce SOLO l'ombra portata (la mappa)
-  // e la mancanza di cielo. I modelli invece hanno due tinte (modelli.js).
-  vFaccia = 1.0;
+  // ⚠ DUE TINTE E BASTA, MISURATE SULLE CONCEPT: il fianco al sole dell'isola
+  // è #e69c67, quello di spalle #bf6f4b (lo stesso colore, tinta spostata,
+  // più scuro). Niente mezza banda: era quella, sugli smussi, il «leggero
+  // face shading a bordo dei blocchi». Uno smusso a 45° cade sempre nella
+  // tinta di una delle due facce vicine, e non fa riga.
+  vFaccia = dot(n, -uSoleVerso) > 0.0 ? 1.0 : 0.0;
   vN = n;
   vSole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   float d = distance(p, uCam);
@@ -427,8 +427,9 @@ void main() {
   // di poco (0,90…1,10, quasi sempre ±3%): la sfumatura di Leafy, non un
   // gradiente scuro-chiaro. Cel shading alla Zelda: la lamella è del prato.
   float scosta = 0.9 + 0.2 * float(aC.w >> 4u) / 15.0;
-  vBase = pow(vec3(aB.xyz) / 255.0, vec3(2.2)) * mix(1.0, scosta, punta);
-  vOmbra = pow(ombraStile(vec3(aB.xyz) / 255.0), vec3(2.2)) * mix(1.0, scosta, punta);
+  // ⚠ I CIUFFI SONO UN PO' PIÙ SCURI DEL PRATO (0,86: nelle concept i fili sono verde cupo sul verde pieno), radi
+  vBase = pow(vec3(aB.xyz) / 255.0, vec3(2.2)) * 0.86 * mix(1.0, scosta, punta);
+  vOmbra = pow(ombraStile(vec3(aB.xyz) / 255.0), vec3(2.2)) * 0.86 * mix(1.0, scosta, punta);
   // l'erba è del prato: guarda il sole come la cima del blocco (normale in su), senza bande sue
   vSole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   vFaccia = 1.0; vN = vec3(0.0, 1.0, 0.0);
@@ -550,7 +551,8 @@ export class Resa {
     // i lampioni accesi più vicini, per le pozze per pixel: [x, y, z, raggio] × 8 (la partita li scrive)
     this.lampade = new Float32Array(32); this.nLampade = 0;
     // lo stile dell'ombra (ombraStile nei vertex): tinta verso il blu, saturazione, valore
-    this.stile = { tinta: 0.07, saturazione: 1.05, valore: 0.64 };
+    // misurati sulle concept: terracotta #e69c67 → #bf6f4b (valore ×0,83), erba #5ac650 → #33984c (×0,77, tinta +14 %)
+    this.stile = { tinta: 0.08, saturazione: 1.10, valore: 0.80 };
     this._preparaMappa();
     this.statistiche.calcoliMappa = 0; this.statistiche.disegniOmbra = 0; this.statistiche.triangoliOmbra = 0;
     gl.enable(gl.DEPTH_TEST);
@@ -839,6 +841,7 @@ void main() {
   /** Il cielo sfumato col sole, a tutto schermo, sotto tutto (niente profondità). */
   _disegnaCielo(vp, occhio) {
     const gl = this.gl, u = this.uc, s = this.sole;
+    if (this.cieloNero) return;   // la vetrina: il nero della tela
     if (!inverti(vp, this._invVP)) return;
     gl.useProgram(this.programmaCielo);
     gl.uniformMatrix4fv(u.uInvVP, false, this._invVP);

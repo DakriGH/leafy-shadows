@@ -34,6 +34,7 @@ import { creaLavoro } from './nucleo/lavoro.js';
 import { ARREDI, registraArredi, gatto, TAVOLOZZE } from './partita/arredi.js';
 import { Bagliori } from './nucleo/bagliori.js';
 import { generaChunkZoo, QUOTA as QUOTA_ZOO } from './partita/zoo.js';
+import { generaChunkVetrina, QUOTA as QUOTA_VETRINA } from './partita/vetrina.js';
 import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene, registroMeteo, registroStile } from './partita/registri.js';
 import { Meteo } from './partita/meteo.js';
 import { raggioDaSchermo } from './partita/raggio.js';
@@ -42,7 +43,7 @@ import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.j
 const params = new URLSearchParams(location.search);
 const opz = {
   seme: +(params.get('seme') || 4242),
-  erba: Math.max(0, Math.min(8, +(params.get('erba') ?? 8))),
+  erba: Math.max(0, Math.min(8, +(params.get('erba') ?? 1))),   // ⚠ RADI (1, non 8): nelle concept i ciuffi sono pochi e cupi, il prato è piatto
   raggio: Math.max(48, Math.min(160, +(params.get('raggio') || 96))),
   ombra: params.get('ombra') !== 'no',
   mappa: params.get('mappa') === 'no' ? 0 : Math.max(256, Math.min(4096, +(params.get('mappa') || 2048))),   // la mappa d'ombra vera: lato (2048), o `no` per misurare senza
@@ -52,6 +53,7 @@ const opz = {
   corpi: +(params.get('corpi') || 0),
   terza: params.has('terza'),
   zoo: params.has('zoo'),            // la scena di prova (partita/zoo.js) al posto dell'open world
+  vetrina: params.has('vetrina'),    // la concept art nel nero (partita/vetrina.js): solo palette e luce
 };
 
 const tela = document.getElementById('tela');
@@ -78,14 +80,14 @@ const mondo = new Mondo();
 const registro = new RegistroModelli();
 mondo.onEvento = (e) => registro.evento(e);
 const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
-const genera = opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
+const genera = opz.vetrina ? generaChunkVetrina : opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
 const streaming = new Streaming(mondo, resa, genera, { erba: opz.erba, raggioResa: opz.raggio, lavoro });
 const bagliori = new Bagliori(gl);
 resa.apriFinestraAltezze(0.5, 0.5, 512);
 // ⚠ IL SALVATAGGIO SI RIMETTE PRIMA DI GENERARE: sono le modifiche del
 // giocatore (partita/salvataggio.js), e la frontiera le riapplica a ogni
 // chunk che nasce. `?nuovo` riparte da zero.
-const CHIAVE_SALVATAGGIO = opz.zoo ? 'leafy-zoo' : `leafy-partita-${opz.seme}`;
+const CHIAVE_SALVATAGGIO = opz.vetrina ? 'leafy-vetrina' : opz.zoo ? 'leafy-zoo' : `leafy-partita-${opz.seme}`;
 let salvate = 0;
 try { if (params.has('nuovo')) localStorage.removeItem(CHIAVE_SALVATAGGIO); else salvate = spacchetta(mondo, localStorage.getItem(CHIAVE_SALVATAGGIO)); } catch { salvate = 0; }
 let salvaFra = 0;   // ms: si salva un secondo dopo l'ultima modifica, non a ogni blocco
@@ -102,6 +104,20 @@ async function caricaModello(nome) {
     const r = await fetch(`./modelli/nucleo/${nome}.bin`);
     if (!r.ok) throw new Error(`${r.status}`);
     const modello = leggiModello(await r.arrayBuffer());
+    if (nome === 'albero') {
+      // ⚠ LA CHIOMA A GRADINI COME NELLE CONCEPT (misurate: cima #5ac64f, poi
+      // #1c6f4f, #114d4c, #124d4d): i vertici verdi si ritingono per quota,
+      // dal verde pieno in cima al verde-petrolio cupo in basso, a tre scatti.
+      const b = modello.byte, dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      const TIERS = [[0x12, 0x4d, 0x4d], [0x11, 0x4d, 0x4c], [0x1c, 0x6f, 0x4f], [0x5a, 0xc6, 0x4f]];
+      for (let i = 0; i < modello.vertici; i++) {
+        const o = i * 20, r = b[o + 16], g = b[o + 17], bl = b[o + 18];
+        if (!(g > r + 20 && g > bl + 10)) continue;   // solo il verde: il tronco resta suo
+        const y = dv.getFloat32(o + 4, true), q = (y - modello.minY) / Math.max(1e-3, modello.maxY - modello.minY);
+        const t = TIERS[Math.min(3, Math.floor(q * 4))];
+        b[o + 16] = t[0]; b[o + 17] = t[1]; b[o + 18] = t[2];
+      }
+    }
     modelli.registra(nome, modello);
     registro.sporchi.add(nome);
     if (nome === 'lampione') {
@@ -126,7 +142,7 @@ function aggiornaModelli() {
 
 // ── chi cammina ──────────────────────────────────────────────────────────────
 function cimaIn(x, z) { for (let y = 60; y > -60; y--) if (mondo.solido(x, y, z)) return y + 1; return 8; }
-const passeggero = new Passeggero(mondo, { x: 0.5, y: (opz.zoo ? QUOTA_ZOO : cimaIn(0, 0)) + 0.5 + (opz.zoo ? 1 : 0), z: 0.5 });
+const passeggero = new Passeggero(mondo, { x: 0.5, y: (opz.vetrina ? QUOTA_VETRINA : opz.zoo ? QUOTA_ZOO : cimaIn(0, 0)) + 0.5 + (opz.zoo || opz.vetrina ? 1 : 0), z: opz.vetrina ? 2.5 : 0.5 });
 const intento = tastiera();
 const comandi = new ComandiTocco(intento);
 const modoGui = new ModoGui((aTocco) => { if (!aTocco && comandi.azzera) comandi.azzera(); });
@@ -403,10 +419,12 @@ function sole(dt) {
   // ⚠ È UNA TINTA (1 a mezzogiorno): il colore d'ombra vero lo fa lo shader
   // (hue shift stilizzato, `ombraStile`); qui solo il giorno/notte, blu di notte.
   resa.sole.cielo = [0.36 + 0.64 * luce, 0.38 + 0.62 * luce, 0.57 + 0.43 * luce];
-  resa.nebbia.colore = [0.25 + 0.47 * luce, 0.35 + 0.5 * luce, 0.5 + 0.42 * luce];
+  resa.nebbia.colore = opz.vetrina ? [0, 0, 0] : [0.25 + 0.47 * luce, 0.35 + 0.5 * luce, 0.5 + 0.42 * luce];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }
 resa.nebbia.da = opz.raggio - 24; resa.nebbia.a = opz.raggio + 8;
+// ⚠ LA VETRINA È NEL NERO: niente cielo, nebbia nera e lontanissima, la palette e basta
+if (opz.vetrina) { resa.cieloNero = true; resa.nebbia.da = 400; resa.nebbia.a = 500; }
 
 // ── il giro ──────────────────────────────────────────────────────────────────
 const tempi = [], jsMs = [], storiaFps = [];
@@ -481,7 +499,7 @@ function stampa() {
   document.getElementById('fps').textContent = `${fps.toFixed(0)} fps\n${p50.toFixed(1)} / ${p99.toFixed(1)} ms\nJS ${q(jsMs, 0.5).toFixed(2)} ms`;
   const st = resa.statistiche, sm = streaming.statistiche;
   document.getElementById('stato').textContent =
-    `${opz.zoo ? 'ZOO' : 'PARTITA'} sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
+    `${opz.vetrina ? 'VETRINA' : opz.zoo ? 'ZOO' : 'PARTITA'} sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
     + `disegni ${st.disegni + modelli.statistiche.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio} · triangoli ${(st.triangoli + modelli.statistiche.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio).toLocaleString('it')} · chunk ${st.chunkVisti}/${st.chunkTotali} (coda ${sm.inCoda}${lavoro ? `, in volo ${sm.inVolo} su ${lavoro.operai.length} worker` : ''}, ${sm.ultimaMs.toFixed(1)} ms) · corpi ${corpi.statistiche.corpi} (${corpi.statistiche.svegli} svegli)\n`
     + `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)} · ${volo ? 'volo' : passeggero.aTerra ? 'a terra' : 'in aria'} · modifiche ${contaModifiche(mondo)}${salvate > 0 ? ` (${salvate} ricaricate)` : ''} · in mano: ${bottoni[scelto].textContent}${bersaglio ? ` · miri ${mondo.tipo(...bersaglio.cella)}` : ''}\n`
     + `WASD/joystick cammina · trascina guarda · doppio clic/L cattura il mouse · si mira dove sta il dito o il mouse · sinistro tieni = scava · destro/tocco = posa o accendi · ⛏ col dito scava · F vola · V terza (rotella/pizzico = zoom fino a 40) · C cubi · 1-9 cassetta`;
@@ -508,7 +526,7 @@ async function apriOfficinaPartita() {
   statoGiocatore.buco = () => cam3.buco; statoGiocatore.impostaBuco = (v) => (cam3.buco = !!v);
   statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = impostaMiraCentro;
   officina = apriOfficina({
-    registri: [registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, seme: opz.seme })],
+    registri: [registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, vetrina: opz.vetrina, seme: opz.seme })],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
     autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),

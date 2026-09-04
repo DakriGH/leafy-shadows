@@ -115,7 +115,8 @@ export function registroScene(stato) {
     chiave: 'scene', nome: 'Scene',
     nota: 'Lo zoo è il piano di prova: vasca, scalinata, muro dei materiali, viale dei lampioni, lampade colorate, arredi. Cambiare scena ricarica la pagina.',
     campi: [
-      { chiave: 'dove', nome: 'scena', tipo: 'lettura', leggi: () => (stato.zoo ? 'zoo di prova' : `open world, seme ${stato.seme}`) },
+      { chiave: 'dove', nome: 'scena', tipo: 'lettura', leggi: () => (stato.vetrina ? 'vetrina nel nero' : stato.zoo ? 'zoo di prova' : `open world, seme ${stato.seme}`) },
+      { chiave: 'vetrina', nome: '🖼 vai alla vetrina (la concept art nel nero)', tipo: 'azione', fai: () => { if (typeof location !== 'undefined') location.search = '?vetrina&officina&terza&ora=0.38'; } },
       { chiave: 'zoo', nome: '🦁 vai allo zoo', tipo: 'azione', fai: () => { if (typeof location !== 'undefined') location.search = '?zoo&officina&terza'; } },
       { chiave: 'mondo', nome: '🌍 torna all\'open world', tipo: 'azione', fai: () => { if (typeof location !== 'undefined') location.search = `?seme=${stato.seme}&officina`; } },
     ],
