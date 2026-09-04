@@ -16,8 +16,9 @@ import { registraBlocco, BLOCCHI } from '../world/blocks.js';
 
 /** I colori delle reference. */
 export const TAVOLOZZE = {
-  blu: { corpo: 0x0c4f9a, pancia: 0x0b4283, testa: 0x1a7fd8, guance: 0x1670c4, zampe: 0x0a3d7a, orecchie: 0x0f5aa8, dentro: 0x2f96ea, occhi: 0xffffff, pupille: 0x0b1a2e, naso: 0x0a3d7a, coda: 0x0c4f9a },
-  arancione: { corpo: 0xe98a2c, pancia: 0xd97a22, testa: 0xf3a94a, guance: 0xea9a3c, zampe: 0xf5a3b3, orecchie: 0xe98a2c, dentro: 0xf7b9c6, occhi: 0xffffff, pupille: 0x2a1a12, naso: 0xf7b9c6, coda: 0xe98a2c },
+  // ⚠ MISURATI SULLE CONCEPT (color picker): testa #0696d6, corpo #082340 (blu notte pieno), rosa #f48386, arancio #df7539
+  blu: { corpo: 0x0b3d6e, pancia: 0x082340, testa: 0x0696d6, guance: 0x0a8ccc, zampe: 0x082340, orecchie: 0x0696d6, dentro: 0x2f96ea, occhi: 0xffffff, pupille: 0x0b1a2e, naso: 0x082340, coda: 0x0b3d6e },
+  arancione: { corpo: 0xdf7539, pancia: 0xd06a30, testa: 0xf2a352, guance: 0xf2936c, zampe: 0xf48386, orecchie: 0xdf7539, dentro: 0xf48386, occhi: 0xffffff, pupille: 0x2a1a12, naso: 0xf48386, coda: 0xdf7539 },
 };
 
 /**
@@ -58,7 +59,7 @@ export function gatto(t = TAVOLOZZE.blu, { zaino = false } = {}) {
 
 /** IL FUNGO ROSSO a cupola coi puntini bianchi, e il fratellino marrone. */
 export function fungo() {
-  const rosso = 0xd83a34, bianco = 0xf6f0e6, gambo = 0xefe6d2, marrone = 0x5a3d2b;
+  const rosso = 0xd42c38, bianco = 0xf6f0e6, gambo = 0xf5cc9d, marrone = 0x5c2d25;   // misurati sulle concept
   return modelloDaCuboidi([
     tornio(-0.08, -0.02, [[0.08, 0.0], [0.065, 0.10], [0.075, 0.20]], gambo),
     tornio(-0.08, -0.02, [[0.0, 0.17], [0.20, 0.20], [0.24, 0.28], [0.17, 0.36], [0.0, 0.41]], rosso, { fase: Math.PI / 8 }),
@@ -70,7 +71,7 @@ export function fungo() {
 
 /** IL GRADINO DI LEGNO: la tavola arancione con l'orlo, su due gambe scure. */
 export function gradino() {
-  const tavola = 0xe39a3c, orlo = 0xc9842f, gamba = 0x6b4a2a;
+  const tavola = 0xecaa50, orlo = 0xdf7539, gamba = 0x5c2d25;   // misurati sulle concept: asse #ecaa50, di spalle #df7539
   return modelloDaCuboidi([
     scatola(0, 0.38, 0, 0.92, 0.09, 0.44, tavola), scatola(0, 0.35, 0, 0.98, 0.03, 0.50, orlo),
     scatola(-0.36, 0, 0, 0.09, 0.36, 0.09, gamba), scatola(0.36, 0, 0, 0.09, 0.36, 0.09, gamba),
@@ -79,7 +80,7 @@ export function gradino() {
 
 /** LA SCALA: tre gradini che salgono verso −Z dentro una cella. */
 export function scala() {
-  const tavola = 0xe39a3c, orlo = 0xc9842f, gamba = 0x6b4a2a, pezzi = [];
+  const tavola = 0xecaa50, orlo = 0xdf7539, gamba = 0x5c2d25, pezzi = [];
   for (let i = 0; i < 3; i++) {
     const z = 0.33 - i * 0.33, y = 0.24 + i * 0.28;
     pezzi.push(scatola(0, y, z, 0.9, 0.08, 0.33, tavola), scatola(0, y - 0.02, z, 0.94, 0.02, 0.37, orlo));

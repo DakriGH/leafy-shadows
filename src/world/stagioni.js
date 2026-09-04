@@ -164,6 +164,7 @@ export function paletteBlocco(tipo, y) {
       lato: _fondi(A.lato, B.lato, k),
       fondo: _fondi(A.fondo, B.fondo, k),
       facce: A.facce,
+      orlo: A.orlo != null && B.orlo != null ? _fondi(A.orlo, B.orlo, k) : A.orlo,
     };
   }
   return _paletteSecca(tipo, y);
@@ -211,7 +212,8 @@ function _paletteSecca(tipo, y) {
   }
   // PITTURA PER FACCIA (Officina): se il blocco ha `facce`, ogni lato ha il suo
   // colore. Resta opzionale: senza, vale il classico cima/lato/fondo.
-  return { cima, lato, fondo, facce: def.facce || null };
+  // ⚠ L'ORLO del supercubo (la fascia verde sul fianco) segue il colore della cima in stagione: verde cupo in primavera
+  return { cima, lato, fondo, facce: def.facce || null, orlo: def.orlo != null ? def.orlo : undefined };
 }
 
 // ordine delle facce: +X, -X, +Y(cima), -Y(fondo), +Z, -Z

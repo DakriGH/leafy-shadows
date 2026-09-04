@@ -103,7 +103,8 @@ export function supercubo(b, cx, cy, cz, pal, vicino, orlo = 0) {
 export function conCappello(b, cx, cy, cz, pal, vicino) {
   const Nh = (dx, dz) => vicino(dx, 0, dz);
   const sotto = vicino(0, -1, 0);
-  const cima = pal.cima, lato = pal.lato, fondo = pal.fondo;
+  // ⚠ L'ORLO (il brim, la fascia verde sul fianco) HA UN COLORE SUO: nelle concept è verde cupo (#34974c) sotto la cima piena (#5ac550)
+  const cima = pal.cima, lato = pal.lato, fondo = pal.fondo, orlo = pal.orlo ?? pal.cima;
   const p = (x, y, z) => [cx + x * U, cy + y * U, cz + z * U];
 
   // fondo e smussi bassi (come il supercubo)
@@ -117,8 +118,8 @@ export function conCappello(b, cx, cy, cz, pal, vicino) {
     const fuori = [dx, 0, dz];
     if (!sotto) b.quad(q(8, -9, -8), q(9, -8, -8), q(9, -8, 8), q(8, -9, 8), fondo, [dx, -1, dz]);
     b.quad(q(9, -8, -8), q(9, 2, -8), q(9, 2, 8), q(9, -8, 8), lato, fuori);      // parete corpo
-    b.quad(q(9, 2, -8), q(10, 3, -8), q(10, 3, 8), q(9, 2, 8), cima, fuori);      // sotto-smusso brim
-    b.quad(q(10, 3, -8), q(10, 7, -8), q(10, 7, 8), q(10, 3, 8), cima, fuori);    // parete brim
+    b.quad(q(9, 2, -8), q(10, 3, -8), q(10, 3, 8), q(9, 2, 8), orlo, fuori);      // sotto-smusso brim
+    b.quad(q(10, 3, -8), q(10, 7, -8), q(10, 7, 8), q(10, 3, 8), orlo, fuori);    // parete brim
     b.quad(q(10, 7, -8), q(9, 8, -8), q(9, 8, 8), q(10, 7, 8), cima, [dx, 1, dz]); // smusso alto
     b.quad(q(8, 8, -8), q(9, 8, -8), q(9, 8, 8), q(8, 8, 8), cima, [0, 1, 0]);    // estensione cima
   }
@@ -128,8 +129,8 @@ export function conCappello(b, cx, cy, cz, pal, vicino) {
     const fuori = [sx, 0, sz];
     if (!sotto) b.tri(q(9, -8, 8), q(8, -9, 8), q(8, -8, 9), fondo, [sx, -1, sz]); // angolo basso
     b.quad(q(9, -8, 8), q(8, -8, 9), q(8, 2, 9), q(9, 2, 8), lato, fuori);         // taglio verticale corpo
-    b.quad(q(9, 2, 8), q(8, 2, 9), q(8, 3, 10), q(10, 3, 8), cima, fuori);         // angolo sotto-smusso
-    b.quad(q(10, 3, 8), q(8, 3, 10), q(8, 7, 10), q(10, 7, 8), cima, fuori);       // angolo brim
+    b.quad(q(9, 2, 8), q(8, 2, 9), q(8, 3, 10), q(10, 3, 8), orlo, fuori);         // angolo sotto-smusso
+    b.quad(q(10, 3, 8), q(8, 3, 10), q(8, 7, 10), q(10, 7, 8), orlo, fuori);       // angolo brim
     b.quad(q(10, 7, 8), q(8, 7, 10), q(8, 8, 9), q(9, 8, 8), cima, [sx, 1, sz]);   // angolo smusso alto
     b.tri(q(8, 8, 8), q(9, 8, 8), q(8, 8, 9), cima, [0, 1, 0]);                    // angolo estensione
   }
