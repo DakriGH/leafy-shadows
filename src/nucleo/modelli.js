@@ -198,7 +198,7 @@ void main() {
   if (uOmbra > 0.5 && luce > 0.0) { float m = ombraMappa(vPos, vN); luce *= m >= 0.0 ? m : ombraSole(vPos); }
   vec3 c = vColOmbra + vColSole * luce;
   // le pozze dei lampioni anche sui modelli (il gatto sotto il lampione, di notte)
-  c += vBase * vec3(1.30, 1.02, 0.58) * pozza(vPos) * (1.0 - smoothstep(0.30, 0.75, uSoleForza));
+  c += vBase * vec3(1.30, 1.02, 0.58) * pozza(vPos) * mix(0.45, 1.0, 1.0 - smoothstep(0.30, 0.75, uSoleForza));
   c = pow(mix(c, pow(uNebbiaCol, vec3(2.2)), vNebbia), vec3(1.0 / 2.2));
   // ⚠ LA SAGOMA: quando il gatto è dietro un albero o un muro, si vede la sua
   // ombra piatta attraverso (il committente: «un cono che mostra il player

@@ -1502,6 +1502,17 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   fini facevano un riflesso «casuale» e brillii a coriandoli guardando il
   sole. La deformazione del riflesso è il 3-10 % dello schermo e cala con la
   distanza; il brillio è una banda netta sulle onde lunghe.
+- **I CONTROLLI SONO QUELLI DI LEAFY, semplificati**: solo la terza persona
+  (camera che orbita attorno al gatto, niente prima persona, niente tasto V);
+  si cammina con WASD/joystick OPPURE cliccando dove andare (`vaiA`,
+  `intentoDelPasso`: destro = vai lì sempre; sinistro/tocco a mano vuota su un
+  blocco = vai lì, su un lampione = accendi/spegni, con un blocco in mano =
+  posa). La meta è la cella davanti alla faccia cliccata (o quella sopra, se
+  si clicca dall'alto), segnata con una scatola gialla; fermo mezzo secondo
+  contro qualcosa, il gatto salta. Nessun limite di distanza (per adesso).
+  Il volo resta solo col tasto F, per provare.
+- **Le pozze dei lampioni restano di giorno al 45 %** («i cerchi in
+  trasparenza quando il lampione è acceso», come i lampioni di Leafy).
 - ⚠ **La mira va al centro da sola col mouse catturato** (`raggioDiMira`:
   `pointerLockElement === tela`): il puntatore non si muove più e restava
   piantato dov'era l'ultimo clic («il puntatore è sballato»). Le coordinate

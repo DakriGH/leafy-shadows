@@ -204,7 +204,8 @@ void main() {
   float cieloB = floor(vCielo * 4.0 + 0.5) / 4.0;
   // ⚠ LE POZZE: cerchi netti (pozza) dove la luce cotta dice che la luce arriva,
   // le bande cotte per le lampade-blocco; di giorno si spengono (il sole le sovrasta)
-  float notte = 1.0 - smoothstep(0.30, 0.75, uSoleForza);
+  // ⚠ DI GIORNO I CERCHI RESTANO, in trasparenza (45 %): come i lampioni accesi di Leafy
+  float notte = mix(0.45, 1.0, 1.0 - smoothstep(0.30, 0.75, uSoleForza));
   float lamp = max(pozza(vPos) * step(0.02, vBlocco), floor(vBlocco * 4.0 + 0.5) / 4.0) * notte;
   float sole = vSole * step(0.99, vCielo) * luce;
   // l'ombra: il colore stilizzato (hue shift), tinto dal giorno/notte, più scuro senza cielo

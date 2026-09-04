@@ -97,7 +97,6 @@ export function registroGiocatore(stato) {
     chiave: 'giocatore', nome: 'Giocatore',
     campi: [
       { chiave: 'volo', nome: 'vola', tipo: 'interruttore', leggi: () => !!stato.volo, scrivi: (v) => stato.impostaVolo(!!v) },
-      { chiave: 'terza', nome: 'terza persona', tipo: 'interruttore', leggi: () => !!stato.terza, scrivi: (v) => stato.impostaTerza(!!v) },
       { chiave: 'cameraTira', nome: 'la camera si tira dentro davanti a un muro', tipo: 'interruttore', leggi: () => !!(stato.cameraTira && stato.cameraTira()), scrivi: (v) => stato.impostaCameraTira && stato.impostaCameraTira(!!v) },
       { chiave: 'buco', nome: 'buco di visuale (al posto della sagoma)', tipo: 'interruttore', leggi: () => !!(stato.buco && stato.buco()), scrivi: (v) => stato.impostaBuco && stato.impostaBuco(!!v) },
       { chiave: 'miraCentro', nome: 'mira al centro (mirino) invece che dove sta il dito', tipo: 'interruttore', leggi: () => !!(stato.miraCentro && stato.miraCentro()), scrivi: (v) => stato.impostaMiraCentro && stato.impostaMiraCentro(!!v) },
