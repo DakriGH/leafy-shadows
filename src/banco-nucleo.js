@@ -164,7 +164,7 @@ function sole(dt) {
   // questa riga la notte era un giorno spento, e le lampade non risaltavano.
   // ⚠ L'OMBRA DEL CEL SHADING SI DEVE VEDERE: a mezzogiorno vale circa il 60 % del
   // sole (in sRGB), appena fredda. Con lo 0,54 di prima era all'80 %: invisibile.
-  resa.sole.cielo = [0.10 + 0.18 * giorno, 0.12 + 0.20 * giorno, 0.24 + 0.18 * giorno];
+  resa.sole.cielo = [0.36 + 0.64 * giorno, 0.38 + 0.62 * giorno, 0.57 + 0.43 * giorno];   // una tinta: l'ombra vera la fa lo shader
   resa.nebbia.colore = [0.25 + 0.47 * giorno, 0.35 + 0.5 * giorno, 0.5 + 0.42 * giorno];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }

@@ -27,11 +27,37 @@ flat out vec3 vBase;          // il colore cotto, lineare
 flat out float vSole;         // quanto sole prende la faccia, a bande (l'horizon map lo può togliere)
 flat out float vEmis;         // materia emissiva
 flat out float vCielo;        // il cielo è PER FACCIA (la regola di Leafy: niente sfumature sui solidi)
-flat out float vFaccia;       // 1 = la faccia guarda il sole, 0 = è di spalle (ombra propria, a gradino)
+flat out float vFaccia;       // 1 = la faccia guarda il sole, 0 = è di spalle (sui blocchi: sempre 1)
 flat out vec3 vN;             // la normale geometrica: serve alla mappa d'ombra per non avere acne
+flat out vec3 vOmbra;         // il colore d'ombra stilizzato (hue shift verso il blu), lineare
 out float vBlocco;            // la luce di blocco sfuma: le pozze dei lampioni sono tonde
 out float vNebbia;
 out vec3 vPos;
+// ⚠ L'OMBRA DI LEAFY NON È «PIÙ SCURO»: è lo stesso colore con la tinta
+// spostata verso il blu (14 % della strada), un po' più satura e al 62 % di
+// valore. Si calcola nel vertex (una volta per faccia) in sRGB e si porta in
+// lineare come il colore pieno. Il committente: «le ombre sono solo il colore
+// hue shift più scuro stilizzato».
+vec3 rgb2hsv(vec3 c) {
+  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y), e = 1.0e-10;
+  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+vec3 ombraStile(vec3 s) {
+  vec3 h = rgb2hsv(s);
+  float d = (240.0 / 360.0) - h.x; d -= floor(d + 0.5);   // la via più corta verso il blu
+  h.x = fract(h.x + d * 0.07);   // ⚠ POCO: al 14 % il terracotta diventava mattone rosso
+  h.y = min(1.0, h.y * 1.05 + 0.03);
+  h.z *= 0.64;
+  return hsv2rgb(h);
+}
 void main() {
   // ⚠ POSIZIONI IN SEDICESIMI (nucleo/formato.js): x e z con un blocco di margine, y dallo scarto del chunk
   uint A = aAB.x, B = aAB.y;
@@ -49,6 +75,7 @@ void main() {
   vBlocco = float((B >> 20u) & 15u) / 15.0;
   // ⚠ IL COLORE È QUELLO COTTO DAL MESHER (la palette di Leafy), in spazio lineare
   vBase = pow(vec3(aC.xyz) / 255.0, vec3(2.2));
+  vOmbra = pow(ombraStile(vec3(aC.xyz) / 255.0), vec3(2.2));
   vEmis = uMaterie[materia].x;
   // ⚠ LA LUCE È A DUE BANDE PER DIREZIONE DEL SOLE, come nel cel shading: una
   // faccia che guarda il sole ha il colore pieno, una di spalle ha il colore
@@ -56,11 +83,12 @@ void main() {
   // Minecraft (che scurisce i lati sempre, per convenzione): due oggetti dello
   // stesso colore hanno lo stesso colore, e cambia solo chi è al sole o in
   // ombra. Senza questo tutto era piatto («come se tutto fosse piatto»).
-  // ⚠ TRE BANDE, come una rampa toon: piena (guarda il sole), mezza (di
-  // sbieco: gli smussi del supercubo, il fianco tondo del gatto) e ombra (di
-  // spalle). Con due sole bande gli smussi erano o bianchi o neri: «grezza».
-  float dl = dot(n, -uSoleVerso);
-  vFaccia = dl > 0.42 ? 1.0 : (dl > 0.02 ? 0.62 : 0.0);
+  // ⚠ SUI BLOCCHI NIENTE BANDE PER DIREZIONE (la regola di Leafy, ripetuta
+  // tre volte dal committente: «a bordo dei blocchi vedo ancora un leggero
+  // face shading e abbiamo detto di non farlo»): tutte le facce, smussi
+  // compresi, hanno il colore pieno; scurisce SOLO l'ombra portata (la mappa)
+  // e la mancanza di cielo. I modelli invece hanno due tinte (modelli.js).
+  vFaccia = 1.0;
   vN = n;
   vSole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   float d = distance(p, uCam);
@@ -78,9 +106,27 @@ flat in float vEmis;
 flat in float vCielo;
 flat in float vFaccia;
 flat in vec3 vN;
+flat in vec3 vOmbra;
 in float vBlocco;
 in float vNebbia;
 in highp vec3 vPos;   // ⚠ highp: l'ombra si legge a coordinate di mondo (±256), in mediump ballerebbe di un quarto di blocco
+uniform highp vec4 uLampade[8];   // x y z raggio dei lampioni ACCESI più vicini (la resa li riceve dalla partita)
+uniform int uNLampade;
+// ⚠ LE POZZE DEI LAMPIONI SONO CERCHI NETTI A DUE BANDE, per pixel: la luce
+// cotta nel vertice, interpolata sui triangoli, faceva poligoni («esagonale»).
+// La luce cotta resta come MASCHERA (dietro un muro non si passa) e per le
+// lampade-blocco, che non stanno nella lista.
+float pozza(highp vec3 pos) {
+  float s = 0.0;
+  for (int i = 0; i < 8; i++) {
+    if (i >= uNLampade) break;
+    highp vec3 d = pos - uLampade[i].xyz; d.y *= 0.7;
+    float q = length(d) / uLampade[i].w;
+    s += q < 0.55 ? 1.0 : (q < 1.0 ? 0.45 : 0.0);
+  }
+  return min(s, 1.0);
+}
+
 uniform vec3 uNebbiaCol;
 uniform vec3 uSoleCol;
 uniform vec3 uCieloCol;          // il colore dell'ombra: È il cielo
@@ -106,13 +152,24 @@ uniform vec2 uMappaSbieco;                  // x: scostamento lungo la normale (
 // 2×2 in hardware: bordo netto ma senza scalini); lo scostamento lungo la
 // normale e il bias tolgono l'acne. Fuori dalla mappa torna -1 e si usa la
 // mappa per colonna (ombraSole), che copre tutto il mondo in streaming.
+uniform highp mat4 uLuceVPDin;              // mondo → clip della mappa di chi si muove (più stretta: più fitta)
+uniform vec2 uMappaTexel;                   // mezzo texel delle due mappe, in uv
+// ⚠ QUATTRO LETTURE A MEZZO TEXEL E POI UNA SOGLIA: il bordo resta netto ma
+// senza scalini (le ombre «pixellate»). Ogni lettura è già un 2×2 in hardware.
+float pcf(highp sampler2DShadow m, highp vec3 c, float t) {
+  return 0.25 * (texture(m, c + vec3(-t, -t, 0.0)) + texture(m, c + vec3(t, -t, 0.0)) + texture(m, c + vec3(-t, t, 0.0)) + texture(m, c + vec3(t, t, 0.0)));
+}
 float ombraMappa(highp vec3 pos, vec3 n) {
   if (uMappaOn < 0.5) return -1.0;
-  highp vec4 q = uLuceVP * vec4(pos + n * uMappaSbieco.x, 1.0);
+  highp vec3 p = pos + n * uMappaSbieco.x;
+  highp vec4 q = uLuceVP * vec4(p, 1.0);
   highp vec3 u = q.xyz * 0.5 + 0.5;
   if (u.x < 0.004 || u.x > 0.996 || u.y < 0.004 || u.y > 0.996 || u.z > 1.0) return -1.0;
-  highp vec3 c = vec3(u.xy, u.z - uMappaSbieco.y);
-  return min(texture(uMappaStat, c), texture(uMappaDin, c));
+  float s = pcf(uMappaStat, vec3(u.xy, u.z - uMappaSbieco.y), uMappaTexel.x);
+  highp vec4 q2 = uLuceVPDin * vec4(p, 1.0);
+  highp vec3 u2 = q2.xyz * 0.5 + 0.5;
+  if (u2.x > 0.002 && u2.x < 0.998 && u2.y > 0.002 && u2.y < 0.998 && u2.z <= 1.0) s = min(s, pcf(uMappaDin, vec3(u2.xy, u2.z - uMappaSbieco.y), uMappaTexel.y));
+  return smoothstep(0.3, 0.7, s);
 }
 out vec4 colore;
 // ⚠ L'OMBRA DEL SOLE È UNA LETTURA SOLA: la mappa delle ombre (uOmbre, per
@@ -139,10 +196,13 @@ void main() {
   // le bande: il cielo a quattro (per faccia), la lampada a quattro (sulla luce
   // interpolata: pozze tonde), il sole diretto solo dove il cielo è pieno
   float cieloB = floor(vCielo * 4.0 + 0.5) / 4.0;
-  // ⚠ DI GIORNO LE POZZE DELLE LAMPADE QUASI NON SI VEDONO (il sole le sovrasta): a mezzogiorno restano al 12 %
-  float lamp = floor(vBlocco * 4.0 + 0.5) / 4.0 * mix(1.0, 0.12, uSoleForza);
+  // ⚠ LE POZZE: cerchi netti (pozza) dove la luce cotta dice che la luce arriva,
+  // le bande cotte per le lampade-blocco; di giorno si spengono (il sole le sovrasta)
+  float notte = 1.0 - smoothstep(0.30, 0.75, uSoleForza);
+  float lamp = max(pozza(vPos) * step(0.02, vBlocco), floor(vBlocco * 4.0 + 0.5) / 4.0) * notte;
   float sole = vSole * step(0.99, vCielo) * luce;
-  vec3 ombra = vBase * uCieloCol * (0.25 + 0.75 * cieloB);
+  // l'ombra: il colore stilizzato (hue shift), tinto dal giorno/notte, più scuro senza cielo
+  vec3 ombra = vOmbra * uCieloCol * (0.30 + 0.70 * cieloB);
   vec3 pieno = vBase * uSoleCol;
   if (vEmis > 0.0) { ombra = mix(ombra, vBase * 1.15, vEmis); pieno = mix(pieno, vBase * 1.15, vEmis); }   // emissiva: scavalca ombra e notte
   // ⚠ LE POZZE DEI LAMPIONI SONO CALDE E PIENE: 1,3 sopra il bianco
@@ -183,11 +243,12 @@ out vec3 vCol;
 out float vProf;
 out float vNebbia;
 flat out float vPelo;
-// ⚠ TRE ONDE DA TRE DIREZIONI, non una: con una sola il lago sembrava un
-// tappeto trascinato. Le stesse tre stanno nel fragment (la normale è la
-// loro derivata), e l'ampiezza la decide il meteo.
+// ⚠ TRE ONDE LUNGHE DA TRE DIREZIONI, con lunghezze che non si dividono
+// (12, 7 e 4,6 blocchi) e velocità diverse: così il disegno non si ripete a
+// vista. Le stesse tre stanno nel fragment (la normale è la loro derivata),
+// e l'ampiezza la decide il meteo. Con una sola il lago era un tappeto.
 float onde(vec2 p, float t) {
-  return sin(dot(p, vec2(0.80, 0.60)) * 0.9 + t * 1.3) + 0.7 * sin(dot(p, vec2(-0.50, 0.87)) * 1.6 + t * 1.9) + 0.5 * sin(dot(p, vec2(0.30, -0.95)) * 2.7 + t * 2.6);
+  return sin(dot(p, vec2(0.80, 0.60)) * 0.53 + t * 0.9) + 0.7 * sin(dot(p, vec2(-0.50, 0.87)) * 0.91 + t * 1.3) + 0.5 * sin(dot(p, vec2(0.30, -0.95)) * 1.37 + t * 1.7);
 }
 void main() {
   uint A = aAB.x, B = aAB.y;
@@ -225,16 +286,26 @@ uniform sampler2D uSpecchio;     // la scena specchiata, a mezza risoluzione
 uniform vec3 uSchermo;           // 1/larghezza, 1/altezza, forza dello specchio (0 = spento)
 uniform float uMare;             // il meteo: 0 = specchio, 1 = mosso
 out vec4 colore;
-// la pendenza delle tre onde del vertex (la derivata), per la normale
+// la pendenza delle tre onde lunghe del vertex (la derivata), per la normale
 vec2 pendenza(vec2 p, float t) {
-  return vec2(0.80, 0.60) * 0.9 * cos(dot(p, vec2(0.80, 0.60)) * 0.9 + t * 1.3)
-       + vec2(-0.50, 0.87) * 1.12 * cos(dot(p, vec2(-0.50, 0.87)) * 1.6 + t * 1.9)
-       + vec2(0.30, -0.95) * 1.35 * cos(dot(p, vec2(0.30, -0.95)) * 2.7 + t * 2.6);
+  return vec2(0.80, 0.60) * 0.53 * cos(dot(p, vec2(0.80, 0.60)) * 0.53 + t * 0.9)
+       + vec2(-0.50, 0.87) * 0.64 * cos(dot(p, vec2(-0.50, 0.87)) * 0.91 + t * 1.3)
+       + vec2(0.30, -0.95) * 0.69 * cos(dot(p, vec2(0.30, -0.95)) * 1.37 + t * 1.7);
+}
+// ⚠ LE INCRESPATURE: tre onde corte (1,5 · 1 · 0,65 blocchi) e svelte sopra
+// quelle lunghe. Sono loro a rompere la ripetizione e a fare le scintille del
+// sole: senza, le onde lunghe da sole facevano bolle («metaball»).
+vec2 increspa(vec2 p, float t) {
+  return vec2(0.96, 0.28) * 0.50 * cos(dot(p, vec2(0.96, 0.28)) * 4.1 + t * 3.1)
+       + vec2(-0.37, 0.93) * 0.35 * cos(dot(p, vec2(-0.37, 0.93)) * 6.3 + t * 2.4)
+       + vec2(0.71, -0.71) * 0.20 * cos(dot(p, vec2(0.71, -0.71)) * 9.7 + t * 4.0 + 1.7);
 }
 void main() {
   vec3 vista = normalize(uCam - vPos);
-  // la normale del pelo: dalle onde, e il meteo decide quanto è mossa
-  vec2 g = pendenza(vPos.xz, uTempo) * mix(0.04, 0.30, uMare);
+  float dist = distance(uCam, vPos);
+  // la normale del pelo: onde lunghe più increspature, e il meteo decide quanto è mossa
+  vec2 r = increspa(vPos.xz, uTempo);
+  vec2 g = pendenza(vPos.xz, uTempo) * mix(0.03, 0.18, uMare) + r * mix(0.02, 0.10, uMare);
   vec3 n = vPelo > 0.5 ? normalize(vec3(-g.x, 1.0, -g.y)) : vec3(0.0, 1.0, 0.0);
   // profondità → violaceo e opaco (scala 0,12 per blocco, corpo come la ricetta)
   float k = clamp(vProf * 0.12, 0.0, 1.0);
@@ -250,21 +321,26 @@ void main() {
   // ⚠ LO SPECCHIO SI LEGGE A SCHERMO: la passata specchiata usa la stessa
   // proiezione, quindi il riflesso di questo pixel sta in questo pixel. Le
   // onde lo spostano di un soffio (n.xz), che è quanto basta a farlo vivere.
-  // ⚠ LA DEFORMAZIONE SI SPEGNE AI BORDI DELLO SCHERMO: fuori dallo specchio
-  // non c'è niente, e il riflesso «tagliato» era il bordo che si spalmava.
+  // ⚠ LA DEFORMAZIONE È PICCOLA (1-4 % dello schermo, con lo 0,45 di prima
+  // erano bolle) e CALA CON LA DISTANZA (da lontano un'onda è un pixel), e si
+  // spegne ai bordi dello schermo: fuori dallo specchio non c'è niente, e il
+  // riflesso «tagliato» era il bordo che si spalmava.
   vec2 s = gl_FragCoord.xy * uSchermo.xy;
   float bordo = smoothstep(0.0, 0.08, min(min(s.x, 1.0 - s.x), min(s.y, 1.0 - s.y)));
-  vec2 uv = clamp(s + n.xz * mix(0.10, 0.45, uMare) * vPelo * bordo, 0.002, 0.998);
+  vec2 uv = clamp(s + n.xz * mix(0.012, 0.045, uMare) * vPelo * bordo / (1.0 + dist * 0.04), 0.002, 0.998);
   vec3 riflesso = mix(cielo, pow(texture(uSpecchio, uv).rgb, vec3(2.2)), uSchermo.z);
   // ⚠ IL CIELO CAPOVOLTO SOLO RADENTE quando non c'è specchio: a 45° il fresnel
   // cubico vale il 2%. Con lo specchio il riflesso c'è sempre un po' (22%) e
   // radente è quasi tutto (85%): l'acqua resta acqua guardandola dall'alto.
-  // calmo = quasi a specchio anche dall'alto (0,40), mosso = 0,20
-  float peso = mix(fres * 0.55, mix(mix(0.40, 0.20, uMare), 0.85, fres), uSchermo.z) * vPelo;
+  // dall'alto l'acqua resta del SUO colore (riflesso al 20 %, calmo; 12 % mosso), radente è cielo
+  float peso = mix(fres * 0.55, mix(mix(0.20, 0.12, uMare), 0.85, fres), uSchermo.z) * vPelo;
   acqua = mix(acqua, riflesso, peso);
   alfa = mix(alfa, 0.95, fres * vPelo);
-  float brillio = step(mix(0.992, 0.965, uMare), dot(reflect(-vista, n), -uSoleVerso)) * uSoleForza * vPelo;
-  acqua += vec3(0.9) * brillio;
+  // le scintille del sole: dalle increspature, piccole e tante (non dalle onde lunghe: bolle)
+  vec2 gr = r * mix(0.10, 0.28, uMare);
+  vec3 nS = normalize(vec3(-gr.x, 1.0, -gr.y));
+  float brillio = step(mix(0.9965, 0.988, uMare), dot(reflect(-vista, nS), -uSoleVerso)) * uSoleForza * vPelo;
+  acqua += vec3(0.75) * brillio;
   vec3 c = pow(mix(acqua, cielo, vNebbia), vec3(1.0 / 2.2));
   colore = vec4(c, mix(alfa, 1.0, vNebbia));
 }`;
@@ -294,6 +370,32 @@ out float vNebbia;
 out vec3 vPos;
 out float vFaccia;
 out vec3 vN;
+out vec3 vOmbra;
+// ⚠ L'OMBRA DI LEAFY NON È «PIÙ SCURO»: è lo stesso colore con la tinta
+// spostata verso il blu (14 % della strada), un po' più satura e al 62 % di
+// valore. Si calcola nel vertex (una volta per faccia) in sRGB e si porta in
+// lineare come il colore pieno. Il committente: «le ombre sono solo il colore
+// hue shift più scuro stilizzato».
+vec3 rgb2hsv(vec3 c) {
+  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y), e = 1.0e-10;
+  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+vec3 ombraStile(vec3 s) {
+  vec3 h = rgb2hsv(s);
+  float d = (240.0 / 360.0) - h.x; d -= floor(d + 0.5);   // la via più corta verso il blu
+  h.x = fract(h.x + d * 0.07);   // ⚠ POCO: al 14 % il terracotta diventava mattone rosso
+  h.y = min(1.0, h.y * 1.05 + 0.03);
+  h.z *= 0.64;
+  return hsv2rgb(h);
+}
 void main() {
   vec3 base = uChunk + vec3(float(aA.x), float(aA.z), float(aA.y)) / 8.0;
   float seme = float(aA.w) / 255.0;
@@ -325,6 +427,7 @@ void main() {
   // gradiente scuro-chiaro. Cel shading alla Zelda: la lamella è del prato.
   float scosta = 0.9 + 0.2 * float(aC.w >> 4u) / 15.0;
   vBase = pow(vec3(aB.xyz) / 255.0, vec3(2.2)) * mix(1.0, scosta, punta);
+  vOmbra = pow(ombraStile(vec3(aB.xyz) / 255.0), vec3(2.2)) * mix(1.0, scosta, punta);
   // l'erba è del prato: guarda il sole come la cima del blocco (normale in su), senza bande sue
   vSole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   vFaccia = 1.0; vN = vec3(0.0, 1.0, 0.0);
@@ -378,7 +481,7 @@ export class Resa {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uMappaOn', 'uMappaSbieco']) {
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade']) {
       this.u[n] = gl.getUniformLocation(this.programma, n);
     }
     // ⚠ UN SOLO BUFFER DI INDICI PER TUTTI I CHUNK (formato.js)
@@ -388,7 +491,7 @@ export class Resa {
     // stesso fragment dei solidi (horizon mapping, nebbia), ma con i colori INTERPOLATI: la lamella sfuma dalla base alla punta
     this.programmaErba = compila(gl, VS_ERBA, FS.replace(/flat in /g, 'in '));
     this.ue = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uMappaOn', 'uMappaSbieco']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
     // ⚠ LA PASSATA D'OMBRA: solo posizione, niente colore (il fragment è vuoto)
     this.programmaOmbra = compila(gl, VS_OMBRA, FS_VUOTO);
     this.uo = { uVP: gl.getUniformLocation(this.programmaOmbra, 'uVP'), uChunk: gl.getUniformLocation(this.programmaOmbra, 'uChunk') };
@@ -442,7 +545,9 @@ export class Resa {
     // di un quarto di grado, cambia un chunk o un modello fermo, o ci si
     // allontana di 8 blocchi dal centro; `din` (chi si muove) ogni fotogramma.
     // Oltre `raggio` blocchi dal centro vale la mappa per colonna qui sopra.
-    this.mappa = { attiva: true, lato: 2048, latoDin: 1024, raggio: 40, stat: null, din: null, vp: new Float32Array(16), centro: [1e9, 0, 1e9], sole: [0, 0, 0], sporca: true, on: false, calcoli: 0, disegni: 0, triangoli: 0 };
+    this.mappa = { attiva: true, lato: 2048, latoDin: 1024, raggio: 32, raggioDin: 14, stat: null, din: null, vp: new Float32Array(16), vpDin: new Float32Array(16), centro: [1e9, 0, 1e9], sole: [0, 0, 0], sporca: true, on: false, calcoli: 0, disegni: 0, triangoli: 0 };
+    // i lampioni accesi più vicini, per le pozze per pixel: [x, y, z, raggio] × 8 (la partita li scrive)
+    this.lampade = new Float32Array(32); this.nLampade = 0;
     this._preparaMappa();
     this.statistiche.calcoliMappa = 0; this.statistiche.disegniOmbra = 0; this.statistiche.triangoliOmbra = 0;
     gl.enable(gl.DEPTH_TEST);
@@ -780,8 +885,11 @@ void main() {
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1f(u.uMappaOn, m.on ? 1 : 0);
     gl.uniformMatrix4fv(u.uLuceVP, false, m.vp);
+    gl.uniformMatrix4fv(u.uLuceVPDin, false, m.vpDin);
+    gl.uniform2f(u.uMappaTexel, 0.5 / m.lato, 0.5 / m.latoDin);
     // un texel e mezzo lungo la normale, e un decimo di blocco di profondità (su 220 di intervallo)
     gl.uniform2f(u.uMappaSbieco, 1.5 * (2 * m.raggio / m.lato), 0.1 / 220);
+    gl.uniform4fv(u.uLampade, this.lampade); gl.uniform1i(u.uNLampade, this.nLampade);
   }
 
   /**
@@ -800,7 +908,14 @@ void main() {
     const adesso = typeof performance !== 'undefined' ? performance.now() : 0;
     const cx = camera.centro[0], cz = camera.centro[2];
     let ricentra = false;
-    if (Math.hypot(cx - m.centro[0], cz - m.centro[2]) > 8) { m.centro = [Math.round(cx / 2) * 2, Math.round(camera.centro[1]), Math.round(cz / 2) * 2]; ricentra = true; }
+    if (Math.hypot(cx - m.centro[0], cz - m.centro[2]) > 6) { m.centro = [Math.round(cx / 2) * 2, Math.round(camera.centro[1]), Math.round(cz / 2) * 2]; ricentra = true; }
+    // la mappa di chi si muove è stretta (raggioDin) e segue la mira ogni fotogramma: si rifà comunque
+    {
+      const v = s.verso, c = camera.centro;
+      const occhio = [c[0] - v[0] * 120, c[1] - v[1] * 120, c[2] - v[2] * 120];
+      const su = Math.abs(v[1]) > 0.95 ? [0, 0, 1] : [0, 1, 0];
+      moltiplica(ortografica(m.raggioDin, 10, 230), guarda(occhio, c, su), m.vpDin);
+    }
     const d = s.verso[0] * m.sole[0] + s.verso[1] * m.sole[1] + s.verso[2] * m.sole[2];
     if (d < 0.99999) m.soleMosso = true;   // un quarto di grado
     const vuole = m.sporca || m.soleMosso || (modelli && modelli.mappaSporca);
@@ -837,7 +952,7 @@ void main() {
     gl.viewport(0, 0, m.din.lato, m.din.lato);
     gl.clear(gl.DEPTH_BUFFER_BIT);
     let dd = 0, td = 0;
-    if (modelli) [dd, td] = modelli.disegnaOmbra(m.vp, true);
+    if (modelli) [dd, td] = modelli.disegnaOmbra(m.vpDin, true);
     gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);

@@ -138,6 +138,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') cambiaVolo();
   if (e.code === 'KeyH') { const st = document.getElementById('stato'); st.hidden = !st.hidden; }
   if (e.code === 'KeyV') cambiaTerza();
+  if (e.code === 'KeyM') impostaMiraCentro(!miraCentro);   // M: mirino al centro / dove sta il mouse
   if (e.code === 'KeyC') lanciaCubi(20);
   if (/^Digit[0-9]$/.test(e.code)) scegli(e.code === 'Digit0' ? 9 : +e.code.slice(5) - 1);
 });
@@ -258,6 +259,7 @@ let tienePremuto = false;
 // (`miraCentro`). `punto` è l'ultimo puntatore visto, in coordinate della tela.
 const puntatore = { x: 0, y: 0, visto: false };
 let miraCentro = false;
+function impostaMiraCentro(v) { miraCentro = !!v; document.body.classList.toggle('mira-centro', miraCentro); }
 tela.addEventListener('pointermove', (e) => { puntatore.x = e.clientX; puntatore.y = e.clientY; puntatore.visto = true; });
 tela.addEventListener('pointerdown', (e) => { puntatore.x = e.clientX; puntatore.y = e.clientY; puntatore.visto = true; });
 // ⚠ I MODELLI NON SONO SOLIDI (lampioni, funghi, attrezzi: il passo li attraversa),
@@ -287,7 +289,12 @@ function raggioDiMira(cam) {
   const r = [f[2], 0, -f[0]]; const rl = Math.hypot(...r) || 1; r[0] /= rl; r[2] /= rl;   // destra = f × su
   const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
   let nx = 0, ny = 0;
-  if (!miraCentro && puntatore.visto) { nx = (puntatore.x / tela.clientWidth) * 2 - 1; ny = 1 - (puntatore.y / tela.clientHeight) * 2; }
+  // ⚠ COL MOUSE CATTURATO (doppio clic / L) IL PUNTATORE NON SI MUOVE PIÙ: la
+  // mira va al centro da sola, se no restava piantata dov'era l'ultimo clic
+  // («il puntatore è sballato»). La tela può non partire dall'angolo (Officina
+  // agganciata): si toglie il suo bordo.
+  const centro = miraCentro || document.pointerLockElement === tela || !puntatore.visto;
+  if (!centro) { const r = tela.getBoundingClientRect(); nx = ((puntatore.x - r.left) / r.width) * 2 - 1; ny = 1 - ((puntatore.y - r.top) / r.height) * 2; }
   const t = Math.tan(cam.fov / 2), sx = nx * t * cam.rapporto, sy = ny * t;
   const d = [f[0] + r[0] * sx + u[0] * sy, f[1] + r[1] * sx + u[1] * sy, f[2] + r[2] * sx + u[2] * sy];
   const dl = Math.hypot(...d); return { x: d[0] / dl, y: d[1] / dl, z: d[2] / dl };
@@ -361,6 +368,18 @@ if (opz.corpi > 0) {
 
 // ── la giornata (come il banco) ──────────────────────────────────────────────
 const giorno = { ora: opz.ora ?? 0.35, auto: opz.ora === null, durata: 600 };
+// ⚠ I LAMPIONI ACCESI PIÙ VICINI AL GATTO (otto): le pozze per pixel della resa
+const _lampade = [];
+function lampadeVicine() {
+  const celle = registro.tipi.get('lampione');
+  const p = passeggero;
+  _lampade.length = 0;
+  if (celle) for (const [x, y, z] of celle.values()) { const d = (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z); if (d < 60 * 60) _lampade.push([d, x, y, z]); }
+  _lampade.sort((a, b) => a[0] - b[0]);
+  const n = Math.min(8, _lampade.length);
+  for (let i = 0; i < n; i++) { const l = _lampade[i]; resa.lampade[i * 4] = l[1]; resa.lampade[i * 4 + 1] = l[2]; resa.lampade[i * 4 + 2] = l[3]; resa.lampade[i * 4 + 3] = 4.6; }
+  resa.nLampade = n;
+}
 // il meteo: il mare vaga da solo (partita/meteo.js); ?mare=0.6 lo ferma lì
 const meteo = new Meteo(opz.seme);
 if (params.has('mare')) { meteo.auto = false; meteo.agitazione = meteo.meta = Math.max(0, Math.min(1, +params.get('mare') || 0)); }
@@ -378,13 +397,16 @@ function sole(dt) {
   const luce = Math.max(0, Math.min(1, (Math.sin(a) + 0.1) * 2));
   resa.sole.forza = luce;
   resa.mare = meteo.aggiorna(dt);
+  lampadeVicine();
   // ⚠ A MEZZOGIORNO IL SOLE È BIANCO: al sole pieno si vede la palette ESATTA
   // (vivace, come le concept); il caldo entra solo col sole basso.
   const caldo = Math.min(1, Math.max(0, (alt - 0.24) / 0.4));
   resa.sole.colore = [1.0, 0.78 + 0.22 * caldo, 0.55 + 0.45 * caldo];
   // ⚠ L'OMBRA DEL CEL SHADING SI DEVE VEDERE: a mezzogiorno vale circa il 60 % del
   // sole (in sRGB), appena fredda. Con lo 0,54 di prima era all'80 %: invisibile.
-  resa.sole.cielo = [0.10 + 0.18 * luce, 0.12 + 0.20 * luce, 0.24 + 0.18 * luce];   // ~56 % del sole in sRGB, appena fredda
+  // ⚠ È UNA TINTA (1 a mezzogiorno): il colore d'ombra vero lo fa lo shader
+  // (hue shift stilizzato, `ombraStile`); qui solo il giorno/notte, blu di notte.
+  resa.sole.cielo = [0.36 + 0.64 * luce, 0.38 + 0.62 * luce, 0.57 + 0.43 * luce];
   resa.nebbia.colore = [0.25 + 0.47 * luce, 0.35 + 0.5 * luce, 0.5 + 0.42 * luce];
   gl.clearColor(resa.nebbia.colore[0], resa.nebbia.colore[1], resa.nebbia.colore[2], 1);
 }
@@ -488,7 +510,7 @@ async function apriOfficinaPartita() {
   const dock = document.getElementById('dock');
   statoGiocatore.cameraTira = () => cam3.tira; statoGiocatore.impostaCameraTira = (v) => (cam3.tira = !!v);
   statoGiocatore.buco = () => cam3.buco; statoGiocatore.impostaBuco = (v) => (cam3.buco = !!v);
-  statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = (v) => { miraCentro = !!v; document.body.classList.toggle('mira-centro', miraCentro); };
+  statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = impostaMiraCentro;
   officina = apriOfficina({
     registri: [registroGiornoPartita(giorno), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, seme: opz.seme })],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),

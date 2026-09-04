@@ -42,10 +42,36 @@ uniform vec2 uNebbia;
 uniform vec3 uCam;
 flat out vec3 vColOmbra;
 flat out vec3 vColSole;
+flat out vec3 vBase;
 flat out float vFaccia;
 flat out vec3 vN;
 out float vNebbia;
 out vec3 vPos;
+// ⚠ L'OMBRA DI LEAFY NON È «PIÙ SCURO»: è lo stesso colore con la tinta
+// spostata verso il blu (14 % della strada), un po' più satura e al 62 % di
+// valore. Si calcola nel vertex (una volta per faccia) in sRGB e si porta in
+// lineare come il colore pieno. Il committente: «le ombre sono solo il colore
+// hue shift più scuro stilizzato».
+vec3 rgb2hsv(vec3 c) {
+  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+  float d = q.x - min(q.w, q.y), e = 1.0e-10;
+  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+vec3 hsv2rgb(vec3 c) {
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+vec3 ombraStile(vec3 s) {
+  vec3 h = rgb2hsv(s);
+  float d = (240.0 / 360.0) - h.x; d -= floor(d + 0.5);   // la via più corta verso il blu
+  h.x = fract(h.x + d * 0.07);   // ⚠ POCO: al 14 % il terracotta diventava mattone rosso
+  h.y = min(1.0, h.y * 1.05 + 0.03);
+  h.z *= 0.64;
+  return hsv2rgb(h);
+}
 void main() {
   // il giro attorno a Y (i corpi del sandbox, un albero girato a caso): seno e
   // coseno per vertice costano meno di una matrice per istanza
@@ -55,15 +81,17 @@ void main() {
   vec3 n = normalize(vec3(aNor.x * cg - aNor.z * sg, aNor.y, aNor.x * sg + aNor.z * cg));
   int materia = int(aMat);
   vec3 base = pow(aCol.rgb * aTinta.rgb, vec3(2.2));
+  vBase = base;
   vec4 mat = uMaterie[materia];
   // due bande per direzione del sole, come i blocchi (vedi resa.js): la faccia
   // che guarda il sole è piena, quella di spalle ha il colore d'ombra
-  // tre bande come i blocchi (vedi resa.js): piena, mezza di sbieco, ombra di spalle
-  float dl = dot(n, -uSoleVerso);
-  vFaccia = mat.x > 0.0 ? 1.0 : (dl > 0.42 ? 1.0 : (dl > 0.02 ? 0.62 : 0.0));
+  // ⚠ I MODELLI HANNO DUE TINTE E BASTA: la faccia che guarda il sole ha il
+  // colore pieno, quella di spalle il colore d'ombra stilizzato (lo stesso
+  // dell'ombra portata). Niente mezza banda: sfumava, e non è Leafy.
+  vFaccia = (mat.x > 0.0 || dot(n, -uSoleVerso) > 0.0) ? 1.0 : 0.0;
   vN = n;
   float sole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
-  vec3 ombra = base * uCieloCol;
+  vec3 ombra = pow(ombraStile(aCol.rgb * aTinta.rgb), vec3(2.2)) * uCieloCol;
   vec3 pieno = base * uSoleCol;
   if (mat.x > 0.0) { ombra = mix(ombra, base * 1.15, mat.x); pieno = mix(pieno, base * 1.15, mat.x); }
   vColOmbra = ombra; vColSole = (pieno - ombra) * sole;
@@ -77,10 +105,29 @@ precision mediump float;
 precision mediump sampler2D;
 flat in vec3 vColOmbra;
 flat in vec3 vColSole;
+flat in vec3 vBase;
 flat in float vFaccia;
 flat in vec3 vN;
 in float vNebbia;
 in highp vec3 vPos;
+uniform highp float uSoleForza;
+uniform highp vec4 uLampade[8];   // x y z raggio dei lampioni ACCESI più vicini (la resa li riceve dalla partita)
+uniform int uNLampade;
+// ⚠ LE POZZE DEI LAMPIONI SONO CERCHI NETTI A DUE BANDE, per pixel: la luce
+// cotta nel vertice, interpolata sui triangoli, faceva poligoni («esagonale»).
+// La luce cotta resta come MASCHERA (dietro un muro non si passa) e per le
+// lampade-blocco, che non stanno nella lista.
+float pozza(highp vec3 pos) {
+  float s = 0.0;
+  for (int i = 0; i < 8; i++) {
+    if (i >= uNLampade) break;
+    highp vec3 d = pos - uLampade[i].xyz; d.y *= 0.7;
+    float q = length(d) / uLampade[i].w;
+    s += q < 0.55 ? 1.0 : (q < 1.0 ? 0.45 : 0.0);
+  }
+  return min(s, 1.0);
+}
+
 uniform highp vec4 uBuco;        // il buco di visuale (vedi resa.js); zero per il giocatore stesso
 uniform highp vec3 uOcchio;
 uniform vec3 uNebbiaCol;
@@ -102,13 +149,24 @@ uniform vec2 uMappaSbieco;                  // x: scostamento lungo la normale (
 // 2×2 in hardware: bordo netto ma senza scalini); lo scostamento lungo la
 // normale e il bias tolgono l'acne. Fuori dalla mappa torna -1 e si usa la
 // mappa per colonna (ombraSole), che copre tutto il mondo in streaming.
+uniform highp mat4 uLuceVPDin;              // mondo → clip della mappa di chi si muove (più stretta: più fitta)
+uniform vec2 uMappaTexel;                   // mezzo texel delle due mappe, in uv
+// ⚠ QUATTRO LETTURE A MEZZO TEXEL E POI UNA SOGLIA: il bordo resta netto ma
+// senza scalini (le ombre «pixellate»). Ogni lettura è già un 2×2 in hardware.
+float pcf(highp sampler2DShadow m, highp vec3 c, float t) {
+  return 0.25 * (texture(m, c + vec3(-t, -t, 0.0)) + texture(m, c + vec3(t, -t, 0.0)) + texture(m, c + vec3(-t, t, 0.0)) + texture(m, c + vec3(t, t, 0.0)));
+}
 float ombraMappa(highp vec3 pos, vec3 n) {
   if (uMappaOn < 0.5) return -1.0;
-  highp vec4 q = uLuceVP * vec4(pos + n * uMappaSbieco.x, 1.0);
+  highp vec3 p = pos + n * uMappaSbieco.x;
+  highp vec4 q = uLuceVP * vec4(p, 1.0);
   highp vec3 u = q.xyz * 0.5 + 0.5;
   if (u.x < 0.004 || u.x > 0.996 || u.y < 0.004 || u.y > 0.996 || u.z > 1.0) return -1.0;
-  highp vec3 c = vec3(u.xy, u.z - uMappaSbieco.y);
-  return min(texture(uMappaStat, c), texture(uMappaDin, c));
+  float s = pcf(uMappaStat, vec3(u.xy, u.z - uMappaSbieco.y), uMappaTexel.x);
+  highp vec4 q2 = uLuceVPDin * vec4(p, 1.0);
+  highp vec3 u2 = q2.xyz * 0.5 + 0.5;
+  if (u2.x > 0.002 && u2.x < 0.998 && u2.y > 0.002 && u2.y < 0.998 && u2.z <= 1.0) s = min(s, pcf(uMappaDin, vec3(u2.xy, u2.z - uMappaSbieco.y), uMappaTexel.y));
+  return smoothstep(0.3, 0.7, s);
 }
 out vec4 colore;
 // ⚠ L'OMBRA DEL SOLE È UNA LETTURA SOLA: la mappa delle ombre (uOmbre, per
@@ -133,6 +191,8 @@ void main() {
   float luce = vFaccia;
   if (uOmbra > 0.5 && luce > 0.0) { float m = ombraMappa(vPos, vN); luce *= m >= 0.0 ? m : ombraSole(vPos); }
   vec3 c = vColOmbra + vColSole * luce;
+  // le pozze dei lampioni anche sui modelli (il gatto sotto il lampione, di notte)
+  c += vBase * vec3(1.30, 1.02, 0.58) * pozza(vPos) * (1.0 - smoothstep(0.30, 0.75, uSoleForza));
   c = pow(mix(c, pow(uNebbiaCol, vec3(2.2)), vNebbia), vec3(1.0 / 2.2));
   // ⚠ LA SAGOMA: quando il gatto è dietro un albero o un muro, si vede la sua
   // ombra piatta attraverso (il committente: «un cono che mostra il player
@@ -196,7 +256,7 @@ export class Modelli {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uMappaOn', 'uMappaSbieco']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade']) this.u[n] = gl.getUniformLocation(this.programma, n);
     this.programmaOmbra = compila(gl, VS_OMBRA, FS_VUOTO);
     this.uoVP = gl.getUniformLocation(this.programmaOmbra, 'uVP');
     // ⚠ CHI SI MUOVE STA NELLA MAPPA D'OMBRA DINAMICA (ogni fotogramma); il
