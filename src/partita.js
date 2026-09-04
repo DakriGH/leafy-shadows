@@ -109,7 +109,7 @@ async function caricaModello(nome) {
       // #1c6f4f, #114d4c, #124d4d): i vertici verdi si ritingono per quota,
       // dal verde pieno in cima al verde-petrolio cupo in basso, a tre scatti.
       const b = modello.byte, dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-      const TIERS = [[0x12, 0x4d, 0x4d], [0x11, 0x4d, 0x4c], [0x1c, 0x6f, 0x4f], [0x5a, 0xc6, 0x4f]];
+      const TIERS = [[0x0f, 0x49, 0x52], [0x14, 0x54, 0x4d], [0x26, 0x7c, 0x4d], [0x5a, 0xc5, 0x50]];   // misurati: #0f4952 #14544d #267c4d #5ac550
       for (let i = 0; i < modello.vertici; i++) {
         const o = i * 20, r = b[o + 16], g = b[o + 17], bl = b[o + 18];
         if (!(g > r + 20 && g > bl + 10)) continue;   // solo il verde: il tronco resta suo

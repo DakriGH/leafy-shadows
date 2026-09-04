@@ -54,7 +54,12 @@ uniform vec3 uStile;   // spostamento di tinta verso il blu, saturazione, valore
 vec3 ombraStile(vec3 s) {
   vec3 h = rgb2hsv(s);
   float d = (240.0 / 360.0) - h.x; d -= floor(d + 0.5);   // la via più corta verso il blu
-  h.x = fract(h.x + d * uStile.x);   // ⚠ POCO (0,07): al 14 % il terracotta diventava mattone rosso
+  // ⚠ MISURATO SULLE CONCEPT: il terracotta si sposta appena (3 %: #e59b69 →
+  // #bf704b), il verde molto di più (15 %: #5ac550 → #34974c). I colori caldi
+  // (tinta sotto i 40°) prendono un quinto dello spostamento.
+  float caldo = 1.0 - smoothstep(0.11, 0.25, h.x);
+  float freddo = smoothstep(0.42, 0.55, h.x);   // i verdi-petrolio e i blu (la chioma dell'albero) restano loro: viravano al ciano
+  h.x = fract(h.x + d * uStile.x * mix(1.0, 0.2, caldo) * mix(1.0, 0.35, freddo));
   h.y = min(1.0, h.y * uStile.y + 0.03);
   h.z *= uStile.z;
   return hsv2rgb(h);
@@ -392,7 +397,12 @@ uniform vec3 uStile;   // spostamento di tinta verso il blu, saturazione, valore
 vec3 ombraStile(vec3 s) {
   vec3 h = rgb2hsv(s);
   float d = (240.0 / 360.0) - h.x; d -= floor(d + 0.5);   // la via più corta verso il blu
-  h.x = fract(h.x + d * uStile.x);   // ⚠ POCO (0,07): al 14 % il terracotta diventava mattone rosso
+  // ⚠ MISURATO SULLE CONCEPT: il terracotta si sposta appena (3 %: #e59b69 →
+  // #bf704b), il verde molto di più (15 %: #5ac550 → #34974c). I colori caldi
+  // (tinta sotto i 40°) prendono un quinto dello spostamento.
+  float caldo = 1.0 - smoothstep(0.11, 0.25, h.x);
+  float freddo = smoothstep(0.42, 0.55, h.x);   // i verdi-petrolio e i blu (la chioma dell'albero) restano loro: viravano al ciano
+  h.x = fract(h.x + d * uStile.x * mix(1.0, 0.2, caldo) * mix(1.0, 0.35, freddo));
   h.y = min(1.0, h.y * uStile.y + 0.03);
   h.z *= uStile.z;
   return hsv2rgb(h);
@@ -552,7 +562,7 @@ export class Resa {
     this.lampade = new Float32Array(32); this.nLampade = 0;
     // lo stile dell'ombra (ombraStile nei vertex): tinta verso il blu, saturazione, valore
     // misurati sulle concept: terracotta #e69c67 → #bf6f4b (valore ×0,83), erba #5ac650 → #33984c (×0,77, tinta +14 %)
-    this.stile = { tinta: 0.08, saturazione: 1.10, valore: 0.80 };
+    this.stile = { tinta: 0.15, saturazione: 1.12, valore: 0.82 };
     this._preparaMappa();
     this.statistiche.calcoliMappa = 0; this.statistiche.disegniOmbra = 0; this.statistiche.triangoliOmbra = 0;
     gl.enable(gl.DEPTH_TEST);

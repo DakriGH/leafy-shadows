@@ -1475,6 +1475,17 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
     prima a quota 8 il prato era #43943c.
   · I ciuffi sono radi (`erba` 1, non 8) e un po' più scuri del prato (0,86).
   · L'albero (`caricaModello`) si ritinge per quota a tre scatti.
+  · Palette dal color picker sull'ultima concept (`tavolozza.mjs`, k-means):
+    terracotta #e59b69/#bf704b, erba #5ac550/#34974c, orlo del supercubo
+    (la fascia verde sul fianco) #34974c → `orlo` in blocks.js e supercubo.js,
+    albero #5ac550 #267c4d #14544d #0f4952, tronco #5c2d25, scala #ecaa50/
+    #df7539 + #5c2d25, fungo #d42c38 + gambo #f5cc9d, gatto blu testa #0696d6
+    corpo #082340, gatto arancio #df7539 + rosa #f48386, roccia #5d5d5d.
+  · `ombraStile`: i colori CALDI (tinta < 40°) prendono un quinto dello
+    spostamento verso il blu, i FREDDI (> 150°) un terzo: misurato, il
+    terracotta si sposta del 3 %, il verde del 15 %, la chioma non deve
+    virare al ciano. `stile` = 0,15 / 1,12 / 0,82.
+  · La vetrina sta a quota 12: lì la rampa dell'erba dà #5ac650 esatto.
 - ⚠ **Nel dock i campi dell'Officina non si stirano** (`.off-campi`
   `align-content: start`): la griglia alta riempiva il pannello con una riga
   ogni cento pixel («storta, nasconde cose»), e le schede vanno a capo

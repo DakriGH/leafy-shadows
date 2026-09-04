@@ -9,7 +9,7 @@
 // ⚠ NIENTE DOM, NIENTE GL: si prova in Node (test/vetrina.test.mjs).
 import { CHUNK } from '../world/world.js';
 
-export const QUOTA = 8;
+export const QUOTA = 12;   // ⚠ A QUOTA 12 LA RAMPA DELL'ERBA DÀ #5ac650, il verde pieno delle concept (a 8 dava il passo scuro)
 
 /** L'isola: [x0, x1, z0, z1, quota] per gradino (estremi inclusi). */
 const GRADINI = [
