@@ -1518,9 +1518,16 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - **Niente cattura del mouse al doppio clic** (solo il tasto L): «mi blocca il mouse».
 - **La selezione copre il supercubo** (`evidenzia` 0,11, `scatola` 0,1): la
   cella nuda 16×16 era più piccola del blocco col brim.
-- **Le pozze non passano i muri** (`pozza(pos, cotto)`): la luce cotta a
-  distanza q dal lampione deve valere circa 1 − q; se è molto meno, in mezzo
-  c'è qualcosa e il cerchio si taglia lì.
+- **L'ombra della luce dei lampioni è VERA** (`ombraLampada`): dal pixel si
+  marcia in dodici passi verso la lanterna (quota +2,6) sulla mappa delle
+  altezze (`uAltezze`, unità 3): se una colonna sta sopra il raggio, buio. Un
+  cubo posato taglia il cerchio col suo profilo, come in Leafy. L'euristica
+  sulla luce cotta non bastava (la luce cotta gira attorno agli ostacoli).
+- **L'alone dei lampioni sono DUE CERCHI CONCENTRICI piatti** dello stesso
+  colore, in trasparenza (`bagliori.js`), come le «fake point light» di Unity:
+  niente alone bianco sfumato.
+- **L'acqua è tornata quella INIZIALE** (rollback chiesto dal committente): le
+  onde da tre direzioni e il meteo non convincevano; si riparte da lì.
 - **Acqua**: la profondità si campiona AL VERTICE (media delle celle
   attorno), non per cella: per cella faceva quadrati netti di colore sul pelo.
   Schiuma bianca pulsante dove l'acqua è bassa (la riva). Onde visibili anche

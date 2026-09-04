@@ -117,23 +117,6 @@ flat in vec3 vN;
 in float vNebbia;
 in highp vec3 vPos;
 uniform highp float uSoleForza;
-uniform highp vec4 uLampade[8];   // x y z raggio dei lampioni ACCESI più vicini (la resa li riceve dalla partita)
-uniform int uNLampade;
-// ⚠ LE POZZE DEI LAMPIONI SONO CERCHI NETTI A DUE BANDE, per pixel: la luce
-// cotta nel vertice, interpolata sui triangoli, faceva poligoni («esagonale»).
-// La luce cotta resta come MASCHERA (dietro un muro non si passa) e per le
-// lampade-blocco, che non stanno nella lista.
-float pozza(highp vec3 pos, float cotto) {
-  float s = 0.0;
-  for (int i = 0; i < 8; i++) {
-    if (i >= uNLampade) break;
-    highp vec3 d = pos - uLampade[i].xyz; d.y *= 0.7;
-    float q = length(d) / uLampade[i].w;
-    float passa = smoothstep((1.0 - q) - 0.45, (1.0 - q) - 0.2, cotto);
-    s += (q < 0.55 ? 1.0 : (q < 1.0 ? 0.45 : 0.0)) * passa;
-  }
-  return min(s, 1.0);
-}
 
 uniform highp vec4 uBuco;        // il buco di visuale (vedi resa.js); zero per il giocatore stesso
 uniform highp vec3 uOcchio;
@@ -145,6 +128,37 @@ uniform highp vec3 uSoleVerso;
 uniform sampler2D uOmbre;
 uniform vec2 uOmbreScala;
 uniform highp vec4 uAltRett;
+uniform highp vec4 uLampade[8];   // x y z raggio dei lampioni ACCESI più vicini (la resa li riceve dalla partita)
+uniform int uNLampade;
+// ⚠ LE POZZE DEI LAMPIONI SONO CERCHI NETTI A DUE BANDE, per pixel: la luce
+// cotta nel vertice, interpolata sui triangoli, faceva poligoni («esagonale»).
+// La luce cotta resta come MASCHERA (dietro un muro non si passa) e per le
+// lampade-blocco, che non stanno nella lista.
+uniform sampler2D uAltezze;   // la mappa delle altezze (cima di ogni colonna + 1), per l'ombra della lampada
+// ⚠ L'OMBRA DELLA LAMPADA È VERA, come in Leafy: dal punto si marcia in sei
+// passi (dodici) verso la lanterna (a 2,6 di quota) e se una colonna della mappa delle
+// altezze sta sopra il raggio, la luce non arriva. Un cubo posato taglia il
+// cerchio col suo profilo. Costa sei letture per lampada, solo entro il raggio.
+float ombraLampada(highp vec3 pos, highp vec3 L) {
+  highp vec3 d = L - pos;
+  for (int i = 1; i <= 12; i++) {   // dodici passi (un terzo di blocco): a sei il bordo dell'ombra era a scalini
+    highp vec3 q = pos + d * (float(i) / 13.0);
+    float h = texture(uAltezze, (q.xz - uAltRett.xy) * uAltRett.zw).r * 255.0;
+    if (h > q.y + 0.05 && h > pos.y + 0.6) return 0.0;
+  }
+  return 1.0;
+}
+float pozza(highp vec3 pos, float cotto) {
+  float s = 0.0;
+  for (int i = 0; i < 8; i++) {
+    if (i >= uNLampade) break;
+    highp vec3 d = pos - uLampade[i].xyz; d.y *= 0.7;
+    float q = length(d) / uLampade[i].w;
+    if (q >= 1.0) continue;
+    s += (q < 0.55 ? 1.0 : 0.45) * ombraLampada(pos, uLampade[i].xyz + vec3(0.0, 2.6, 0.0));
+  }
+  return min(s, 1.0);
+}
 uniform highp sampler2DShadow uMappaStat;   // la mappa d'ombra FERMA: terreno, lampioni, alberi (si rifà quando serve)
 uniform highp sampler2DShadow uMappaDin;    // quella di chi si muove (gatto, corpi): ogni fotogramma, piccola
 uniform highp mat4 uLuceVP;                 // mondo → clip del sole
@@ -263,7 +277,7 @@ export class Modelli {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade', 'uStile']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade', 'uStile', 'uAltezze']) this.u[n] = gl.getUniformLocation(this.programma, n);
     this.programmaOmbra = compila(gl, VS_OMBRA, FS_VUOTO);
     this.uoVP = gl.getUniformLocation(this.programmaOmbra, 'uVP');
     // ⚠ CHI SI MUOVE STA NELLA MAPPA D'OMBRA DINAMICA (ogni fotogramma); il
