@@ -64,12 +64,13 @@ vec3 hsv2rgb(vec3 c) {
   vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
   return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
+uniform vec3 uStile;   // spostamento di tinta verso il blu, saturazione, valore (resa.stile: l'Officina li muove)
 vec3 ombraStile(vec3 s) {
   vec3 h = rgb2hsv(s);
   float d = (240.0 / 360.0) - h.x; d -= floor(d + 0.5);   // la via più corta verso il blu
-  h.x = fract(h.x + d * 0.07);   // ⚠ POCO: al 14 % il terracotta diventava mattone rosso
-  h.y = min(1.0, h.y * 1.05 + 0.03);
-  h.z *= 0.64;
+  h.x = fract(h.x + d * uStile.x);   // ⚠ POCO (0,07): al 14 % il terracotta diventava mattone rosso
+  h.y = min(1.0, h.y * uStile.y + 0.03);
+  h.z *= uStile.z;
   return hsv2rgb(h);
 }
 void main() {
@@ -256,7 +257,7 @@ export class Modelli {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade']) this.u[n] = gl.getUniformLocation(this.programma, n);
+    for (const n of ['uVP', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uSagoma', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade', 'uStile']) this.u[n] = gl.getUniformLocation(this.programma, n);
     this.programmaOmbra = compila(gl, VS_OMBRA, FS_VUOTO);
     this.uoVP = gl.getUniformLocation(this.programmaOmbra, 'uVP');
     // ⚠ CHI SI MUOVE STA NELLA MAPPA D'OMBRA DINAMICA (ogni fotogramma); il

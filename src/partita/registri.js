@@ -27,6 +27,21 @@ export function registroResa(resa, bagliori = null) {
   };
 }
 
+export function registroStile(resa) {
+  return {
+    chiave: 'stile', nome: 'Stile',
+    nota: 'L\'ombra di Leafy è il colore stesso con la tinta spostata verso il blu, un po\' più satura e più scura. Qui si tarano i tre numeri, e si accendono o spengono i pezzi della luce.',
+    campi: [
+      { chiave: 'tinta', nome: 'ombra: spostamento di tinta verso il blu', tipo: 'numero', min: 0, max: 0.3, passo: 0.01, leggi: () => resa.stile.tinta, scrivi: (v) => (resa.stile.tinta = v) },
+      { chiave: 'saturazione', nome: 'ombra: saturazione', tipo: 'numero', min: 0.6, max: 1.6, passo: 0.05, leggi: () => resa.stile.saturazione, scrivi: (v) => (resa.stile.saturazione = v) },
+      { chiave: 'valore', nome: 'ombra: quanto è scura (valore)', tipo: 'numero', min: 0.3, max: 1, passo: 0.02, leggi: () => resa.stile.valore, scrivi: (v) => (resa.stile.valore = v) },
+      { chiave: 'mappa', nome: 'mappa d\'ombra vera (forma delle cose)', tipo: 'interruttore', leggi: () => !!resa.mappa.attiva, scrivi: (v) => (resa.mappa.attiva = !!v) },
+      { chiave: 'mappaRaggio', nome: 'mappa d\'ombra: raggio', tipo: 'numero', min: 16, max: 64, passo: 4, unita: 'blocchi', leggi: () => resa.mappa.raggio, scrivi: (v) => { resa.mappa.raggio = v; resa.mappa.sporca = true; resa.mappa.centro = [1e9, 0, 1e9]; } },
+      { chiave: 'lampade', nome: 'pozze dei lampioni (cerchi)', tipo: 'interruttore', leggi: () => resa.lampadeAccese !== false, scrivi: (v) => (resa.lampadeAccese = !!v) },
+    ],
+  };
+}
+
 export function registroMeteo(meteo) {
   return {
     chiave: 'meteo', nome: 'Meteo',
