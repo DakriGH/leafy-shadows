@@ -36,6 +36,7 @@ import { Bagliori } from './nucleo/bagliori.js';
 import { generaChunkZoo, QUOTA as QUOTA_ZOO } from './partita/zoo.js';
 import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene, registroMeteo } from './partita/registri.js';
 import { Meteo } from './partita/meteo.js';
+import { raggioDaSchermo } from './partita/raggio.js';
 import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
 
 const params = new URLSearchParams(location.search);
@@ -284,20 +285,15 @@ function scatoleDaMirare(occhio) {
 }
 /** Il raggio dalla camera attraverso il punto della tela (o il centro). */
 function raggioDiMira(cam) {
-  const f = [cam.centro[0] - cam.occhio[0], cam.centro[1] - cam.occhio[1], cam.centro[2] - cam.occhio[2]];
-  const fl = Math.hypot(...f) || 1; f[0] /= fl; f[1] /= fl; f[2] /= fl;
-  const r = [f[2], 0, -f[0]]; const rl = Math.hypot(...r) || 1; r[0] /= rl; r[2] /= rl;   // destra = f × su
-  const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
   let nx = 0, ny = 0;
   // ⚠ COL MOUSE CATTURATO (doppio clic / L) IL PUNTATORE NON SI MUOVE PIÙ: la
   // mira va al centro da sola, se no restava piantata dov'era l'ultimo clic
   // («il puntatore è sballato»). La tela può non partire dall'angolo (Officina
-  // agganciata): si toglie il suo bordo.
+  // agganciata): si toglie il suo bordo. Il raggio lo fa partita/raggio.js
+  // (provato in Node: la destra dello schermo è la destra del mondo).
   const centro = miraCentro || document.pointerLockElement === tela || !puntatore.visto;
   if (!centro) { const r = tela.getBoundingClientRect(); nx = ((puntatore.x - r.left) / r.width) * 2 - 1; ny = 1 - ((puntatore.y - r.top) / r.height) * 2; }
-  const t = Math.tan(cam.fov / 2), sx = nx * t * cam.rapporto, sy = ny * t;
-  const d = [f[0] + r[0] * sx + u[0] * sy, f[1] + r[1] * sx + u[1] * sy, f[2] + r[2] * sx + u[2] * sy];
-  const dl = Math.hypot(...d); return { x: d[0] / dl, y: d[1] / dl, z: d[2] / dl };
+  return raggioDaSchermo(cam.occhio, cam.centro, cam.fov, cam.rapporto, nx, ny);
 }
 /** Il lampione sotto una cella (la base, o fino a due celle sotto: il palo è aria). */
 function lampioneIn(x, y, z) {
