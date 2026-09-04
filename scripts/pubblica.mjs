@@ -112,7 +112,11 @@ const targa = `<div id="versione" style="position:fixed;right:8px;bottom:26px;z-
 // niente di nuovo («non hai ancora sistemato nulla»). Al caricamento si legge
 // `versione.txt` SENZA cache: se è diversa dall'etichetta cotta qui dentro,
 // la pagina si ricarica una volta (il reload rivalida il documento col server).
-const autoaggiorna = `<script>(function(){try{fetch('./versione.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text()}).then(function(v){v=v.trim();if(v&&v!=='${etichetta}'&&sessionStorage.getItem('leafy-ricaricata')!==v){sessionStorage.setItem('leafy-ricaricata',v);location.reload()}}).catch(function(){})}catch(e){}})()</script>`;
+// ⚠ SI RICARICA CON UN URL NUOVO (?v=versione), NON con location.reload():
+// il reload riusa l'HTML dalla cache (Pages lo tiene dieci minuti), che carica
+// il vecchio bundle, e il committente «non vedeva le novità». Gli altri
+// parametri (?terza, ?vetrina…) restano.
+const autoaggiorna = `<script>(function(){try{fetch('./versione.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text()}).then(function(v){v=v.trim();if(v&&v!=='${etichetta}'&&sessionStorage.getItem('leafy-ricaricata')!==v){sessionStorage.setItem('leafy-ricaricata',v);var u=new URL(location.href);u.searchParams.set('v',v);location.replace(u.href)}}).catch(function(){})}catch(e){}})()</script>`;
 
 function preparaPagina(nomeHtml, modulo) {
   const testo = readFileSync(join(radice, nomeHtml), 'utf8')
