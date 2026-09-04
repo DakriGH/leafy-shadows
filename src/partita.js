@@ -105,24 +105,32 @@ async function caricaModello(nome) {
     if (!r.ok) throw new Error(`${r.status}`);
     const modello = leggiModello(await r.arrayBuffer());
     if (nome === 'albero') {
-      // ⚠ LA CHIOMA A GRADINI COME NELLE CONCEPT (misurate: cima #5ac64f, poi
-      // #1c6f4f, #114d4c, #124d4d): i vertici verdi si ritingono per quota,
-      // dal verde pieno in cima al verde-petrolio cupo in basso, a tre scatti.
+      // ⚠ LA CHIOMA A GRADINI COME NELLE CONCEPT (misurate: #5ac550, #267c4d,
+      // #14544d, #0f4952): i triangoli verdi si ritingono per quota, TUTTO IL
+      // TRIANGOLO con la quota del suo vertice più basso — per vertice, la
+      // punta di un cono prendeva il colore del gradino sopra: triangoli misti.
       const b = modello.byte, dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-      const TIERS = [[0x0f, 0x49, 0x52], [0x14, 0x54, 0x4d], [0x26, 0x7c, 0x4d], [0x5a, 0xc5, 0x50]];   // misurati: #0f4952 #14544d #267c4d #5ac550
-      for (let i = 0; i < modello.vertici; i++) {
-        const o = i * 20, r = b[o + 16], g = b[o + 17], bl = b[o + 18];
+      const TIERS = [[0x0f, 0x49, 0x52], [0x14, 0x54, 0x4d], [0x26, 0x7c, 0x4d], [0x5a, 0xc5, 0x50]];
+      const alt = Math.max(1e-3, modello.maxY - modello.minY);
+      for (let t = 0; t < modello.triangoli; t++) {
+        const o0 = t * 3 * 20;
+        const r = b[o0 + 16], g = b[o0 + 17], bl = b[o0 + 18];
         if (!(g > r + 20 && g > bl + 10)) continue;   // solo il verde: il tronco resta suo
-        const y = dv.getFloat32(o + 4, true), q = (y - modello.minY) / Math.max(1e-3, modello.maxY - modello.minY);
-        const t = TIERS[Math.min(3, Math.floor(q * 4))];
-        b[o + 16] = t[0]; b[o + 17] = t[1]; b[o + 18] = t[2];
+        const yMin = Math.min(dv.getFloat32(o0 + 4, true), dv.getFloat32(o0 + 24, true), dv.getFloat32(o0 + 44, true));
+        const tier = TIERS[Math.min(3, Math.floor((yMin - modello.minY) / alt * 4))];
+        for (let v = 0; v < 3; v++) { const o = o0 + v * 20; b[o + 16] = tier[0]; b[o + 17] = tier[1]; b[o + 18] = tier[2]; }
       }
+    }
+    if (nome === 'lampione') {
+      // ⚠ IL LAMPIONE È BLU NOTTE UNIFORME (#2a2f4d, misurato sulla concept), il vetro resta caldo ed emissivo
+      const b = modello.byte;
+      for (let i = 0; i < modello.vertici; i++) if (b[i * 20 + 15] !== 1) { b[i * 20 + 16] = 0x2a; b[i * 20 + 17] = 0x2f; b[i * 20 + 18] = 0x4d; }
     }
     modelli.registra(nome, modello);
     registro.sporchi.add(nome);
     if (nome === 'lampione') {
       // ⚠ IL LAMPIONE SPENTO: stessa geometria, il vetro non emette ed è grigio
-      const b = new Uint8Array(modello.byte); for (let i = 0; i < modello.vertici; i++) if (b[i * 20 + 15] === 1) { b[i * 20 + 15] = 0; b[i * 20 + 16] = 0x7a; b[i * 20 + 17] = 0x78; b[i * 20 + 18] = 0x6a; }
+      const b = new Uint8Array(modello.byte); for (let i = 0; i < modello.vertici; i++) if (b[i * 20 + 15] === 1) { b[i * 20 + 15] = 0; b[i * 20 + 16] = 0x19; b[i * 20 + 17] = 0x19; b[i * 20 + 18] = 0x31; }   // il vetro spento: #191931 (concept di giorno)
       modelli.registra('lampioneSpento', { ...modello, byte: b }); modelliCaricati.add('lampioneSpento'); registro.sporchi.add('lampioneSpento');
     }
   } catch (e) { console.warn(`modello ${nome}: ${e.message}`); }
