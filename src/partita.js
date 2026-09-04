@@ -32,7 +32,6 @@ import { Corpi } from './partita/corpi.js';
 import { RegistroModelli } from './partita/registro-modelli.js';
 import { creaLavoro } from './nucleo/lavoro.js';
 import { ARREDI, registraArredi, gatto, TAVOLOZZE } from './partita/arredi.js';
-import { Bagliori } from './nucleo/bagliori.js';
 import { generaChunkZoo, QUOTA as QUOTA_ZOO } from './partita/zoo.js';
 import { generaChunkVetrina, QUOTA as QUOTA_VETRINA } from './partita/vetrina.js';
 import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene, registroMeteo, registroStile } from './partita/registri.js';
@@ -85,7 +84,6 @@ mondo.onEvento = (e) => registro.evento(e);
 const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
 const genera = opz.vetrina ? generaChunkVetrina : opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
 const streaming = new Streaming(mondo, resa, genera, { erba: opz.erba, raggioResa: opz.raggio, lavoro });
-const bagliori = new Bagliori(gl);
 resa.apriFinestraAltezze(0.5, 0.5, 512);
 // ⚠ IL SALVATAGGIO SI RIMETTE PRIMA DI GENERARE: sono le modifiche del
 // giocatore (partita/salvataggio.js), e la frontiera le riapplica a ogni
@@ -142,12 +140,11 @@ function aggiornaModelli() {
   for (const [nome, lista] of registro.cambiate()) {
     if (!modelli.tipi.has(nome)) { caricaModello(nome); registro.sporchi.add(nome); continue; }
     modelli.istanze(nome, lista);
-    // ⚠ OGNI LAMPIONE HA IL SUO BAGLIORE: la lanterna sta 2,35 sopra la base
-    if (nome === 'lampione') {
-      const b = new Float32Array((lista.length / 4) * 8);
-      for (let i = 0; i < lista.length / 4; i++) b.set([lista[i * 4], lista[i * 4 + 1] + 2.35, lista[i * 4 + 2], 1.6, 1.0, 0.85, 0.5, 1.0], i * 8);
-      bagliori.istanze(b);
-    }
+    // ⚠ NIENTE SPRITE SOSPESO ATTORNO ALLA LANTERNA: i due cerchi concentrici
+    // della «fake point light» sono la POZZA A TERRA (pozza(), nel frammento),
+    // centrata sul lampione e tagliata dagli ostacoli. Lo sprite a 2,35 dal
+    // suolo, visto dall'alto, proiettava i suoi cerchi spostati rispetto alla
+    // pozza: sembravano tre luci con tre centri diversi.
   }
 }
 
@@ -534,7 +531,6 @@ function giro(adesso) {
     azioneEl.textContent = etichetta;
   } else azioneEl.textContent = azioneCorrente()[1];
   resa.disegnaAcqua();
-  bagliori.disegna(resa, cam);   // il glow delle lanterne: sprite additivi, dopo tutto
   const js = performance.now() - tj;
   tempi.push(dt * 1000); if (tempi.length > 240) tempi.shift();
   jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
@@ -578,7 +574,7 @@ async function apriOfficinaPartita() {
   statoGiocatore.buco = () => cam3.buco; statoGiocatore.impostaBuco = (v) => (cam3.buco = !!v);
   statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = impostaMiraCentro;
   officina = apriOfficina({
-    registri: [registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, vetrina: opz.vetrina, seme: opz.seme })],
+    registri: [registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, vetrina: opz.vetrina, seme: opz.seme })],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
     autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),

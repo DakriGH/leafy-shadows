@@ -155,7 +155,10 @@ float pozza(highp vec3 pos, float cotto) {
     highp vec3 d = pos - uLampade[i].xyz; d.y *= 0.7;
     float q = length(d) / uLampade[i].w;
     if (q >= 1.0) continue;
-    s += (q < 0.55 ? 1.0 : 0.45) * ombraLampada(pos, uLampade[i].xyz + vec3(0.0, 2.6, 0.0));
+    // ⚠ TRE CERCHI CONCENTRICI PIATTI, un solo centro (il lampione) e una sola
+    // ombra: la «fake point light» che piace al committente. Niente sfumature.
+    float anello = q < 0.35 ? 1.0 : (q < 0.65 ? 0.72 : 0.42);
+    s += anello * ombraLampada(pos, uLampade[i].xyz + vec3(0.0, 2.6, 0.0));
   }
   return min(s, 1.0);
 }

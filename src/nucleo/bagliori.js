@@ -1,3 +1,9 @@
+// ⚠ NON USATO DALLA PARTITA (settembre 2026): lo sprite sospeso attorno alla
+// lanterna, visto dall'alto, proiettava i suoi cerchi spostati rispetto alla
+// pozza a terra e sembravano tre luci. I due cerchi concentrici della «fake
+// point light» oggi sono la pozza per pixel di resa.js/modelli.js. Resta qui
+// come base per un bagliore del solo vetro o per il bloom, se mai serviranno.
+//
 // I BAGLIORI — il glow delle lanterne come lo facevano i vecchi giochi: uno
 // SPRITE ADDITIVO a cartello per sorgente, niente passate a schermo intero.
 //

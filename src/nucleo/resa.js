@@ -156,7 +156,10 @@ float pozza(highp vec3 pos, float cotto) {
     highp vec3 d = pos - uLampade[i].xyz; d.y *= 0.7;
     float q = length(d) / uLampade[i].w;
     if (q >= 1.0) continue;
-    s += (q < 0.55 ? 1.0 : 0.45) * ombraLampada(pos, uLampade[i].xyz + vec3(0.0, 2.6, 0.0));
+    // ⚠ TRE CERCHI CONCENTRICI PIATTI, un solo centro (il lampione) e una sola
+    // ombra: la «fake point light» che piace al committente. Niente sfumature.
+    float anello = q < 0.35 ? 1.0 : (q < 0.65 ? 0.72 : 0.42);
+    s += anello * ombraLampada(pos, uLampade[i].xyz + vec3(0.0, 2.6, 0.0));
   }
   return min(s, 1.0);
 }
@@ -217,11 +220,14 @@ void main() {
   // le bande: il cielo a quattro (per faccia), la lampada a quattro (sulla luce
   // interpolata: pozze tonde), il sole diretto solo dove il cielo è pieno
   float cieloB = floor(vCielo * 4.0 + 0.5) / 4.0;
-  // ⚠ LE POZZE: cerchi netti (pozza) dove la luce cotta dice che la luce arriva,
-  // le bande cotte per le lampade-blocco; di giorno si spengono (il sole le sovrasta)
+  // ⚠ LA LUCE DEI LAMPIONI È SOLO LA POZZA per pixel: tre cerchi netti, tagliati
+  // dall'ostacolo (ombraLampada). Le bande della luce COTTA (floor(vBlocco*4))
+  // NON si sommano più: la cottura gira attorno ai muri per inondazione e
+  // dietro un cubo faceva gradini di luce che non erano l'ombra del lampione
+  // («i cerchi hanno un'ombra che non è normale»). vBlocco resta nel vertice.
   // ⚠ DI GIORNO I CERCHI RESTANO, in trasparenza (45 %): come i lampioni accesi di Leafy
   float notte = mix(0.45, 1.0, 1.0 - smoothstep(0.30, 0.75, uSoleForza));
-  float lamp = max(pozza(vPos, vBlocco), floor(vBlocco * 4.0 + 0.5) / 4.0) * notte;
+  float lamp = pozza(vPos, vBlocco) * notte;
   float sole = vSole * step(0.99, vCielo) * luce;
   // l'ombra: il colore stilizzato (hue shift), tinto dal giorno/notte, più scuro senza cielo
   vec3 ombra = vOmbra * uCieloCol * (0.30 + 0.70 * cieloB);

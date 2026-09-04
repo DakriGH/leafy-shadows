@@ -1523,9 +1523,12 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   altezze (`uAltezze`, unità 3): se una colonna sta sopra il raggio, buio. Un
   cubo posato taglia il cerchio col suo profilo, come in Leafy. L'euristica
   sulla luce cotta non bastava (la luce cotta gira attorno agli ostacoli).
-- **L'alone dei lampioni sono DUE CERCHI CONCENTRICI piatti** dello stesso
-  colore, in trasparenza (`bagliori.js`), come le «fake point light» di Unity:
-  niente alone bianco sfumato.
+- **L'alone dei lampioni sono DUE CERCHI CONCENTRICI piatti A TERRA** dello
+  stesso colore, in trasparenza: la pozza per pixel (`pozza()`), come le «fake
+  point light» di Unity, niente alone bianco sfumato. Lo sprite sospeso a
+  +2,35 (`bagliori.js`) è STATO TOLTO dalla partita: visto dall'alto i suoi
+  cerchi si proiettavano spostati rispetto alla pozza e il committente vedeva
+  «tre luci» con tre centri; un solo centro, quello del lampione.
 - **L'acqua è tornata quella INIZIALE** (rollback chiesto dal committente): le
   onde da tre direzioni e il meteo non convincevano; si riparte da lì.
 - **Acqua**: la profondità si campiona AL VERTICE (media delle celle
@@ -1602,11 +1605,9 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   palette è esatta. Il caldo entra solo col sole basso (`caldo` da `alt`).
 - **L'erba è del colore della cima del blocco sotto** (`ciuffo(..., colCima)`),
   punta ±3% quasi sempre: non si scurisce la base, non si «migliora» la punta.
-- **Il glow è uno sprite** (`nucleo/bagliori.js`): un disegno a istanze per
-  tutte le lanterne, additivo, profondità letta e non scritta, cartello un
-  quarto di raggio verso la camera. Le sorgenti le dà `aggiornaModelli` dal
-  registro dei lampioni (lanterna a +2,35). Prima di un bloom a schermo intero
-  si misura questo sul Mali.
+- **Il glow a sprite** (`nucleo/bagliori.js`, cartello additivo a istanze)
+  NON è più disegnato dalla partita: la luce dei lampioni è solo la pozza a
+  terra. Il modulo resta per un eventuale bagliore del vetro o per il bloom.
 - **Lo zoo** (`partita/zoo.js`, `?zoo`) è un GENERATORE per chunk come l'open
   world: passa dalla stessa frontiera e dallo stesso streaming. Fuori dal
   piano i chunk sono vuoti: lo streaming li segna in `_vuoti` e non li rimette
