@@ -1461,6 +1461,16 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - ⚠ **Le modifiche passano da `streaming.tocca(x, z)`**: il mondo segna i
   chunk di bordo, ma la luce cotta arriva a SEI celle — un lampione a tre
   celle dal confine illumina il chunk accanto, che il mondo non segna.
+- ⚠ **Nel dock i campi dell'Officina non si stirano** (`.off-campi`
+  `align-content: start`): la griglia alta riempiva il pannello con una riga
+  ogni cento pixel («storta, nasconde cose»), e le schede vanno a capo
+  (`#officina.incassato nav { flex-wrap: wrap }`) invece di sparire a destra.
+  Il registro «Stile» (`registroStile`) tara l'ombra (tinta, saturazione,
+  valore → `resa.stile`, uniform `uStile`), la mappa d'ombra e le pozze.
+- ⚠ **La normale dell'acqua viene dalle sole onde lunghe**: le increspature
+  fini facevano un riflesso «casuale» e brillii a coriandoli guardando il
+  sole. La deformazione del riflesso è il 3-10 % dello schermo e cala con la
+  distanza; il brillio è una banda netta sulle onde lunghe.
 - ⚠ **La mira va al centro da sola col mouse catturato** (`raggioDiMira`:
   `pointerLockElement === tela`): il puntatore non si muove più e restava
   piantato dov'era l'ultimo clic («il puntatore è sballato»). Le coordinate

@@ -34,7 +34,7 @@ import { creaLavoro } from './nucleo/lavoro.js';
 import { ARREDI, registraArredi, gatto, TAVOLOZZE } from './partita/arredi.js';
 import { Bagliori } from './nucleo/bagliori.js';
 import { generaChunkZoo, QUOTA as QUOTA_ZOO } from './partita/zoo.js';
-import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene, registroMeteo } from './partita/registri.js';
+import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene, registroMeteo, registroStile } from './partita/registri.js';
 import { Meteo } from './partita/meteo.js';
 import { raggioDaSchermo } from './partita/raggio.js';
 import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
@@ -374,7 +374,7 @@ function lampadeVicine() {
   _lampade.sort((a, b) => a[0] - b[0]);
   const n = Math.min(8, _lampade.length);
   for (let i = 0; i < n; i++) { const l = _lampade[i]; resa.lampade[i * 4] = l[1]; resa.lampade[i * 4 + 1] = l[2]; resa.lampade[i * 4 + 2] = l[3]; resa.lampade[i * 4 + 3] = 4.6; }
-  resa.nLampade = n;
+  resa.nLampade = resa.lampadeAccese === false ? 0 : n;
 }
 // il meteo: il mare vaga da solo (partita/meteo.js); ?mare=0.6 lo ferma lì
 const meteo = new Meteo(opz.seme);
@@ -508,7 +508,7 @@ async function apriOfficinaPartita() {
   statoGiocatore.buco = () => cam3.buco; statoGiocatore.impostaBuco = (v) => (cam3.buco = !!v);
   statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = impostaMiraCentro;
   officina = apriOfficina({
-    registri: [registroGiornoPartita(giorno), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, seme: opz.seme })],
+    registri: [registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, seme: opz.seme })],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
     autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),

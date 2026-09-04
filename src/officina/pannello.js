@@ -43,10 +43,11 @@ const CSS = `
   border-radius: 6px; padding: 3px 7px; cursor: pointer; min-width: 30px; }
 #officina header button:disabled { opacity: .35; cursor: default; }
 #officina nav { display: flex; gap: 4px; padding: 6px 8px; overflow-x: auto; border-bottom: 1px solid var(--riga); scrollbar-width: none; }
+#officina.incassato nav { flex-wrap: wrap; overflow: visible; }   /* nel dock c'è spazio in altezza: le schede vanno a capo invece di sparire a destra */
 #officina nav button { font: inherit; font-size: 11px; color: var(--inch); background: var(--tenue); border: 1px solid var(--riga);
   border-radius: 999px; padding: 4px 10px; white-space: nowrap; cursor: pointer; flex: 0 0 auto; }
 #officina nav button.acceso { background: var(--acceso); border-color: var(--acceso); color: var(--accesoTesto); }
-#officina .off-campi { overflow: auto; padding: 6px 10px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; min-width: 0; flex: 1; }
+#officina .off-campi { overflow: auto; padding: 6px 10px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; min-width: 0; flex: 1; align-content: start; }   /* ⚠ align-content: start — nel dock alto le righe della griglia si stiravano a riempirlo: un campo ogni cento pixel */
 #officina .off-nota { font-size: 11px; opacity: .72; margin: 2px 0 4px; white-space: pre-wrap; }
 #officina .campo { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; min-width: 0; }
 #officina .campo .riga { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

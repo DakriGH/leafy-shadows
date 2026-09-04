@@ -50,12 +50,13 @@ vec3 hsv2rgb(vec3 c) {
   vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
   return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
+uniform vec3 uStile;   // spostamento di tinta verso il blu, saturazione, valore (resa.stile: l'Officina li muove)
 vec3 ombraStile(vec3 s) {
   vec3 h = rgb2hsv(s);
   float d = (240.0 / 360.0) - h.x; d -= floor(d + 0.5);   // la via più corta verso il blu
-  h.x = fract(h.x + d * 0.07);   // ⚠ POCO: al 14 % il terracotta diventava mattone rosso
-  h.y = min(1.0, h.y * 1.05 + 0.03);
-  h.z *= 0.64;
+  h.x = fract(h.x + d * uStile.x);   // ⚠ POCO (0,07): al 14 % il terracotta diventava mattone rosso
+  h.y = min(1.0, h.y * uStile.y + 0.03);
+  h.z *= uStile.z;
   return hsv2rgb(h);
 }
 void main() {
@@ -303,9 +304,10 @@ vec2 increspa(vec2 p, float t) {
 void main() {
   vec3 vista = normalize(uCam - vPos);
   float dist = distance(uCam, vPos);
-  // la normale del pelo: onde lunghe più increspature, e il meteo decide quanto è mossa
-  vec2 r = increspa(vPos.xz, uTempo);
-  vec2 g = pendenza(vPos.xz, uTempo) * mix(0.03, 0.18, uMare) + r * mix(0.02, 0.10, uMare);
+  // ⚠ LA NORMALE VIENE DALLE ONDE LUNGHE E BASTA: lisce e leggibili. Le
+  // increspature fini facevano un riflesso «casuale» e brillii a coriandoli
+  // («guardando il sole si nota che le onde non sono fatte bene»).
+  vec2 g = pendenza(vPos.xz, uTempo) * mix(0.05, 0.22, uMare);
   vec3 n = vPelo > 0.5 ? normalize(vec3(-g.x, 1.0, -g.y)) : vec3(0.0, 1.0, 0.0);
   // profondità → violaceo e opaco (scala 0,12 per blocco, corpo come la ricetta)
   float k = clamp(vProf * 0.12, 0.0, 1.0);
@@ -327,7 +329,7 @@ void main() {
   // riflesso «tagliato» era il bordo che si spalmava.
   vec2 s = gl_FragCoord.xy * uSchermo.xy;
   float bordo = smoothstep(0.0, 0.08, min(min(s.x, 1.0 - s.x), min(s.y, 1.0 - s.y)));
-  vec2 uv = clamp(s + n.xz * mix(0.012, 0.045, uMare) * vPelo * bordo / (1.0 + dist * 0.04), 0.002, 0.998);
+  vec2 uv = clamp(s + n.xz * mix(0.03, 0.10, uMare) * vPelo * bordo / (1.0 + dist * 0.02), 0.002, 0.998);
   vec3 riflesso = mix(cielo, pow(texture(uSpecchio, uv).rgb, vec3(2.2)), uSchermo.z);
   // ⚠ IL CIELO CAPOVOLTO SOLO RADENTE quando non c'è specchio: a 45° il fresnel
   // cubico vale il 2%. Con lo specchio il riflesso c'è sempre un po' (22%) e
@@ -336,11 +338,9 @@ void main() {
   float peso = mix(fres * 0.55, mix(mix(0.20, 0.12, uMare), 0.85, fres), uSchermo.z) * vPelo;
   acqua = mix(acqua, riflesso, peso);
   alfa = mix(alfa, 0.95, fres * vPelo);
-  // le scintille del sole: dalle increspature, piccole e tante (non dalle onde lunghe: bolle)
-  vec2 gr = r * mix(0.10, 0.28, uMare);
-  vec3 nS = normalize(vec3(-gr.x, 1.0, -gr.y));
-  float brillio = step(mix(0.9965, 0.988, uMare), dot(reflect(-vista, nS), -uSoleVerso)) * uSoleForza * vPelo;
-  acqua += vec3(0.75) * brillio;
+  // il brillio del sole: una banda netta sulle onde lunghe (cel), più larga col mare mosso
+  float brillio = step(mix(0.994, 0.982, uMare), dot(reflect(-vista, n), -uSoleVerso)) * uSoleForza * vPelo;
+  acqua += vec3(0.8) * brillio;
   vec3 c = pow(mix(acqua, cielo, vNebbia), vec3(1.0 / 2.2));
   colore = vec4(c, mix(alfa, 1.0, vNebbia));
 }`;
@@ -388,12 +388,13 @@ vec3 hsv2rgb(vec3 c) {
   vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
   return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
+uniform vec3 uStile;   // spostamento di tinta verso il blu, saturazione, valore (resa.stile: l'Officina li muove)
 vec3 ombraStile(vec3 s) {
   vec3 h = rgb2hsv(s);
   float d = (240.0 / 360.0) - h.x; d -= floor(d + 0.5);   // la via più corta verso il blu
-  h.x = fract(h.x + d * 0.07);   // ⚠ POCO: al 14 % il terracotta diventava mattone rosso
-  h.y = min(1.0, h.y * 1.05 + 0.03);
-  h.z *= 0.64;
+  h.x = fract(h.x + d * uStile.x);   // ⚠ POCO (0,07): al 14 % il terracotta diventava mattone rosso
+  h.y = min(1.0, h.y * uStile.y + 0.03);
+  h.z *= uStile.z;
   return hsv2rgb(h);
 }
 void main() {
@@ -481,7 +482,7 @@ export class Resa {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade']) {
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade', 'uStile']) {
       this.u[n] = gl.getUniformLocation(this.programma, n);
     }
     // ⚠ UN SOLO BUFFER DI INDICI PER TUTTI I CHUNK (formato.js)
@@ -491,7 +492,7 @@ export class Resa {
     // stesso fragment dei solidi (horizon mapping, nebbia), ma con i colori INTERPOLATI: la lamella sfuma dalla base alla punta
     this.programmaErba = compila(gl, VS_ERBA, FS.replace(/flat in /g, 'in '));
     this.ue = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade', 'uStile']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
     // ⚠ LA PASSATA D'OMBRA: solo posizione, niente colore (il fragment è vuoto)
     this.programmaOmbra = compila(gl, VS_OMBRA, FS_VUOTO);
     this.uo = { uVP: gl.getUniformLocation(this.programmaOmbra, 'uVP'), uChunk: gl.getUniformLocation(this.programmaOmbra, 'uChunk') };
@@ -548,6 +549,8 @@ export class Resa {
     this.mappa = { attiva: true, lato: 2048, latoDin: 1024, raggio: 32, raggioDin: 14, stat: null, din: null, vp: new Float32Array(16), vpDin: new Float32Array(16), centro: [1e9, 0, 1e9], sole: [0, 0, 0], sporca: true, on: false, calcoli: 0, disegni: 0, triangoli: 0 };
     // i lampioni accesi più vicini, per le pozze per pixel: [x, y, z, raggio] × 8 (la partita li scrive)
     this.lampade = new Float32Array(32); this.nLampade = 0;
+    // lo stile dell'ombra (ombraStile nei vertex): tinta verso il blu, saturazione, valore
+    this.stile = { tinta: 0.07, saturazione: 1.05, valore: 0.64 };
     this._preparaMappa();
     this.statistiche.calcoliMappa = 0; this.statistiche.disegniOmbra = 0; this.statistiche.triangoliOmbra = 0;
     gl.enable(gl.DEPTH_TEST);
@@ -890,6 +893,7 @@ void main() {
     // un texel e mezzo lungo la normale, e un decimo di blocco di profondità (su 220 di intervallo)
     gl.uniform2f(u.uMappaSbieco, 1.5 * (2 * m.raggio / m.lato), 0.1 / 220);
     gl.uniform4fv(u.uLampade, this.lampade); gl.uniform1i(u.uNLampade, this.nLampade);
+    gl.uniform3f(u.uStile, this.stile.tinta, this.stile.saturazione, this.stile.valore);
   }
 
   /**
