@@ -64,14 +64,14 @@
     };
     window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
     window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
-    import('./main.js?v=1427744.e4ca2363').catch(guasto);
+    import('./main.js?v=e951348.b2008616').catch(guasto);
 
     // ⚠ SI APRE TOCCANDOLO. Il gestore sta sul PANNELLO e non sulla tela: se no
     // il tocco che apre il pannello sarebbe anche quello che ruota la camera.
     const _st = document.getElementById('stato');
     _st.addEventListener('click', () => _st.classList.toggle('aperto'));
 </script>
-  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">04/09, 01:41 · 1427744</div>
-  <script>(function(){try{fetch('./versione.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text()}).then(function(v){v=v.trim();if(v&&v!=='1427744.e4ca2363'&&sessionStorage.getItem('leafy-ricaricata')!==v){sessionStorage.setItem('leafy-ricaricata',v);location.reload()}}).catch(function(){})}catch(e){}})()</script>
+  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">04/09, 01:55 · e951348</div>
+  <script>(function(){try{fetch('./versione.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text()}).then(function(v){v=v.trim();if(v&&v!=='e951348.b2008616'&&sessionStorage.getItem('leafy-ricaricata')!==v){sessionStorage.setItem('leafy-ricaricata',v);location.reload()}}).catch(function(){})}catch(e){}})()</script>
 </body>
 </html>
