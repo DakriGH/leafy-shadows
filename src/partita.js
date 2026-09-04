@@ -155,14 +155,14 @@ const intento = tastiera();
 const comandi = new ComandiTocco(intento);
 const modoGui = new ModoGui((aTocco) => { if (!aTocco && comandi.azzera) comandi.azzera(); });
 const sguardo = new Sguardo(tela, { alpha: 0.6, beta: -0.2 });
-let volo = false, terza = opz.terza;
+// ⚠ SOLO LA TERZA PERSONA, come Leafy: la camera orbita attorno al gatto, si cammina con WASD/joystick O cliccando dove andare
+let volo = false; const terza = true;
 const giu = new Set();
 window.addEventListener('keydown', (e) => {
   if (/^(INPUT|TEXTAREA)$/.test(e.target && e.target.tagName)) return;
   giu.add(e.code);
   if (e.code === 'KeyF') cambiaVolo();
   if (e.code === 'KeyH') { const st = document.getElementById('stato'); st.hidden = !st.hidden; }
-  if (e.code === 'KeyV') cambiaTerza();
   if (e.code === 'KeyM') impostaMiraCentro(!miraCentro);   // M: mirino al centro / dove sta il mouse
   if (e.code === 'KeyC') lanciaCubi(20);
   if (/^Digit[0-9]$/.test(e.code)) scegli(e.code === 'Digit0' ? 9 : +e.code.slice(5) - 1);
@@ -186,14 +186,9 @@ const pizzica = (e) => {
   pizzico = d;
 };
 for (const n of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) tela.addEventListener(n, pizzica, { passive: true });
-function impostaVolo(v) { volo = v; document.getElementById('volo').classList.toggle('acceso', volo); if (volo) passeggero.vy = 0; }
-function impostaTerza(v) { terza = v; document.getElementById('terza').classList.toggle('acceso', terza); }
+function impostaVolo(v) { volo = v; if (volo) passeggero.vy = 0; }
 function cambiaVolo() { impostaVolo(!volo); }
-function cambiaTerza() { impostaTerza(!terza); }
-document.getElementById('volo').addEventListener('click', cambiaVolo);
-document.getElementById('terza').addEventListener('click', cambiaTerza);
 document.getElementById('cubi').addEventListener('click', () => lanciaCubi(20));
-if (terza) document.getElementById('terza').classList.add('acceso');
 
 /** Il passo del passeggero, a passo fisso come i corpi (60 Hz), o il volo.
  *  ⚠ SI INTERPOLA: la posizione disegnata sta fra il passo prima e quello dopo
@@ -224,7 +219,7 @@ function cammina(dt) {
       passeggero.vy = 0;
       continue;
     }
-    passeggero.aggiorna(PASSO, intento, av);
+    passeggero.aggiorna(PASSO, intentoDelPasso(av), av);
     // in acqua si galleggia: la caduta è lenta e il salto è una bracciata
     const t = mondo.tipo(Math.floor(passeggero.x), Math.floor(passeggero.y + 0.3), Math.floor(passeggero.z));
     if (t && defDi(t).acqua) { if (passeggero.vy < -1.2) passeggero.vy = -1.2; if (intento.salta) passeggero.vy = 3; passeggero.aTerra = false; }
@@ -294,7 +289,7 @@ tela.addEventListener('pointerdown', (e) => { puntatore.x = e.clientX; puntatore
 const _scatole = [];
 function scatoleDaMirare(occhio) {
   _scatole.length = 0;
-  const lim = (PORTATA + 3) * (PORTATA + 3);
+  const lim = 200 * 200;
   for (const [nome, celle] of registro.tipi) {
     if (nome === 'omino' || nome === 'cubo') continue;
     const d = DECORAZIONI[nome] || (nome === 'lampioneSpento' ? DECORAZIONI.lampione : null);
@@ -359,11 +354,45 @@ ascoltaClic(tela, (e) => {
   if (sguardo.trascinato > 6) return;
   const [verbo] = azioneCorrente();
   // il destro (o il tocco senza piccone): posa, o accende/spegne, o tocca
+  // ⚠ COME LEAFY: si clicca e il gatto ci va. Destro = vai lì sempre; sinistro/tocco
+  // con la mano vuota su un blocco qualunque = vai lì; su un lampione = accendi/spegni;
+  // con un blocco in mano = posa.
   if (e.button === 2 || (e.pointerType === 'touch' && !comandi.demolisci)) {
     if (verbo === 'lampione') { const l = lampioneIn(...bersaglio.cella); accendiSpegni(l[0], l[1], l[2], l[3]); }
     else if (verbo === 'posa') posa();
-  } else if (e.button === 0 && verbo === 'lampione' && e.pointerType !== 'touch') { const l = lampioneIn(...bersaglio.cella); accendiSpegni(l[0], l[1], l[2], l[3]); }
+    else if (bersaglio) vaiA(bersaglio);
+  } else if (e.button === 0 && e.pointerType !== 'touch') {
+    if (verbo === 'lampione') { const l = lampioneIn(...bersaglio.cella); accendiSpegni(l[0], l[1], l[2], l[3]); }
+    else if (verbo === 'tocca' && bersaglio) vaiA(bersaglio);
+  }
 });
+// ── il clic per muoversi ─────────────────────────────────────────────────────
+// La META è il centro della cella d'aria davanti alla faccia cliccata (o la
+// cella stessa se si è cliccato l'erba dall'alto): il passeggero ci cammina
+// dritto, con lo scalino automatico; se resta fermo mezzo secondo, salta.
+let meta = null, metaFermo = 0, metaUltimaX = 0, metaUltimaZ = 0;
+function vaiA(b) {
+  const c = b.faccia && b.faccia[1] > 0 ? b.cella : b.prima;   // cliccato di sopra: la cella; di lato: quella davanti
+  meta = { x: c[0] + 0.5, y: b.faccia && b.faccia[1] > 0 ? c[1] + 1 : c[1], z: c[2] + 0.5, cella: [c[0], b.faccia && b.faccia[1] > 0 ? c[1] + 1 : c[1], c[2]] };
+  metaFermo = 0; metaUltimaX = passeggero.x; metaUltimaZ = passeggero.z;
+}
+/** Le intenzioni di questo passo: la tastiera/joystick, o la meta del clic. */
+const intentoMeta = { avanti: 0, destra: 0, salta: false };
+function intentoDelPasso(av) {
+  if (intento.avanti || intento.destra || intento.salta) { meta = null; return intento; }
+  if (!meta) return intento;
+  const dx = meta.x - passeggero.x, dz = meta.z - passeggero.z, d = Math.hypot(dx, dz);
+  if (d < 0.35) { meta = null; return intento; }
+  const fx = av.x, fz = av.z;
+  intentoMeta.avanti = (dx * fx + dz * fz) / d;
+  intentoMeta.destra = (dx * -fz + dz * fx) / d;
+  // fermo contro qualcosa? un salto
+  metaFermo += PASSO;
+  if (Math.hypot(passeggero.x - metaUltimaX, passeggero.z - metaUltimaZ) > 0.05) { metaFermo = 0; metaUltimaX = passeggero.x; metaUltimaZ = passeggero.z; }
+  intentoMeta.salta = metaFermo > 0.5 && passeggero.aTerra;
+  if (intentoMeta.salta) metaFermo = 0;
+  return intentoMeta;
+}
 ascoltaPressione(tela, {
   onInizio: (e) => { tienePremuto = !(e.pointerType === 'touch' && !comandi.demolisci); },
   onFine: () => { tienePremuto = false; scavo.molla(); },
@@ -453,11 +482,10 @@ function giro(adesso) {
   const v = sguardo.verso();
   const rm = raggioDiMira(cam);
   const occhio = { x: cam.occhio[0], y: cam.occhio[1], z: cam.occhio[2] };
-  bersaglio = miraCompleta(mondo, occhio, rm, scatoleDaMirare(occhio), PORTATA + (terza ? distanzaTerza : 0));
+  // ⚠ DISTANZA ILLIMITATA (per adesso): si interagisce con qualsiasi cosa si clicca, come in Leafy
+  bersaglio = miraCompleta(mondo, occhio, rm, scatoleDaMirare(occhio), 200);
   // una scatola presa (lampione, fungo…): la cella mirata è la SUA, non il blocco dietro
   if (bersaglio && bersaglio.scatola) bersaglio.cella = bersaglio.dato.cella;
-  // ⚠ ENTRO LA PORTATA DEL GATTO, non della camera: in terza persona a 40 blocchi non si scava la collina di fronte
-  if (bersaglio && Math.hypot(bersaglio.cella[0] + 0.5 - passeggero.x, bersaglio.cella[1] + 0.5 - passeggero.y - 0.5, bersaglio.cella[2] + 0.5 - passeggero.z) > PORTATA + 1.5) bersaglio = null;
   void v;
   if (tienePremuto && bersaglio) {
     const [x, y, z] = bersaglio.cella;
@@ -468,11 +496,12 @@ function giro(adesso) {
   modelli.istanze('cubo', bufIstanze = corpi.istanze(bufIstanze), 8);
   // ⚠ ALLA ANIMAL CROSSING: il gatto si gira verso dove CAMMINA (non verso la
   // camera), con una rotazione morbida; cammina con un passetto
-  if (intento.avanti || intento.destra) giroVoluto = Math.PI - passeggero.verso;
+  if (intento.avanti || intento.destra || meta) giroVoluto = Math.PI - passeggero.verso;
   let dg = giroVoluto - giroGatto; dg = Math.atan2(Math.sin(dg), Math.cos(dg)); giroGatto += dg * (1 - Math.exp(-dt / 0.08));
-  const passo = (intento.avanti || intento.destra) && passeggero.aTerra ? Math.abs(Math.sin(adesso / 90)) * 0.06 : 0;
+  const passo = (intento.avanti || intento.destra || meta) && passeggero.aTerra ? Math.abs(Math.sin(adesso / 90)) * 0.06 : 0;
   const [gx, gy, gz] = posizioneDisegnata();
-  if (terza) modelli.istanze('omino', [gx, gy + passo, gz, 1, 1, 1, 1, giroGatto], 8); else modelli.istanze('omino', [], 8);
+  modelli.istanze('omino', [gx, gy + passo, gz, 1, 1, 1, 1, giroGatto], 8);
+  if (meta) resa.scatola(meta.cella[0], meta.cella[1], meta.cella[2], 1.0, 0.95, 0.6, 0.30, 0.0);   // dove sta andando
   resa.disegna(cam, dt, modelli);
   modelli.disegna(resa, cam);
   // ⚠ SI VEDE COSA SI STA PER FARE: il blocco mirato pieno e traslucido (giallo;
@@ -510,7 +539,7 @@ function stampa() {
     `${opz.vetrina ? 'VETRINA' : opz.zoo ? 'ZOO' : 'PARTITA'} sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
     + `disegni ${st.disegni + modelli.statistiche.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio} · triangoli ${(st.triangoli + modelli.statistiche.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio).toLocaleString('it')} · chunk ${st.chunkVisti}/${st.chunkTotali} (coda ${sm.inCoda}${lavoro ? `, in volo ${sm.inVolo} su ${lavoro.operai.length} worker` : ''}, ${sm.ultimaMs.toFixed(1)} ms) · corpi ${corpi.statistiche.corpi} (${corpi.statistiche.svegli} svegli)\n`
     + `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)} · ${volo ? 'volo' : passeggero.aTerra ? 'a terra' : 'in aria'} · modifiche ${contaModifiche(mondo)}${salvate > 0 ? ` (${salvate} ricaricate)` : ''} · in mano: ${bottoni[scelto].textContent}${bersaglio ? ` · miri ${mondo.tipo(...bersaglio.cella)}` : ''}\n`
-    + `WASD/joystick cammina · trascina guarda · doppio clic/L cattura il mouse · si mira dove sta il dito o il mouse · sinistro tieni = scava · destro/tocco = posa o accendi · ⛏ col dito scava · F vola · V terza (rotella/pizzico = zoom fino a 40) · C cubi · 1-9 cassetta`;
+    + `WASD/joystick cammina · clic a terra (mano vuota) o destro = il gatto ci va · trascina = gira la camera · rotella/pizzico = zoom · sinistro tieni = scava · destro/tocco = posa o accendi · ⛏ col dito scava · C cubi · 1-9 cassetta · M mirino`;
 }
 requestAnimationFrame(giro);
 
@@ -520,7 +549,7 @@ async function apriOfficinaPartita() {
   if (officina) { document.body.classList.toggle('con-officina'); return; }   // il 🛠 apre e chiude
   const { apriOfficina } = await import('./officina/index.js');
   const statoGiocatore = {
-    get volo() { return volo; }, get terza() { return terza; }, impostaVolo, impostaTerza,
+    get volo() { return volo; }, get terza() { return terza; }, impostaVolo,
     dove: () => `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)}`,
     aCasa: () => { passeggero.x = 0.5; passeggero.z = 0.5; passeggero.y = cimaIn(0, 0) + 0.5; passeggero.vy = 0; },
     modifiche: () => contaModifiche(mondo),
