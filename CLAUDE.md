@@ -1486,6 +1486,12 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
     terracotta si sposta del 3 %, il verde del 15 %, la chioma non deve
     virare al ciano. `stile` = 0,15 / 1,12 / 0,82.
   · La vetrina sta a quota 12: lì la rampa dell'erba dà #5ac650 esatto.
+  · LE DUE STRISCE: il fianco del blocco d'erba è terracotta chiaro #e59b69,
+    la terra sotto è marrone scuro #bf704b (il committente: «la terra deve
+    essere solo marrone scuro»). Il lampione è blu notte uniforme #2a2f4d,
+    vetro spento #191931. L'albero si ritinge PER TRIANGOLO (quota del vertice
+    più basso), non per vertice: per vertice le punte dei coni facevano
+    triangoli misti.
 - ⚠ **Nel dock i campi dell'Officina non si stirano** (`.off-campi`
   `align-content: start`): la griglia alta riempiva il pannello con una riga
   ogni cento pixel («storta, nasconde cose»), e le schede vanno a capo
