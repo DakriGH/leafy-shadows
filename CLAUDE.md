@@ -1366,6 +1366,19 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   hanno lo stesso colore, cambia solo chi è al sole. Senza, «tutto piatto».
   ⚠ Il sole non va mai a picco (14°→48°, `partita.js` e `banco-nucleo.js`),
   se no a mezzogiorno ogni parete è di spalle.
+  ⚠ Sono TRE bande (`vFaccia`: piena > 0,42 · mezza 0,62 di sbieco · ombra
+  di spalle), come una rampa toon: con due sole gli smussi del supercubo erano
+  o bianchi o neri e il mondo sembrava «grezzo». La mappa d'ombra MOLTIPLICA
+  la banda (`luce *= …`), non la sostituisce.
+- **Il cielo è un triangolo a tutto schermo** (`resa._disegnaCielo`, VS/FS_CIELO):
+  sfumato dall'orizzonte (= colore della nebbia, così il lontano ci si fonde)
+  allo zenit, disco del sole e alone, senza profondità, PRIMA di tutto, anche
+  nello specchio. La tinta piatta di prima era mezza sensazione di «grezzo».
+- **L'acqua ha tre onde da tre direzioni** (VS/FS_ACQUA `onde`/`pendenza`) e
+  il METEO (`partita/meteo.js`, `resa.mare` 0..1): calmo = quasi specchio,
+  mosso = onde alte, riflesso più deformato, brillii larghi. La deformazione
+  del riflesso si spegne ai bordi dello schermo (era il «riflesso tagliato»).
+  `?mare=0.6` lo ferma; l'Officina ha il registro «Meteo».
 - **L'ombra portata vicina è una MAPPA D'OMBRA VERA** (`resa._aggiornaMappa`,
   `ombraMappa` nei fragment): profondità ortografica vista dal sole, raggio 40
   attorno alla mira della camera, due texture: `stat` 2048² (terreno + modelli

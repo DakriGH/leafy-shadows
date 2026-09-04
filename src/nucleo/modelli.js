@@ -58,7 +58,9 @@ void main() {
   vec4 mat = uMaterie[materia];
   // due bande per direzione del sole, come i blocchi (vedi resa.js): la faccia
   // che guarda il sole è piena, quella di spalle ha il colore d'ombra
-  vFaccia = (mat.x > 0.0 || dot(n, -uSoleVerso) > 0.05) ? 1.0 : 0.0;
+  // tre bande come i blocchi (vedi resa.js): piena, mezza di sbieco, ombra di spalle
+  float dl = dot(n, -uSoleVerso);
+  vFaccia = mat.x > 0.0 ? 1.0 : (dl > 0.42 ? 1.0 : (dl > 0.02 ? 0.62 : 0.0));
   vN = n;
   float sole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   vec3 ombra = base * uCieloCol;
@@ -129,7 +131,7 @@ void main() {
     if (t > 0.0 && t < lung - 0.35 && length(vPos - uOcchio - dir * t) < uBuco.w) discard;
   }
   float luce = vFaccia;
-  if (uOmbra > 0.5 && luce > 0.0) { float m = ombraMappa(vPos, vN); luce = m >= 0.0 ? m : ombraSole(vPos); }
+  if (uOmbra > 0.5 && luce > 0.0) { float m = ombraMappa(vPos, vN); luce *= m >= 0.0 ? m : ombraSole(vPos); }
   vec3 c = vColOmbra + vColSole * luce;
   c = pow(mix(c, pow(uNebbiaCol, vec3(2.2)), vNebbia), vec3(1.0 / 2.2));
   // ⚠ LA SAGOMA: quando il gatto è dietro un albero o un muro, si vede la sua

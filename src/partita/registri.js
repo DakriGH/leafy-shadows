@@ -27,6 +27,17 @@ export function registroResa(resa, bagliori = null) {
   };
 }
 
+export function registroMeteo(meteo) {
+  return {
+    chiave: 'meteo', nome: 'Meteo',
+    nota: 'Il mare: 0 è uno specchio, 1 è mosso. Muoverlo a mano spegne il vagare automatico.',
+    campi: [
+      { chiave: 'auto', nome: 'meteo che cambia da solo', tipo: 'interruttore', leggi: () => !!meteo.auto, scrivi: (v) => (meteo.auto = !!v) },
+      { chiave: 'mare', nome: 'mare mosso', tipo: 'numero', min: 0, max: 1, passo: 0.02, leggi: () => +meteo.agitazione.toFixed(2), scrivi: (v) => { meteo.auto = false; meteo.agitazione = v; meteo.meta = v; } },
+    ],
+  };
+}
+
 export function registroGiornoPartita(giorno) {
   return {
     chiave: 'giorno', nome: 'Giorno',

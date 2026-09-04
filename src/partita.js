@@ -34,7 +34,8 @@ import { creaLavoro } from './nucleo/lavoro.js';
 import { ARREDI, registraArredi, gatto, TAVOLOZZE } from './partita/arredi.js';
 import { Bagliori } from './nucleo/bagliori.js';
 import { generaChunkZoo, QUOTA as QUOTA_ZOO } from './partita/zoo.js';
-import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene } from './partita/registri.js';
+import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene, registroMeteo } from './partita/registri.js';
+import { Meteo } from './partita/meteo.js';
 import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
 
 const params = new URLSearchParams(location.search);
@@ -360,6 +361,9 @@ if (opz.corpi > 0) {
 
 // ── la giornata (come il banco) ──────────────────────────────────────────────
 const giorno = { ora: opz.ora ?? 0.35, auto: opz.ora === null, durata: 600 };
+// il meteo: il mare vaga da solo (partita/meteo.js); ?mare=0.6 lo ferma lì
+const meteo = new Meteo(opz.seme);
+if (params.has('mare')) { meteo.auto = false; meteo.agitazione = meteo.meta = Math.max(0, Math.min(1, +params.get('mare') || 0)); }
 function sole(dt) {
   if (giorno.auto) giorno.ora = (giorno.ora + dt / giorno.durata) % 1;
   const ora = giorno.ora;
@@ -373,6 +377,7 @@ function sole(dt) {
   // dentro la funzione lo oscurava PRIMA di nascere (TDZ) — pagina bianca.
   const luce = Math.max(0, Math.min(1, (Math.sin(a) + 0.1) * 2));
   resa.sole.forza = luce;
+  resa.mare = meteo.aggiorna(dt);
   // ⚠ A MEZZOGIORNO IL SOLE È BIANCO: al sole pieno si vede la palette ESATTA
   // (vivace, come le concept); il caldo entra solo col sole basso.
   const caldo = Math.min(1, Math.max(0, (alt - 0.24) / 0.4));
@@ -485,7 +490,7 @@ async function apriOfficinaPartita() {
   statoGiocatore.buco = () => cam3.buco; statoGiocatore.impostaBuco = (v) => (cam3.buco = !!v);
   statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = (v) => { miraCentro = !!v; document.body.classList.toggle('mira-centro', miraCentro); };
   officina = apriOfficina({
-    registri: [registroGiornoPartita(giorno), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, seme: opz.seme })],
+    registri: [registroGiornoPartita(giorno), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, seme: opz.seme })],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
     autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),

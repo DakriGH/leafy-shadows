@@ -9,7 +9,7 @@
 // d'ombra, niente acne per costruzione. È accendibile, per misurarla.
 import { compila } from './gl.js';
 import { BYTE_VERTICE, indiciCondivisi, QUAD_MAX } from './formato.js';
-import { prospettiva, guarda, moltiplica, pianiFrustum, scatolaNelFrustum, ortografica } from './matrici.js';
+import { prospettiva, guarda, moltiplica, pianiFrustum, scatolaNelFrustum, ortografica, inverti } from './matrici.js';
 
 const VS = `#version 300 es
 precision highp float;
@@ -56,7 +56,11 @@ void main() {
   // Minecraft (che scurisce i lati sempre, per convenzione): due oggetti dello
   // stesso colore hanno lo stesso colore, e cambia solo chi è al sole o in
   // ombra. Senza questo tutto era piatto («come se tutto fosse piatto»).
-  vFaccia = dot(n, -uSoleVerso) > 0.05 ? 1.0 : 0.0;
+  // ⚠ TRE BANDE, come una rampa toon: piena (guarda il sole), mezza (di
+  // sbieco: gli smussi del supercubo, il fianco tondo del gatto) e ombra (di
+  // spalle). Con due sole bande gli smussi erano o bianchi o neri: «grezza».
+  float dl = dot(n, -uSoleVerso);
+  vFaccia = dl > 0.42 ? 1.0 : (dl > 0.02 ? 0.62 : 0.0);
   vN = n;
   vSole = floor(uSoleForza * 3.0 + 0.5) / 3.0;
   float d = distance(p, uCam);
@@ -131,7 +135,7 @@ void main() {
     if (t > 0.0 && t < lung - 0.35 && length(vPos - uOcchio - dir * t) < uBuco.w) discard;
   }
   float luce = vFaccia;
-  if (uOmbra > 0.5 && luce > 0.0) { float m = ombraMappa(vPos, vN); luce = m >= 0.0 ? m : ombraSole(vPos); }
+  if (uOmbra > 0.5 && luce > 0.0) { float m = ombraMappa(vPos, vN); luce *= m >= 0.0 ? m : ombraSole(vPos); }
   // le bande: il cielo a quattro (per faccia), la lampada a quattro (sulla luce
   // interpolata: pozze tonde), il sole diretto solo dove il cielo è pieno
   float cieloB = floor(vCielo * 4.0 + 0.5) / 4.0;
@@ -173,11 +177,18 @@ uniform vec3 uChunk;
 uniform float uTempo;
 uniform vec3 uCam;
 uniform vec2 uNebbia;
+uniform float uMare;                // il meteo: 0 = specchio, 1 = mosso
 out vec3 vPos;
 out vec3 vCol;
 out float vProf;
 out float vNebbia;
 flat out float vPelo;
+// ⚠ TRE ONDE DA TRE DIREZIONI, non una: con una sola il lago sembrava un
+// tappeto trascinato. Le stesse tre stanno nel fragment (la normale è la
+// loro derivata), e l'ampiezza la decide il meteo.
+float onde(vec2 p, float t) {
+  return sin(dot(p, vec2(0.80, 0.60)) * 0.9 + t * 1.3) + 0.7 * sin(dot(p, vec2(-0.50, 0.87)) * 1.6 + t * 1.9) + 0.5 * sin(dot(p, vec2(0.30, -0.95)) * 2.7 + t * 2.6);
+}
 void main() {
   uint A = aAB.x, B = aAB.y;
   vec3 p = uChunk + vec3(float(A & 511u) - 16.0, float(B & 65535u), float((A >> 9u) & 511u) - 16.0) / 16.0;
@@ -187,7 +198,7 @@ void main() {
   float liv = float((B >> 20u) & 15u);
   // il pelo: peloDi() di world/pelo.js, e un'onda piccola (moto 0,018 del lago)
   if (cima) p.y -= (1.0 + 2.0 * liv) / 16.0;
-  p.y += 0.035 * sin(uTempo * 1.3 + p.x * 0.7 + p.z * 0.9) + 0.02 * sin(uTempo * 2.1 - p.z * 1.7);
+  p.y += mix(0.012, 0.07, uMare) * onde(p.xz, uTempo);
   vPos = p;
   vCol = pow(vec3(aC.xyz) / 255.0, vec3(2.2));
   vProf = prof;
@@ -212,11 +223,19 @@ uniform vec3 uNebbiaCol;
 uniform float uTempo;
 uniform sampler2D uSpecchio;     // la scena specchiata, a mezza risoluzione
 uniform vec3 uSchermo;           // 1/larghezza, 1/altezza, forza dello specchio (0 = spento)
+uniform float uMare;             // il meteo: 0 = specchio, 1 = mosso
 out vec4 colore;
+// la pendenza delle tre onde del vertex (la derivata), per la normale
+vec2 pendenza(vec2 p, float t) {
+  return vec2(0.80, 0.60) * 0.9 * cos(dot(p, vec2(0.80, 0.60)) * 0.9 + t * 1.3)
+       + vec2(-0.50, 0.87) * 1.12 * cos(dot(p, vec2(-0.50, 0.87)) * 1.6 + t * 1.9)
+       + vec2(0.30, -0.95) * 1.35 * cos(dot(p, vec2(0.30, -0.95)) * 2.7 + t * 2.6);
+}
 void main() {
   vec3 vista = normalize(uCam - vPos);
-  // la normale del pelo ondeggia appena: basta per il brillio, non per deformare
-  vec3 n = vPelo > 0.5 ? normalize(vec3(0.06 * sin(uTempo * 1.7 + vPos.x * 2.3), 1.0, 0.06 * cos(uTempo * 1.1 + vPos.z * 1.9))) : vec3(0.0, 1.0, 0.0);
+  // la normale del pelo: dalle onde, e il meteo decide quanto è mossa
+  vec2 g = pendenza(vPos.xz, uTempo) * mix(0.04, 0.30, uMare);
+  vec3 n = vPelo > 0.5 ? normalize(vec3(-g.x, 1.0, -g.y)) : vec3(0.0, 1.0, 0.0);
   // profondità → violaceo e opaco (scala 0,12 per blocco, corpo come la ricetta)
   float k = clamp(vProf * 0.12, 0.0, 1.0);
   vec3 viola = pow(vec3(0.38, 0.30, 0.62), vec3(2.2));
@@ -231,15 +250,20 @@ void main() {
   // ⚠ LO SPECCHIO SI LEGGE A SCHERMO: la passata specchiata usa la stessa
   // proiezione, quindi il riflesso di questo pixel sta in questo pixel. Le
   // onde lo spostano di un soffio (n.xz), che è quanto basta a farlo vivere.
-  vec2 uv = clamp(gl_FragCoord.xy * uSchermo.xy + n.xz * 0.16 * vPelo, 0.002, 0.998);
+  // ⚠ LA DEFORMAZIONE SI SPEGNE AI BORDI DELLO SCHERMO: fuori dallo specchio
+  // non c'è niente, e il riflesso «tagliato» era il bordo che si spalmava.
+  vec2 s = gl_FragCoord.xy * uSchermo.xy;
+  float bordo = smoothstep(0.0, 0.08, min(min(s.x, 1.0 - s.x), min(s.y, 1.0 - s.y)));
+  vec2 uv = clamp(s + n.xz * mix(0.10, 0.45, uMare) * vPelo * bordo, 0.002, 0.998);
   vec3 riflesso = mix(cielo, pow(texture(uSpecchio, uv).rgb, vec3(2.2)), uSchermo.z);
   // ⚠ IL CIELO CAPOVOLTO SOLO RADENTE quando non c'è specchio: a 45° il fresnel
   // cubico vale il 2%. Con lo specchio il riflesso c'è sempre un po' (22%) e
   // radente è quasi tutto (85%): l'acqua resta acqua guardandola dall'alto.
-  float peso = mix(fres * 0.55, mix(0.22, 0.85, fres), uSchermo.z) * vPelo;
+  // calmo = quasi a specchio anche dall'alto (0,40), mosso = 0,20
+  float peso = mix(fres * 0.55, mix(mix(0.40, 0.20, uMare), 0.85, fres), uSchermo.z) * vPelo;
   acqua = mix(acqua, riflesso, peso);
   alfa = mix(alfa, 0.95, fres * vPelo);
-  float brillio = step(0.985, dot(reflect(-vista, n), -uSoleVerso)) * uSoleForza * vPelo;
+  float brillio = step(mix(0.992, 0.965, uMare), dot(reflect(-vista, n), -uSoleVerso)) * uSoleForza * vPelo;
   acqua += vec3(0.9) * brillio;
   vec3 c = pow(mix(acqua, cielo, vNebbia), vec3(1.0 / 2.2));
   colore = vec4(c, mix(alfa, 1.0, vNebbia));
@@ -310,6 +334,31 @@ void main() {
   gl_Position = uVP * vec4(p, 1.0);
 }`;
 
+// ── IL CIELO: un triangolo a tutto schermo, il verso di vista dall'inversa del VP ──
+const VS_CIELO = `#version 300 es
+out vec2 vNdc;
+void main() { vNdc = vec2((gl_VertexID == 1) ? 3.0 : -1.0, (gl_VertexID == 2) ? 3.0 : -1.0); gl_Position = vec4(vNdc, 0.999999, 1.0); }`;
+const FS_CIELO = `#version 300 es
+precision highp float;
+in vec2 vNdc;
+uniform mat4 uInvVP;
+uniform vec3 uOcchio;
+uniform vec3 uSoleVerso;
+uniform float uSoleForza;
+uniform vec3 uNebbiaCol;   // l'orizzonte (sRGB): la nebbia, così il lontano ci si fonde
+uniform vec3 uZenit;       // lo zenit (sRGB)
+out vec4 colore;
+void main() {
+  vec4 p = uInvVP * vec4(vNdc, 1.0, 1.0);
+  vec3 dir = normalize(p.xyz / p.w - uOcchio);
+  float h = clamp(dir.y, 0.0, 1.0);
+  vec3 c = mix(uNebbiaCol, uZenit, pow(h, 0.6));
+  // il disco del sole e il suo alone caldo
+  float d = max(dot(dir, -uSoleVerso), 0.0);
+  c += vec3(1.0, 0.95, 0.80) * (smoothstep(0.99900, 0.99945, d) + 0.30 * pow(d, 40.0)) * uSoleForza;
+  colore = vec4(c, 1.0);
+}`;
+
 // ── LA PASSATA D'OMBRA: la profondità vista dal sole, e basta ─────────────
 const VS_OMBRA = `#version 300 es
 layout(location = 0) in uvec2 aAB;
@@ -345,7 +394,16 @@ export class Resa {
     this.uo = { uVP: gl.getUniformLocation(this.programmaOmbra, 'uVP'), uChunk: gl.getUniformLocation(this.programmaOmbra, 'uChunk') };
     this.programmaAcqua = compila(gl, VS_ACQUA, FS_ACQUA);
     this.ua = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uCam', 'uNebbia', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbiaCol', 'uSpecchio', 'uSchermo']) this.ua[n] = gl.getUniformLocation(this.programmaAcqua, n);
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uCam', 'uNebbia', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbiaCol', 'uSpecchio', 'uSchermo', 'uMare']) this.ua[n] = gl.getUniformLocation(this.programmaAcqua, n);
+    // ⚠ IL CIELO: un triangolo a tutto schermo, sfumato dall'orizzonte (il colore
+    // della nebbia, così il lontano ci si fonde) allo zenit, col disco del sole
+    // e il suo alone. Si disegna PRIMA di tutto, senza profondità, anche nello
+    // specchio. Senza, il cielo era una tinta piatta: «grezza».
+    this.programmaCielo = compila(gl, VS_CIELO, FS_CIELO);
+    this.uc = {}; for (const n of ['uInvVP', 'uOcchio', 'uSoleVerso', 'uSoleForza', 'uNebbiaCol', 'uZenit']) this.uc[n] = gl.getUniformLocation(this.programmaCielo, n);
+    this.vaoVuoto = gl.createVertexArray();
+    this._invVP = new Float32Array(16);
+    this.mare = 0.25;   // il meteo: 0 specchio, 1 mosso (partita/meteo.js lo muove)
     this.chunks = new Map();
     this.altezze = null;
     this.statistiche = { disegni: 0, triangoli: 0, chunkVisti: 0, chunkTotali: 0, disegniAcqua: 0, triangoliAcqua: 0, disegniErba: 0, triangoliErba: 0, disegniSpecchio: 0, triangoliSpecchio: 0, pelo: null };
@@ -670,6 +728,25 @@ void main() {
     o.calcoli++; this.statistiche.calcoliOmbre = o.calcoli;
   }
 
+  /** Il cielo sfumato col sole, a tutto schermo, sotto tutto (niente profondità). */
+  _disegnaCielo(vp, occhio) {
+    const gl = this.gl, u = this.uc, s = this.sole;
+    if (!inverti(vp, this._invVP)) return;
+    gl.useProgram(this.programmaCielo);
+    gl.uniformMatrix4fv(u.uInvVP, false, this._invVP);
+    gl.uniform3f(u.uOcchio, occhio[0], occhio[1], occhio[2]);
+    gl.uniform3f(u.uSoleVerso, s.verso[0], s.verso[1], s.verso[2]);
+    gl.uniform1f(u.uSoleForza, s.forza);
+    gl.uniform3f(u.uNebbiaCol, this.nebbia.colore[0], this.nebbia.colore[1], this.nebbia.colore[2]);
+    const f = s.forza;
+    gl.uniform3f(u.uZenit, 0.04 + 0.32 * f, 0.06 + 0.56 * f, 0.14 + 0.82 * f);
+    gl.disable(gl.DEPTH_TEST); gl.depthMask(false); gl.disable(gl.CULL_FACE);
+    gl.bindVertexArray(this.vaoVuoto);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+    gl.enable(gl.CULL_FACE); gl.depthMask(true); gl.enable(gl.DEPTH_TEST);
+  }
+
   /** Le due texture di profondità della mappa d'ombra, col confronto in hardware. */
   _preparaMappa() {
     const gl = this.gl, m = this.mappa;
@@ -830,6 +907,7 @@ void main() {
     if (this.specchio.attivo && this._visibili.length) this._specchia(camera, modelli);
     // ── la vista ──────────────────────────────────────────────────────────────
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    this._disegnaCielo(this.vp, camera.occhio);
     this.taglio = -1e9;
     this.vpCorrente = this.vp;
     const [disegni, tri] = this._solidi(this.vp, this.piani, camera.occhio, false);
@@ -955,6 +1033,7 @@ void main() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, sp.fbo);
     gl.viewport(0, 0, w, h);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    this._disegnaCielo(this.vpSpecchio, occhio);
     gl.cullFace(gl.FRONT);
     this.taglio = pelo - 0.05;
     this.vpCorrente = this.vpSpecchio;
@@ -1034,6 +1113,7 @@ void main() { colore = vec4(texture(uTex, vUv).rgb, 1.0); }`);
     const conSpecchio = sp.pelo != null && sp.tex;
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, conSpecchio ? sp.tex : null); gl.uniform1i(u.uSpecchio, 1);
     gl.uniform3f(u.uSchermo, 1 / gl.drawingBufferWidth, 1 / gl.drawingBufferHeight, conSpecchio ? 1 : 0);
+    gl.uniform1f(u.uMare, this.mare);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false); gl.disable(gl.CULL_FACE);
     let disegni = 0, tri = 0;
