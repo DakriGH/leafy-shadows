@@ -135,16 +135,33 @@ uniform int uNLampade;
 // La luce cotta resta come MASCHERA (dietro un muro non si passa) e per le
 // lampade-blocco, che non stanno nella lista.
 uniform sampler2D uAltezze;   // la mappa delle altezze (cima di ogni colonna + 1), per l'ombra della lampada
-// ⚠ L'OMBRA DELLA LAMPADA È VERA, come in Leafy: dal punto si marcia in sei
-// passi (dodici) verso la lanterna (a 2,6 di quota) e se una colonna della mappa delle
-// altezze sta sopra il raggio, la luce non arriva. Un cubo posato taglia il
-// cerchio col suo profilo. Costa sei letture per lampada, solo entro il raggio.
+// ⚠ L'OMBRA DELLA LAMPADA SI CAMMINA CELLA PER CELLA (Amanatides–Woo, la
+// traversata dei voxel in due dimensioni): dal punto si va verso la lanterna
+// (a 2,6 di quota) attraversando le colonne della mappa delle altezze una per
+// una, e ci si ferma sulla prima che sta sopra il raggio.
+// ⚠ NON a passi fissi: con dodici passi uguali il bordo dell'ombra cadeva
+// DOVE CAPITAVA IL PASSO, non sul bordo del blocco, ed era seghettato («l'ombra
+// è seghettata quadrata non va bene»). Camminando i confini delle celle il
+// taglio è esattamente il profilo del blocco, dritto, e le letture sono meno:
+// una per cella attraversata, al massimo quattordici (il raggio è 4,6).
 float ombraLampada(highp vec3 pos, highp vec3 L) {
-  highp vec3 d = L - pos;
-  for (int i = 1; i <= 12; i++) {   // dodici passi (un terzo di blocco): a sei il bordo dell'ombra era a scalini
-    highp vec3 q = pos + d * (float(i) / 13.0);
-    float h = texture(uAltezze, (q.xz - uAltRett.xy) * uAltRett.zw).r * 255.0;
-    if (h > q.y + 0.05 && h > pos.y + 0.6) return 0.0;
+  highp vec2 d = L.xz - pos.xz;
+  highp float lungo = length(d);
+  if (lungo < 0.001) return 1.0;
+  highp vec2 dir = d / lungo;
+  highp vec2 verso = vec2(dir.x >= 0.0 ? 1.0 : -1.0, dir.y >= 0.0 ? 1.0 : -1.0);
+  highp vec2 mod_ = max(abs(dir), vec2(1e-6));       // niente divisioni per zero sui raggi assiali
+  highp vec2 cella = floor(pos.xz);
+  highp vec2 prossimo = (cella + max(verso, vec2(0.0)) - pos.xz) / (verso * mod_);   // quanto manca al confine
+  highp vec2 quanto = 1.0 / mod_;                    // e quanto da un confine al prossimo
+  for (int i = 0; i < 14; i++) {
+    highp float t = min(prossimo.x, prossimo.y);
+    if (t >= lungo) break;                           // arrivati alla lanterna: niente in mezzo
+    if (prossimo.x < prossimo.y) { cella.x += verso.x; prossimo.x += quanto.x; }
+    else { cella.y += verso.y; prossimo.y += quanto.y; }
+    highp float y = pos.y + (L.y - pos.y) * (t / lungo);
+    float h = texture(uAltezze, (cella + 0.5 - uAltRett.xy) * uAltRett.zw).r * 255.0;
+    if (h > y + 0.05 && h > pos.y + 0.6) return 0.0;
   }
   return 1.0;
 }

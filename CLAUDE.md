@@ -1519,10 +1519,15 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
 - **La selezione copre il supercubo** (`evidenzia` 0,11, `scatola` 0,1): la
   cella nuda 16×16 era più piccola del blocco col brim.
 - **L'ombra della luce dei lampioni è VERA** (`ombraLampada`): dal pixel si
-  marcia in dodici passi verso la lanterna (quota +2,6) sulla mappa delle
-  altezze (`uAltezze`, unità 3): se una colonna sta sopra il raggio, buio. Un
-  cubo posato taglia il cerchio col suo profilo, come in Leafy. L'euristica
-  sulla luce cotta non bastava (la luce cotta gira attorno agli ostacoli).
+  cammina verso la lanterna (quota +2,6) CELLA PER CELLA sulla mappa delle
+  altezze (`uAltezze`, unità 3) — la traversata dei voxel di Amanatides–Woo in
+  due dimensioni: se una colonna sta sopra il raggio, buio. Un cubo posato
+  taglia il cerchio col suo profilo, come in Leafy. L'euristica sulla luce
+  cotta non bastava (la luce cotta gira attorno agli ostacoli).
+  ⚠ NON a passi fissi: con dodici passi uguali il bordo cadeva dove capitava il
+  passo e non sul bordo del blocco — «l'ombra è seghettata quadrata». Coi
+  confini delle celle il taglio è dritto e le letture sono anche meno (una per
+  cella attraversata, al massimo quattordici: il raggio è 4,6).
 - **L'alone dei lampioni sono DUE CERCHI CONCENTRICI piatti A TERRA** dello
   stesso colore, in trasparenza: la pozza per pixel (`pozza()`), come le «fake
   point light» di Unity, niente alone bianco sfumato. Lo sprite sospeso a
