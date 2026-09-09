@@ -4,6 +4,8 @@
   "description": "Leafy-Shadows — il motore di Leafy rifatto su Babylon.js 8 + Havok, applicazione web zero-build",
   "type": "commonjs",
   "scripts": {
+    "avvia": "node serve.mjs 8144",
+    "start": "node serve.mjs 8144",
     "test": "node --test \"test/*.test.mjs\"",
     "ispettore": "node scripts/impacchetta-ispettore.mjs",
     "pubblica": "node scripts/pubblica.mjs",

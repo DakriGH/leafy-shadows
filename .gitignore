@@ -2,6 +2,8 @@ node_modules/
 .pubblicazione/
 www/
 *.log
+# roba della macchina di casa: launch.json ha il percorso assoluto di node.exe
+.claude/
 # rigenerabile con `npm run ispettore` — 12,8 MB di attrezzo, non di gioco
 vendor/ispettore.js
 www/
