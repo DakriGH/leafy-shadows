@@ -69,3 +69,22 @@ test('nessun backtick dentro i template della UI', () => {
   }
   assert.deepEqual(colpevoli, [], 'un backtick chiude il template: usare le «virgolette basse»');
 });
+
+// ⚠ E NIENTE LETTERE ACCENTATE NEI NOMI GLSL: il codice qui dentro si scrive in
+// italiano (commenti compresi, ed è giusto così), ma un identificatore con la
+// «ì» — `terraLì` — non è GLSL valido: il programma non compila, l'eccezione
+// ferma il costruttore della resa e la pagina resta BIANCA, senza un errore che
+// dica dove. Le parole accentate stanno nei commenti; i nomi no.
+test('nessun identificatore accentato nel GLSL (i commenti possono)', () => {
+  const colpevoli = [];
+  for (const f of tuttiIFile(RADICE)) {
+    const s = readFileSync(f, 'utf8');
+    for (const b of s.match(/`#version 300 es[\s\S]*?`/g) || []) {
+      const senzaCommenti = b.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const nome of senzaCommenti.match(/[A-Za-z_][A-Za-z_0-9]*[^\x00-\x7f\s][A-Za-z_0-9]*/g) || []) {
+        colpevoli.push(`${f.slice(RADICE.length)}: ${nome}`);
+      }
+    }
+  }
+  assert.deepEqual(colpevoli, [], 'identificatori accentati nel GLSL: ' + colpevoli.join(', '));
+});

@@ -45,7 +45,7 @@ export class Corpi {
    * [r, g, b] in 0..1, `giro` in radianti (solo per il disegno).
    */
   aggiungi({ x, y, z, vx = 0, vy = 0, vz = 0, lato = 0.5, colore = [1, 1, 1], giro = 0 }) {
-    const c = { x, y, z, vx, vy, vz, lato, colore, giro, aTerra: false, sonno: 0, dorme: false };
+    const c = { x, y, z, vx, vy, vz, lato, colore, giro, aTerra: false, sonno: 0, dorme: false, inAcqua: false };
     this.lista.push(c);
     return c;
   }
@@ -90,7 +90,10 @@ export class Corpi {
       c.vy -= GRAVITA * PASSO;
       // ⚠ IN ACQUA SI GALLEGGIA: spinta una volta e mezza la gravità e un po' d'attrito
       const tw = this.mondo.tipo ? this.mondo.tipo(Math.floor(c.x), Math.floor(c.y), Math.floor(c.z)) : null;   // (le prove hanno un mondo finto senza tipo)
-      if (tw && defDi(tw).acqua) { c.vy += GRAVITA * 1.5 * PASSO; c.vx *= 0.96; c.vy *= 0.94; c.vz *= 0.96; }
+      // ⚠ `inAcqua` LO LEGGE ANCHE LA SCHIUMA (resa.galleggianti): chi galleggia
+      // fa il suo anello sul pelo dell'acqua.
+      c.inAcqua = !!(tw && defDi(tw).acqua);
+      if (c.inAcqua) { c.vy += GRAVITA * 1.5 * PASSO; c.vx *= 0.96; c.vy *= 0.94; c.vz *= 0.96; }
       // ⚠ UN ASSE PER VOLTA, e a SOTTOPASSI se la velocità è alta: a 26 blocchi
       // al secondo un passo da 1/60 è 0,43 blocchi, quasi un lato; con due
       // sottopassi non si attraversa mai un blocco senza vederlo.

@@ -324,7 +324,49 @@ uniform vec3 uNebbiaCol;
 uniform float uTempo;
 uniform sampler2D uSpecchio;     // la scena specchiata, a mezza risoluzione
 uniform vec3 uSchermo;           // 1/larghezza, 1/altezza, forza dello specchio (0 = spento)
+// ⚠ CHI GALLEGGIA: [x, y, z, raggio] per otto, i corpi in acqua e il gatto che
+// nuota. Attorno a ognuno un anello di schiuma, come chiedeva il committente
+// («buttare oggetti dentro che fanno la schiuma e galleggiano»).
+uniform highp vec4 uGalleggianti[8];
+uniform int uNGalleggianti;
+uniform sampler2D uAltezze;      // la cima solida di ogni colonna (+1) / 255: dice dov'è la riva
+uniform highp vec4 uAltRett;     // x0, z0, 1/larghezza, 1/profondita
 out vec4 colore;
+// ⚠ LA RIVA NON È LA PROFONDITÀ: un lago basso è basso dappertutto, e a
+// misurarla con vProf la schiuma copriva tutto lo specchio d'acqua. La riva
+// è «di qui c'è TERRA PIÙ ALTA a meno di un passo», e la dice la mappa delle
+// altezze: sei letture attorno al pixel, su un raggio che respira.
+// ⚠ IL CONFRONTO È FRA CIME DI CELLA, non fra quote esatte: il pelo sta un po'
+// sotto il bordo della sua cella (peloDi) e ondeggia, quindi con una soglia
+// sulla y vera la sabbia allo stesso livello dell'acqua — cioè LA RIVA — non
+// contava. La cima della cella d'acqua è floor(y) + 1: è terra tutto ciò che
+// arriva lassù o più su.
+// ⚠ NIENTE LETTERE ACCENTATE NEI NOMI GLSL (si chiamava terraLì): il programma
+// non compila, l'eccezione ferma tutto e la pagina non parte proprio.
+float terraLi(highp vec2 q, float cima) {
+  highp vec2 uv = (q - uAltRett.xy) * uAltRett.zw;
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+  return texture(uAltezze, uv).r * 255.0 > cima - 0.5 ? 1.0 : 0.0;
+}
+float riva(highp vec3 pos, float onda) {
+  float r = 0.78 + onda;
+  // ⚠ SENZA MARGINE: il pelo sta SEMPRE un po' SOTTO la cima della sua cella
+  // (peloDi toglie almeno 1/16, l'onda al massimo 0,055), quindi floor(y) è la
+  // base della cella d'acqua. Un +0,1 «di sicurezza» la faceva saltare alla
+  // cella di sopra e la riva non contava mai: schiuma zero.
+  float cima = floor(pos.y) + 1.0;
+  float s = 0.0;
+  for (int i = 0; i < 6; i++) {
+    float a = float(i) * 1.0472;   // sessanta gradi
+    s = max(s, terraLi(pos.xz + vec2(cos(a), sin(a)) * r, cima));
+  }
+  return s;
+}
+// L'anello attorno a chi galleggia: una ghirlanda, non un disco.
+float anello(float d, float r, float onda) {
+  float x = d + onda;
+  return smoothstep(r * 1.8, r * 1.25, x) * smoothstep(r * 0.7, r * 1.05, x);
+}
 void main() {
   vec3 vista = normalize(uCam - vPos);
   // la normale del pelo ondeggia appena: basta per il brillio, non per deformare
@@ -353,6 +395,20 @@ void main() {
   alfa = mix(alfa, 0.95, fres * vPelo);
   float brillio = step(0.985, dot(reflect(-vista, n), -uSoleVerso)) * uSoleForza * vPelo;
   acqua += vec3(0.9) * brillio;
+  // ⚠ LA SCHIUMA: alla riva (dove il fondo è alto, vProf piccola) e attorno a
+  // chi galleggia. Solo sul pelo, e sopra a tutto il resto (anche al riflesso):
+  // è il segno che l'acqua tocca qualcosa, e in Leafy è quello che dà vita.
+  float onda = 0.13 * sin(uTempo * 1.5 + vPos.x * 1.9 + vPos.z * 1.1) + 0.08 * sin(uTempo * 2.3 - vPos.x * 1.3 + vPos.z * 2.7);
+  float schiuma = riva(vPos, onda);
+  for (int i = 0; i < 8; i++) {
+    if (i >= uNGalleggianti) break;
+    highp vec2 g = uGalleggianti[i].xz; float r = uGalleggianti[i].w;
+    schiuma = max(schiuma, anello(length(vPos.xz - g), r, onda * 0.8));
+  }
+  schiuma *= vPelo * 0.85;
+  vec3 bianco = pow(vec3(0.93, 0.97, 0.99), vec3(2.2));
+  acqua = mix(acqua, bianco * mix(uCieloCol * 0.9, uSoleCol, sole * 0.85), schiuma);
+  alfa = mix(alfa, 0.97, schiuma);
   vec3 c = pow(mix(acqua, cielo, vNebbia), vec3(1.0 / 2.2));
   colore = vec4(c, mix(alfa, 1.0, vNebbia));
 }`;
@@ -515,7 +571,7 @@ export class Resa {
     this.uo = { uVP: gl.getUniformLocation(this.programmaOmbra, 'uVP'), uChunk: gl.getUniformLocation(this.programmaOmbra, 'uChunk') };
     this.programmaAcqua = compila(gl, VS_ACQUA, FS_ACQUA);
     this.ua = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uCam', 'uNebbia', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbiaCol', 'uSpecchio', 'uSchermo', 'uMare']) this.ua[n] = gl.getUniformLocation(this.programmaAcqua, n);
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uCam', 'uNebbia', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbiaCol', 'uSpecchio', 'uSchermo', 'uMare', 'uGalleggianti', 'uNGalleggianti', 'uAltezze', 'uAltRett']) this.ua[n] = gl.getUniformLocation(this.programmaAcqua, n);
     // ⚠ IL CIELO: un triangolo a tutto schermo, sfumato dall'orizzonte (il colore
     // della nebbia, così il lontano ci si fonde) allo zenit, col disco del sole
     // e il suo alone. Si disegna PRIMA di tutto, senza profondità, anche nello
@@ -566,6 +622,8 @@ export class Resa {
     this.mappa = { attiva: true, lato: 2048, latoDin: 1024, raggio: 32, raggioDin: 14, stat: null, din: null, vp: new Float32Array(16), vpDin: new Float32Array(16), centro: [1e9, 0, 1e9], sole: [0, 0, 0], sporca: true, on: false, calcoli: 0, disegni: 0, triangoli: 0 };
     // i lampioni accesi più vicini, per le pozze per pixel: [x, y, z, raggio] × 8 (la partita li scrive)
     this.lampade = new Float32Array(32); this.nLampade = 0;
+    // chi galleggia, per la schiuma dell'acqua: [x, y, z, raggio] × 8 (la partita li scrive)
+    this.galleggianti = new Float32Array(32); this.nGalleggianti = 0;
     // lo stile dell'ombra (ombraStile nei vertex): tinta verso il blu, saturazione, valore
     // misurati sulle concept: terracotta #e69c67 → #bf6f4b (valore ×0,83), erba #5ac650 → #33984c (×0,77, tinta +14 %)
     this.stile = { tinta: 0.15, saturazione: 1.12, valore: 0.82 };
@@ -832,13 +890,21 @@ void main() {
     const d = s.verso[0] * o.sole[0] + s.verso[1] * o.sole[1] + s.verso[2] * o.sole[2];
     if (d < 0.99996) { o.sole = s.verso.slice(); o.sporco = [0, 0, o.w, o.h]; }
     if (!o.sporco) return;
-    const [x0, z0, x1, z1] = o.sporco; o.sporco = null;
-    if (x1 <= x0 || z1 <= z0) return;
+    // ⚠ A BANDE, NON TUTTA IN UN COLPO: questo fragment fa 48 letture per texel,
+    // e su 512×512 sono dodici milioni di letture — un fotogramma intero saltato
+    // ogni volta che il sole si sposta di mezzo grado (col ciclo del giorno, ogni
+    // 0,8 s: erano i «grossi cali di frame» del committente). Novantasei righe per
+    // fotogramma: il conto è lo stesso, ma spalmato, e il ritmo resta piatto.
+    const BANDA = 96;
+    const [x0, z0, x1, z1] = o.sporco;
+    if (x1 <= x0 || z1 <= z0) { o.sporco = null; return; }
+    const zFine = Math.min(z1, z0 + BANDA);
+    o.sporco = zFine >= z1 ? null : [x0, zFine, x1, z1];
     const lx = Math.hypot(s.verso[0], s.verso[2]) || 1e-4;
     const dir = [-s.verso[0] / lx, -s.verso[2] / lx], tg = Math.max(0.05, -s.verso[1] / lx);
     gl.bindFramebuffer(gl.FRAMEBUFFER, o.fbo);
     gl.viewport(0, 0, o.w, o.h);
-    gl.enable(gl.SCISSOR_TEST); gl.scissor(x0, z0, x1 - x0, z1 - z0);
+    gl.enable(gl.SCISSOR_TEST); gl.scissor(x0, z0, x1 - x0, zFine - z0);
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
     gl.useProgram(this.programmaOmbre);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(this.uOmbre.uAltezze, 0);
@@ -932,7 +998,11 @@ void main() {
     const adesso = typeof performance !== 'undefined' ? performance.now() : 0;
     const cx = camera.centro[0], cz = camera.centro[2];
     let ricentra = false;
-    if (Math.hypot(cx - m.centro[0], cz - m.centro[2]) > 6) { m.centro = [Math.round(cx / 2) * 2, Math.round(camera.centro[1]), Math.round(cz / 2) * 2]; ricentra = true; }
+    // ⚠ DIECI BLOCCHI, NON SEI: il ricentraggio è l'unico rifacimento che non
+    // aspetta (la matrice cambia), quindi camminando era un singhiozzo ogni due
+    // secondi. Il raggio della mappa è 32: a dieci di deriva restano venti
+    // blocchi buoni attorno al gatto, e più in là c'è già la mappa per colonna.
+    if (Math.hypot(cx - m.centro[0], cz - m.centro[2]) > 10) { m.centro = [Math.round(cx / 2) * 2, Math.round(camera.centro[1]), Math.round(cz / 2) * 2]; ricentra = true; }
     // la mappa di chi si muove è stretta (raggioDin) e segue la mira ogni fotogramma: si rifà comunque
     {
       const v = s.verso, c = camera.centro;
@@ -940,10 +1010,15 @@ void main() {
       const su = Math.abs(v[1]) > 0.95 ? [0, 0, 1] : [0, 1, 0];
       moltiplica(ortografica(m.raggioDin, 10, 230), guarda(occhio, c, su), m.vpDin);
     }
+    // ⚠ UN GRADO, NON UN QUARTO, E NON PIÙ DI UNA VOLTA OGNI MEZZO SECONDO: il
+    // ciclo del giorno gira di 0,6° al secondo, quindi a un quarto di grado la
+    // mappa si rifaceva DUE VOLTE E MEZZA AL SECONDO — un ridisegno di tutti i
+    // chunk su 2048², cioè un singhiozzo ogni 0,4 s. A un grado l'ombra di una
+    // cosa alta tre blocchi si sposta di cinque centesimi di blocco: non si vede.
     const d = s.verso[0] * m.sole[0] + s.verso[1] * m.sole[1] + s.verso[2] * m.sole[2];
-    if (d < 0.99999) m.soleMosso = true;   // un quarto di grado
+    if (d < 0.99985) m.soleMosso = true;   // un grado
     const vuole = m.sporca || m.soleMosso || (modelli && modelli.mappaSporca);
-    const rifai = ricentra || (vuole && adesso - (m.ultimo || 0) >= 120);
+    const rifai = ricentra || (vuole && adesso - (m.ultimo || 0) >= 500);
     if (rifai) {
       m.sole = s.verso.slice(); m.soleMosso = false; m.ultimo = adesso;
       const v = s.verso, c = m.centro;
@@ -1253,6 +1328,12 @@ void main() { colore = vec4(texture(uTex, vUv).rgb, 1.0); }`);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, conSpecchio ? sp.tex : null); gl.uniform1i(u.uSpecchio, 1);
     gl.uniform3f(u.uSchermo, 1 / gl.drawingBufferWidth, 1 / gl.drawingBufferHeight, conSpecchio ? 1 : 0);
     gl.uniform1f(u.uMare, this.mare);
+    gl.uniform4fv(u.uGalleggianti, this.galleggianti); gl.uniform1i(u.uNGalleggianti, this.nGalleggianti);
+    // la mappa delle altezze (unità 2): dice dov'è la riva, per la schiuma
+    if (this.altezze && this.altRett) {
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(u.uAltezze, 2);
+      gl.uniform4f(u.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]);
+    } else gl.uniform4f(u.uAltRett, 0, 0, 0, 0);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false); gl.disable(gl.CULL_FACE);
     let disegni = 0, tri = 0;
