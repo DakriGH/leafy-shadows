@@ -1535,7 +1535,13 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   cerchi si proiettavano spostati rispetto alla pozza e il committente vedeva
   «tre luci» con tre centri; un solo centro, quello del lampione.
 - **L'acqua è tornata quella INIZIALE** (rollback chiesto dal committente): le
-  onde da tre direzioni e il meteo non convincevano; si riparte da lì.
+  onde da tre direzioni e il meteo non convincevano; si riparte da lì, UN PASSO
+  ALLA VOLTA. Passo 1: la SCHIUMA (le onde non si toccano).
+- **La schiuma dell'acqua** (`FS_ACQUA`): una fascia chiara A GRADINO (cel
+  shading, non una sfumatura) alla riva, dove `vProf` è piccola, e un ANELLO
+  attorno a chi galleggia — `uGalleggianti[8]` che la partita riempie con
+  `galleggiantiVicini()`: i corpi con `c.inAcqua` più vicini e il gatto quando
+  nuota. Respira con due seni lenti: il bordo non è un cerchio di compasso.
 - **Acqua**: la profondità si campiona AL VERTICE (media delle celle
   attorno), non per cella: per cella faceva quadrati netti di colore sul pelo.
   Schiuma bianca pulsante dove l'acqua è bassa (la riva). Onde visibili anche
@@ -1610,9 +1616,24 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   palette è esatta. Il caldo entra solo col sole basso (`caldo` da `alt`).
 - **L'erba è del colore della cima del blocco sotto** (`ciuffo(..., colCima)`),
   punta ±3% quasi sempre: non si scurisce la base, non si «migliora» la punta.
-- **Il glow a sprite** (`nucleo/bagliori.js`, cartello additivo a istanze)
-  NON è più disegnato dalla partita: la luce dei lampioni è solo la pozza a
-  terra. Il modulo resta per un eventuale bagliore del vetro o per il bloom.
+- **IL RITMO DEI FOTOGRAMMI (settembre 2026)**: il committente vedeva «grossi
+  cali di frame» e un numero di fps che non corrispondeva. Tre cause e tre
+  rimedi:
+  · la mappa per colonna (`_calcolaOmbre`) fa 48 letture per texel su 512×512,
+    dodici milioni di letture, e il sole che gira la invalidava tutta ogni
+    0,8 s: adesso si ricalcola A BANDE di 96 righe, una per fotogramma.
+  · la mappa d'ombra vera si rifaceva a un quarto di grado di sole, cioè due
+    volte e mezza al secondo: adesso a UN GRADO e non più di una volta ogni
+    mezzo secondo (l'ombra di una cosa alta tre blocchi si sposta di cinque
+    centesimi di blocco: non si vede).
+  · su telefono la mappa d'ombra è 1024, non 2048 (`?mappa=` la forza).
+  E il numero grande in alto a destra è la MEDIA, non 1000/mediana, con
+  accanto l'«1 %» (il fotogramma peggiore su cento): se i due sono lontani il
+  ritmo è ballerino anche con la media alta.
+- **L'alone è uno sprite** (`nucleo/bagliori.js`): un disegno a istanze per
+  tutte le lanterne, additivo, profondità letta e non scritta, cartello un
+  quarto di raggio verso la camera, due cerchi concentrici piatti. Le sorgenti
+  le dà `aggiornaModelli` dal registro dei lampioni (lanterna a +2,35).
 - **Lo zoo** (`partita/zoo.js`, `?zoo`) è un GENERATORE per chunk come l'open
   world: passa dalla stessa frontiera e dallo stesso streaming. Fuori dal
   piano i chunk sono vuoti: lo streaming li segna in `_vuoti` e non li rimette

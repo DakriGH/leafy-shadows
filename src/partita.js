@@ -13,6 +13,7 @@
 import { creaContesto, nomeScheda } from './nucleo/gl.js';
 import { Resa } from './nucleo/resa.js';
 import { Modelli, leggiModello, modelloCubo } from './nucleo/modelli.js';
+import { Bagliori } from './nucleo/bagliori.js';
 import { Mondo, CHUNK } from './world/world.js';
 import { generaChunkOpenWorld } from './world/worldgen.js';
 import { registraDecorazioni, DECORAZIONI } from './world/decorazioni.js';
@@ -45,7 +46,10 @@ const opz = {
   erba: Math.max(0, Math.min(8, +(params.get('erba') ?? 8))),
   raggio: Math.max(48, Math.min(160, +(params.get('raggio') || 96))),
   ombra: params.get('ombra') !== 'no',
-  mappa: params.get('mappa') === 'no' ? 0 : Math.max(256, Math.min(4096, +(params.get('mappa') || 2048))),   // la mappa d'ombra vera: lato (2048), o `no` per misurare senza
+  // ⚠ SU TELEFONO LA MAPPA D'OMBRA È 1024: a 2048 il ridisegno costa quattro
+  // volte tanto e su Mali si sente (il committente vedeva cali di frame). A
+  // 1024 su un raggio di 32 restano sedici texel per blocco: netta lo stesso.
+  mappa: params.get('mappa') === 'no' ? 0 : Math.max(256, Math.min(4096, +(params.get('mappa') || (matchMedia('(pointer: coarse)').matches ? 1024 : 2048)))),
   specchio: params.get('specchio') === 'no' ? 0 : Math.max(0.2, Math.min(1, +(params.get('specchio') ?? 0.5) || 0.5)),
   dprMax: +(params.get('dpr') || 1.5),
   ora: params.has('ora') ? +params.get('ora') : null,
@@ -84,6 +88,7 @@ mondo.onEvento = (e) => registro.evento(e);
 const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
 const genera = opz.vetrina ? generaChunkVetrina : opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
 const streaming = new Streaming(mondo, resa, genera, { erba: opz.erba, raggioResa: opz.raggio, lavoro });
+const bagliori = new Bagliori(gl);
 resa.apriFinestraAltezze(0.5, 0.5, 512);
 // ⚠ IL SALVATAGGIO SI RIMETTE PRIMA DI GENERARE: sono le modifiche del
 // giocatore (partita/salvataggio.js), e la frontiera le riapplica a ogni
@@ -140,11 +145,15 @@ function aggiornaModelli() {
   for (const [nome, lista] of registro.cambiate()) {
     if (!modelli.tipi.has(nome)) { caricaModello(nome); registro.sporchi.add(nome); continue; }
     modelli.istanze(nome, lista);
-    // ⚠ NIENTE SPRITE SOSPESO ATTORNO ALLA LANTERNA: i due cerchi concentrici
-    // della «fake point light» sono la POZZA A TERRA (pozza(), nel frammento),
-    // centrata sul lampione e tagliata dagli ostacoli. Lo sprite a 2,35 dal
-    // suolo, visto dall'alto, proiettava i suoi cerchi spostati rispetto alla
-    // pozza: sembravano tre luci con tre centri diversi.
+    // ⚠ OGNI LAMPIONE HA IL SUO ALONE: due cerchi concentrici piatti attorno
+    // alla lanterna (a +2,35), come le «fake point light» di Unity — è lo
+    // STILE, non si toglie. A terra ci sono gli altri tre cerchi della pozza:
+    // sono due cose diverse e vanno tutte e due.
+    if (nome === 'lampione') {
+      const b = new Float32Array((lista.length / 4) * 8);
+      for (let i = 0; i < lista.length / 4; i++) b.set([lista[i * 4], lista[i * 4 + 1] + 2.35, lista[i * 4 + 2], 1.6, 1.0, 0.85, 0.5, 1.0], i * 8);
+      bagliori.istanze(b);
+    }
   }
 }
 
@@ -205,6 +214,7 @@ function posizioneDisegnata() {
   if (y < yDolce) yDolce = y; else yDolce += (y - yDolce) * (1 - Math.exp(-tDolce / 0.12));
   return [prima.x + (passeggero.x - prima.x) * a, yDolce, prima.z + (passeggero.z - prima.z) * a];
 }
+let nuotando = false;   // il gatto è in acqua: lo legge la schiuma (galleggiantiVicini)
 function cammina(dt) {
   resto = Math.min(resto + dt, PASSO * 4);
   const av = sguardo.avantiPiano();
@@ -225,7 +235,8 @@ function cammina(dt) {
     // riporta su (più della gravità), se ci sono solo i piedi si scende piano:
     // il gatto dondola sul pelo. Salto = bracciata.
     const inAcqua = (dy) => { const t = mondo.tipo(Math.floor(passeggero.x), Math.floor(passeggero.y + dy), Math.floor(passeggero.z)); return !!(t && defDi(t).acqua); };
-    if (inAcqua(0.3)) {
+    nuotando = inAcqua(0.3);
+    if (nuotando) {
       if (inAcqua(0.75)) passeggero.vy = Math.min(passeggero.vy + 40 * PASSO, 1.4); else if (passeggero.vy < -0.8) passeggero.vy = -0.8;
       if (intento.salta) passeggero.vy = 2.5;
       passeggero.aTerra = false;
@@ -438,6 +449,23 @@ function lampadeVicine() {
   for (let i = 0; i < n; i++) { const l = _lampade[i]; resa.lampade[i * 4] = l[1]; resa.lampade[i * 4 + 1] = l[2]; resa.lampade[i * 4 + 2] = l[3]; resa.lampade[i * 4 + 3] = 4.6; }
   resa.nLampade = resa.lampadeAccese === false ? 0 : n;
 }
+// ⚠ CHI GALLEGGIA, per la schiuma sul pelo dell'acqua (otto: i corpi in acqua
+// più vicini, e il gatto quando nuota). Stesso giro dei lampioni.
+const _gall = [];
+function galleggiantiVicini(nuota) {
+  const p = passeggero;
+  _gall.length = 0;
+  if (nuota) _gall.push([0, p.x, p.y - 0.3, p.z, 0.62]);
+  for (const c of corpi.lista) {
+    if (!c.inAcqua) continue;
+    const d = (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z);
+    if (d < 48 * 48) _gall.push([d, c.x, c.y, c.z, c.lato * 0.9]);
+  }
+  _gall.sort((a, b) => a[0] - b[0]);
+  const n = Math.min(8, _gall.length);
+  for (let i = 0; i < n; i++) { const g = _gall[i]; resa.galleggianti[i * 4] = g[1]; resa.galleggianti[i * 4 + 1] = g[2]; resa.galleggianti[i * 4 + 2] = g[3]; resa.galleggianti[i * 4 + 3] = g[4]; }
+  resa.nGalleggianti = n;
+}
 // il meteo: il mare vaga da solo (partita/meteo.js); ?mare=0.6 lo ferma lì
 const meteo = new Meteo(opz.seme);
 if (params.has('mare')) { meteo.auto = false; meteo.agitazione = meteo.meta = Math.max(0, Math.min(1, +params.get('mare') || 0)); }
@@ -456,6 +484,7 @@ function sole(dt) {
   resa.sole.forza = luce;
   resa.mare = meteo.aggiorna(dt);
   lampadeVicine();
+  galleggiantiVicini(nuotando);
   // ⚠ A MEZZOGIORNO IL SOLE È BIANCO: al sole pieno si vede la palette ESATTA
   // (vivace, come le concept); il caldo entra solo col sole basso.
   const caldo = Math.min(1, Math.max(0, (alt - 0.24) / 0.4));
@@ -531,6 +560,7 @@ function giro(adesso) {
     azioneEl.textContent = etichetta;
   } else azioneEl.textContent = azioneCorrente()[1];
   resa.disegnaAcqua();
+  bagliori.disegna(resa, cam);   // l'alone delle lanterne: due cerchi concentrici, dopo tutto
   const js = performance.now() - tj;
   tempi.push(dt * 1000); if (tempi.length > 240) tempi.shift();
   jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
@@ -542,9 +572,16 @@ function giro(adesso) {
 }
 const q = (a, f) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * f))]; };
 function stampa() {
-  const p50 = q(tempi, 0.5), p99 = q(tempi, 0.99), fps = p50 ? 1000 / p50 : 0;
+  // ⚠ I FOTOGRAMMI AL SECONDO SONO LA MEDIA, non 1000/mediana: con la mediana
+  // un singhiozzo ogni venti fotogrammi non si vedeva nel numero grande e il
+  // committente leggeva 89 fps mentre il ritmo era a scatti. La media li sente,
+  // e accanto c'è l'«1 %», cioè il fotogramma peggiore su cento: se i due numeri
+  // sono lontani il ritmo è ballerino anche quando la media è alta.
+  const p50 = q(tempi, 0.5), p99 = q(tempi, 0.99);
+  const media = tempi.length ? tempi.reduce((a, b) => a + b, 0) / tempi.length : 0;
+  const fps = media ? 1000 / media : 0, fpsBasso = p99 ? 1000 / p99 : 0;
   storiaFps.push(Math.round(fps)); if (storiaFps.length > 120) storiaFps.shift();
-  document.getElementById('fps').textContent = `${fps.toFixed(0)} fps\n${p50.toFixed(1)} / ${p99.toFixed(1)} ms\nJS ${q(jsMs, 0.5).toFixed(2)} ms`;
+  document.getElementById('fps').textContent = `${fps.toFixed(0)} fps · 1% ${fpsBasso.toFixed(0)}\n${p50.toFixed(1)} / ${p99.toFixed(1)} ms\nJS ${q(jsMs, 0.5).toFixed(2)} ms`;
   const st = resa.statistiche, sm = streaming.statistiche;
   document.getElementById('stato').textContent =
     `${opz.vetrina ? 'VETRINA' : opz.zoo ? 'ZOO' : 'PARTITA'} sul nucleo · seme ${opz.seme} · ${tela.width}×${tela.height} (dpr ${dpr.toFixed(2)})\n`
@@ -574,7 +611,7 @@ async function apriOfficinaPartita() {
   statoGiocatore.buco = () => cam3.buco; statoGiocatore.impostaBuco = (v) => (cam3.buco = !!v);
   statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = impostaMiraCentro;
   officina = apriOfficina({
-    registri: [registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, vetrina: opz.vetrina, seme: opz.seme })],
+    registri: [registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, vetrina: opz.vetrina, seme: opz.seme })],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
     autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),
