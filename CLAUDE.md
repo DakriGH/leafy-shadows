@@ -1528,12 +1528,16 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   passo e non sul bordo del blocco — «l'ombra è seghettata quadrata». Coi
   confini delle celle il taglio è dritto e le letture sono anche meno (una per
   cella attraversata, al massimo quattordici: il raggio è 4,6).
-- **L'alone dei lampioni sono DUE CERCHI CONCENTRICI piatti A TERRA** dello
-  stesso colore, in trasparenza: la pozza per pixel (`pozza()`), come le «fake
-  point light» di Unity, niente alone bianco sfumato. Lo sprite sospeso a
-  +2,35 (`bagliori.js`) è STATO TOLTO dalla partita: visto dall'alto i suoi
-  cerchi si proiettavano spostati rispetto alla pozza e il committente vedeva
-  «tre luci» con tre centri; un solo centro, quello del lampione.
+- **LA POZZA A TERRA sono DUE CERCHI CONCENTRICI piatti** dello stesso colore,
+  in trasparenza: la pozza per pixel (`pozza()`), come le «fake point light» di
+  Unity, niente alone bianco sfumato.
+  ⚠ **E NON È L'ALONE: sono due cose diverse e vanno tutte e due.** Lo sprite
+  sospeso a +2,35 (`bagliori.js`) era stato tolto dalla partita perché visto
+  dall'alto i suoi cerchi si proiettavano spostati rispetto alla pozza e il
+  committente vedeva «tre luci» con tre centri. Era una lettura sbagliata del
+  difetto: l'alone in aria attorno alla lanterna è lo STILE, e il 09/09/2026 è
+  **tornato** (vedi «L'alone è uno sprite» più sotto). Il difetto dei tre centri
+  si cura allineando i centri, non togliendo l'alone.
 - **L'acqua è tornata quella INIZIALE** (rollback chiesto dal committente): le
   onde da tre direzioni e il meteo non convincevano; si riparte da lì, UN PASSO
   ALLA VOLTA. Passo 1: la SCHIUMA (le onde non si toccano).

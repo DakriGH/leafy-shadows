@@ -12,9 +12,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 const RADICE = fileURLToPath(new URL('../src/', import.meta.url));
+
+// ⚠ SU WINDOWS `join` DÀ `motore\acqua.js`, e il confronto con «motore/» non
+// scatta mai: la guardia lascia passare tutta `src/motore/` e la prova accusa
+// di violazione proprio l'unica cartella che PUÒ nominare Babylon. Fallisce con
+// sessantasei colpevoli tutti innocenti, e sembra che la regola della casa sia
+// saltata. Il percorso relativo si dice quindi in un modo solo, con le barre
+// normali, come è scritto ovunque nei documenti.
+const relativo = (f) => f.slice(RADICE.length).split(sep).join('/');
 
 function tuttiIFile(dir, out = []) {
   for (const n of readdirSync(dir)) {
@@ -28,7 +36,7 @@ function tuttiIFile(dir, out = []) {
 test('solo src/motore/ nomina Babylon', () => {
   const colpevoli = [];
   for (const f of tuttiIFile(RADICE)) {
-    const rel = f.slice(RADICE.length);
+    const rel = relativo(f);
     if (rel.startsWith('motore/')) continue;
     const s = readFileSync(f, 'utf8');
     // si guardano gli IMPORT, non i commenti: il nome si può nominare a parole
@@ -46,7 +54,7 @@ test('e non è rimasto three da nessuna parte', () => {
   for (const f of tuttiIFile(RADICE)) {
     const s = readFileSync(f, 'utf8');
     const imports = s.match(/^\s*import[^;]*from\s*['"]three[^'"]*['"]/gm) || [];
-    if (imports.length) colpevoli.push(f.slice(RADICE.length));
+    if (imports.length) colpevoli.push(relativo(f));
   }
   assert.deepEqual(colpevoli, [], 'residui di three: ' + colpevoli.join(', '));
 });

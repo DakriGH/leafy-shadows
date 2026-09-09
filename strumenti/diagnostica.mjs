@@ -71,12 +71,19 @@ function segnaTentativo(ip) {
   else t.n++;
 }
 
+// ⚠ E MANCARE UN TIPO QUI NON DÀ UN ERRORE DI PERMESSI: dà un 404. La riga
+// sotto è insieme il permesso e la tabella dei tipi, quindi un'estensione
+// dimenticata sparisce come «non c'è» — si va a cercare il file, e il file
+// c'è. È successo con `.bin`: i modelli del nucleo (`modelli/nucleo/*.bin`,
+// formato LNM1) non arrivavano quando il gioco era servito dal collettore
+// invece che da `serve.mjs`, e mancavano alberi e lampioni senza un messaggio.
 const TIPI = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg',
   '.webp': 'image/webp', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.wasm': 'application/wasm',
+  '.bin': 'application/octet-stream', '.txt': 'text/plain; charset=utf-8',
 };
 
 /** Il gettone: si LEGGE dal file se c'è, e solo se non c'è se ne fa uno a caso.
