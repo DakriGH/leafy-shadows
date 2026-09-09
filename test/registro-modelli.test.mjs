@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RegistroModelli } from '../src/partita/registro-modelli.js';
 import { registraDecorazioni } from '../src/world/decorazioni.js';
+import { registraBlocco } from '../src/world/blocks.js';
 import { allungaIstanze, modelloCubo } from '../src/nucleo/modelli.js';
 
 registraDecorazioni();
@@ -15,41 +16,48 @@ test('il registro impara dagli eventi del mondo e ricompone solo i tipi cambiati
   const c = r.cambiate();
   assert.deepEqual(c.map((x) => x[0]).sort(), ['albero', 'lampione']);
   // ⚠ OTTO FLOAT, non quattro: x y z scala | r g b giro. La posizione è il
-  // CENTRO della cella (y no: i modelli poggiano a terra), scala e giro
-  // arrivano dal catalogo e stanno nell'intervallo che la riga dichiara.
+  // CENTRO della cella (y no: i modelli poggiano a terra). L'albero sta FERMO
+  // per verdetto del committente, quindi scala 1 e giro 0 — ed è giusto che
+  // questa prova lo dica: se un giorno l'albero comincia a girare da solo,
+  // qui si rompe qualcosa e qualcuno se ne accorge.
   const a = [...c.find((x) => x[0] === 'albero')[1]];
   assert.equal(a.length, 8);
-  assert.deepEqual(a.slice(0, 3), [1.5, 5, 2.5]);
-  assert.ok(a[3] >= 0.88 && a[3] <= 1.16, `scala fuori dall'intervallo dell'albero: ${a[3]}`);
-  assert.deepEqual(a.slice(4, 7), [1, 1, 1], 'la tinta resta bianca');
-  assert.ok(a[7] >= 0 && a[7] < Math.PI * 2, `giro fuori dal cerchio: ${a[7]}`);
+  assert.deepEqual(a, [1.5, 5, 2.5, 1, 1, 1, 1, 0]);
   assert.equal(r.cambiate().length, 0, 'niente da rifare');
   r.evento({ tipo: 'togli', cella: [1, 5, 2] });
   const d = r.cambiate();
   assert.equal(d.length, 1); assert.equal(d[0][0], 'albero'); assert.equal(d[0][1].length, 0);
 });
 
-test('lo stesso albero riposato dopo lo scarico del chunk torna IDENTICO', () => {
+// ⚠ UN BLOCCO DI PROVA CHE VARIA DAVVERO. Le righe vere del catalogo oggi
+// stanno quasi tutte ferme (è il verdetto del committente, non un difetto), e
+// provare lo streaming su una cosa ferma non prova niente: verrebbe identica
+// comunque. Il `ciuffo` è la riga approvata, e qui gli si dà un blocco.
+registraBlocco('provaCespo', { nome: 'Prova cespo', forma: 'modello', modello: 'ciuffo', solido: false });
+
+test('lo stesso oggetto riposato dopo lo scarico del chunk torna IDENTICO', () => {
   // ⚠ È la prova dello streaming: la frontiera scarica i chunk dietro e li
   // ripone davanti. Se la posa non venisse dalla cella, tornando indietro di
   // cento blocchi il bosco si troverebbe rimescolato — e il difetto si
   // vedrebbe solo camminando avanti e indietro, cioè quasi mai in prova.
   const uno = new RegistroModelli();
-  uno.evento({ tipo: 'metti', cella: [17, 9, -4], blocco: 'albero' });
+  uno.evento({ tipo: 'metti', cella: [17, 9, -4], blocco: 'provaCespo' });
   const primo = [...uno.cambiate()[0][1]];
+  assert.ok(primo[7] > 0, 'il cespo di prova non varia: la prova non proverebbe niente');
 
-  const due = new RegistroModelli();                       // un mondo nuovo, come dopo uno scarico
-  due.evento({ tipo: 'metti', cella: [99, 2, 8], blocco: 'albero' });   // altra roba in mezzo
-  due.evento({ tipo: 'metti', cella: [17, 9, -4], blocco: 'albero' });
+  const due = new RegistroModelli();                                      // un mondo nuovo, come dopo uno scarico
+  due.evento({ tipo: 'metti', cella: [99, 2, 8], blocco: 'provaCespo' }); // altra roba in mezzo
+  due.evento({ tipo: 'metti', cella: [17, 9, -4], blocco: 'provaCespo' });
   const dopo = [...due.cambiate()[0][1]];
-  const suo = dopo.slice(dopo.indexOf(17.5), dopo.indexOf(17.5) + 8);
+  const i = dopo.indexOf(17.5);
+  assert.ok(i >= 0 && i % 8 === 0, 'il cespo cercato non è nella lista');
 
-  assert.deepEqual(suo, primo, 'lo stesso albero è tornato con una posa diversa');
+  assert.deepEqual(dopo.slice(i, i + 8), primo, 'lo stesso oggetto è tornato con una posa diversa');
 });
 
 test('`varia: false` riporta il registro a com\'era: scala 1, giro 0', () => {
   const r = new RegistroModelli({ varia: false });
-  r.evento({ tipo: 'metti', cella: [1, 5, 2], blocco: 'albero' });
+  r.evento({ tipo: 'metti', cella: [1, 5, 2], blocco: 'provaCespo' });
   assert.deepEqual([...r.cambiate()[0][1]], [1.5, 5, 2.5, 1, 1, 1, 1, 0]);
 });
 
