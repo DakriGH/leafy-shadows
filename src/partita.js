@@ -39,6 +39,7 @@ import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, 
 import { Meteo } from './partita/meteo.js';
 import { raggioDaSchermo } from './partita/raggio.js';
 import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
+import { rigaDi } from './partita/catalogo.js';
 
 const params = new URLSearchParams(location.search);
 const opz = {
@@ -57,6 +58,10 @@ const opz = {
   terza: params.has('terza'),
   zoo: params.has('zoo'),            // la scena di prova (partita/zoo.js) al posto dell'open world
   vetrina: params.has('vetrina'),    // la concept art nel nero (partita/vetrina.js): solo palette e luce
+  // ⚠ `?varia=no` INCHIODA GIRO E SCALA come prima del catalogo. Serve al
+  // confronto fianco a fianco: un cambiamento visivo si giudica vedendo la
+  // STESSA scena con e senza, non a memoria.
+  varia: params.get('varia') !== 'no',
 };
 
 const tela = document.getElementById('tela');
@@ -83,7 +88,7 @@ registraDecorazioni();
 // spegnere un lampione lo trasformava in un cubo viola.
 if (!BLOCCHI.lampioneSpento) registraBlocco('lampioneSpento', { ...defDi('lampione'), nome: 'Lampione spento', modello: 'lampioneSpento', luce: undefined, notte: false });
 const mondo = new Mondo();
-const registro = new RegistroModelli();
+const registro = new RegistroModelli({ varia: opz.varia });
 mondo.onEvento = (e) => registro.evento(e);
 const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
 const genera = opz.vetrina ? generaChunkVetrina : opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
@@ -144,14 +149,24 @@ async function caricaModello(nome) {
 function aggiornaModelli() {
   for (const [nome, lista] of registro.cambiate()) {
     if (!modelli.tipi.has(nome)) { caricaModello(nome); registro.sporchi.add(nome); continue; }
-    modelli.istanze(nome, lista);
+    // ⚠ OTTO FLOAT: il registro adesso dice anche scala e giro (partita/catalogo.js).
+    modelli.istanze(nome, lista, 8);
     // ⚠ OGNI LAMPIONE HA IL SUO ALONE: due cerchi concentrici piatti attorno
     // alla lanterna (a +2,35), come le «fake point light» di Unity — è lo
     // STILE, non si toglie. A terra ci sono gli altri tre cerchi della pozza:
     // sono due cose diverse e vanno tutte e due.
-    if (nome === 'lampione') {
-      const b = new Float32Array((lista.length / 4) * 8);
-      for (let i = 0; i < lista.length / 4; i++) b.set([lista[i * 4], lista[i * 4 + 1] + 2.35, lista[i * 4 + 2], 1.6, 1.0, 0.85, 0.5, 1.0], i * 8);
+    // ⚠ E ADESSO LO DICE IL CATALOGO, non un `if` sul nome: l'alone è una
+    // proprietà del lampione e va scritta accanto al lampione, se no il
+    // secondo oggetto che ne vuole uno aggiunge un altro ramo qui dentro.
+    const riga = rigaDi(nome);
+    if (riga && riga.alone) {
+      const { quota, raggio, colore } = riga.alone;
+      const n = lista.length / 8;
+      const b = new Float32Array(n * 8);
+      for (let i = 0; i < n; i++) {
+        const o = i * 8, s = lista[o + 3];
+        b.set([lista[o], lista[o + 1] + quota * s, lista[o + 2], raggio * s, colore[0], colore[1], colore[2], 1.0], o);
+      }
       bagliori.istanze(b);
     }
   }
