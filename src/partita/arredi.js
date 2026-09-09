@@ -13,6 +13,7 @@
 // Davanti = −Z, origine ai piedi.
 import { modelloDaCuboidi, scatola, piramide, tornio } from '../nucleo/cuboidi.js';
 import { registraBlocco, BLOCCHI } from '../world/blocks.js';
+import { registraAsset } from './catalogo.js';
 
 /** I colori delle reference. */
 export const TAVOLOZZE = {
@@ -149,8 +150,15 @@ export const ARREDI = {
 /** Registra gli arredi come blocchi «modello» (non solidi: si attraversano, non cullano). Idempotente. */
 export function registraArredi() {
   for (const [id, a] of Object.entries(ARREDI)) {
-    if (BLOCCHI[id]) continue;
-    registraBlocco(id, { nome: a.nome, forma: 'modello', modello: id, solido: false, calpestabile: true, colore: a.colore });
+    if (!BLOCCHI[id]) {
+      registraBlocco(id, { nome: a.nome, forma: 'modello', modello: id, solido: false, calpestabile: true, colore: a.colore });
+    }
+    // ⚠ E ANCHE A CATALOGO, accanto alla loro definizione e non in un elenco
+    // lontano: è il catalogo che l'Officina leggerà per sapere che questi
+    // oggetti esistono. La posa resta FERMA (giro 'no', scala 1), com'era
+    // prima che il catalogo esistesse: sono pezzi disegnati a mano sulle
+    // reference, e girarli è una decisione visiva che spetta al committente.
+    registraAsset(id, { nome: a.nome, modello: id, giro: 'no', scala: 1, proiettaOmbra: true, classe: 'fermo', ingombro: [1, 1, 1] });
   }
   return Object.keys(ARREDI);
 }
