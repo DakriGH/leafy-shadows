@@ -55,18 +55,40 @@ console.log(`  ${primi} nuovi, in  diagnostica/\n`);
 if (segui) {
   // ⚠ SI RICHIEDE, NON SI RESTA APPESI ALLO STREAM: quello di ntfy cade da solo
   // dopo un po', e un ascolto «per sempre» muore in silenzio dopo mezz'ora —
-  // cioè proprio quando serve. Un giro ogni dieci secondi non costa niente e
-  // non può incantarsi.
+  // cioè proprio quando serve.
+  // ⚠ MA NON OGNI DIECI SECONDI: la prima stesura lo faceva, e dopo pochi minuti
+  // ntfy.sh ha risposto **429** e l'ascolto è MORTO — cioè lo strumento che deve
+  // stare acceso mentre si prova si spegneva proprio mentre si provava, e senza
+  // dirlo a nessuno. Trenta secondi bastano (un rapporto si aspetta, non si
+  // insegue) e non si sfiora nessun tetto.
   console.log('  in ascolto (ctrl-C per smettere)…\n');
+  let attesa = 30000;
   for (;;) {
-    await new Promise((r) => setTimeout(r, 10000));
+    await new Promise((r) => setTimeout(r, attesa));
     const n = await giro();
+    // ⚠ E SE ARRIVA UN 429 SI RALLENTA invece di morire: raddoppia fino a cinque
+    // minuti, e torna normale appena il servizio riprende a rispondere.
+    if (n < 0) { attesa = Math.min(attesa * 2, 300000); console.log(`  (ntfy chiede calma: riprovo fra ${attesa / 1000}s)`); continue; }
+    attesa = 30000;
     if (n) console.log(`  ${n} nuovi.\n`);
   }
 }
 
 async function giro() {
-  const r = await fetch(`https://ntfy.sh/${ARGOMENTO}/json?poll=1`);
+  // ⚠ NIENTE QUI DENTRO PUÒ UCCIDERE L'ASCOLTO, e ci sono cascato due volte in
+  // dieci minuti: prima con un 429 (troppe richieste), poi con un timeout di
+  // connessione. Uno strumento che deve stare acceso MENTRE si prova e che muore
+  // al primo intoppo è peggio di uno che non c'è — perché si crede acceso.
+  let r;
+  try {
+    r = await fetch(`https://ntfy.sh/${ARGOMENTO}/json?poll=1`);
+  } catch (e) {
+    if (!segui) console.error('rete:', e.message);
+    return -1;   // si rallenta e si riprova, non si muore
+  }
+  // ⚠ IL 429 NON È UN ERRORE FATALE, è «troppe richieste»: si torna -1 e chi
+  // chiama rallenta. Trattarlo come gli altri faceva morire l'ascolto.
+  if (r.status === 429) return -1;
   if (!r.ok) { console.error('ntfy ha detto no:', r.status); return 0; }
   const righe = (await r.text()).split('\n').filter(Boolean);
   if (!righe.length) { if (!segui) console.log('  nessun rapporto. (i messaggi durano 12 ore)'); return 0; }

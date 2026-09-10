@@ -53,14 +53,26 @@ export class Streaming {
       },
     });
     this.coda = new Set();
-    this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0, inVolo: 0, rifattiPerLuce: 0 };
+    this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0, inVolo: 0, rifattiPerLuce: 0, generaMs: 0, costruisciMs: 0 };
     this._ordine = [];
   }
 
   /** L'avvio: genera e costruisce tutto quello che serve intorno, senza budget. */
+  /**
+   * L'avvio: genera e costruisce tutto quello che serve intorno, senza budget.
+   * ⚠ E MISURA LE DUE FASI SEPARATE. Erano un numero solo scritto sotto due nomi
+   * («worldgenMs» e «meshMs», identici in ogni rapporto): sembrava di sapere
+   * dove andasse il tempo dell'avvio, e invece non lo diceva nessuno. Dal
+   * Chromebook sono arrivati diciannove secondi, e senza la divisione non si
+   * poteva nemmeno cominciare a capire da che parte guardare.
+   */
   avvio(x, z) {
+    const t0 = performance.now();
     this.frontiera.assicura(x, z, { resa: this.raggioResa }, { subito: true });
+    const t1 = performance.now();
     this.aggiorna(x, z, Infinity);
+    this.statistiche.generaMs = t1 - t0;
+    this.statistiche.costruisciMs = performance.now() - t1;
   }
 
   /** Un blocco cambiato in (x, z): il suo chunk e i vicini entro il margine della luce. */

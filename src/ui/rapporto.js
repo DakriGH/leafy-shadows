@@ -75,13 +75,25 @@ export function costruisciRapporto(l = {}) {
       // dello schermo questa non si vede mai.
       storiaFps: Array.isArray(l.storiaFps) ? l.storiaFps.slice(-60).map((v) => Math.round(v)) : [],
       storiaLivelli: Array.isArray(l.storiaLivelli) ? l.storiaLivelli.slice(-20) : [],
+      // ⚠ IL FRAMEPACING, che gli fps non contengono. Trenta fotogrammi regolari
+      // si giocano, trenta con un singhiozzo ogni due secondi no — e nel numero
+      // grande le due cose sono identiche. `scarto` è quanto salta un fotogramma
+      // rispetto al precedente, `singhiozzi` quanti durano più del doppio del
+      // tipico, `voto` il giudizio dei due messi insieme (comanda il peggiore).
+      ritmo: l.ritmo ? {
+        scarto: num(l.ritmo.scarto, 2), scartoTipico: num(l.ritmo.scartoTipico, 2),
+        singhiozziAlSec: num(l.ritmo.singhiozziAlSec, 2), passo: num(l.ritmo.passo, 3),
+        liscezza: num(l.ritmo.liscezza, 3), p999: num(l.ritmo.p999, 1), max: num(l.ritmo.max, 1),
+        agganciato: !!l.ritmo.regolare, n: l.ritmo.n || 0,
+      } : null,
+      voto: l.voto ? { punti: l.voto.punti, giudizio: l.voto.giudizio, collo: l.voto.collo } : null,
     },
     scheda: { nome: (l.scheda || '').slice(0, 120), software: !!l.software },
     mondo: {
       chunk: l.chunk ?? null, blocchi: l.blocchi ?? null,
       luci: l.luci ?? null, decorazioni: l.decorazioni ?? null,
       erba: l.erba ?? null, ora: l.ora || null, giorno: l.giorno ?? null,
-      worldgenMs: num(l.worldgenMs, 0), meshMs: num(l.meshMs, 0),
+      worldgenMs: num(l.worldgenMs, 0), meshMs: num(l.meshMs, 0), avvioMs: num(l.avvioMs, 0),
     },
     errori: (l.errori || []).slice(-MAX_ERRORI).map((e) => String(e).slice(0, 500)),
     // ⚠ LO SCATTO È FACOLTATIVO e sta in fondo: è il campo grosso, e se il
