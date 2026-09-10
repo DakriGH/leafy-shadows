@@ -429,7 +429,7 @@ ascoltaClic(tela, (e) => {
   // nel gioco farebbe una cosa invisibile.
   if (regScena && bersaglio && bersaglio.cella) {
     const id = entita.idInCella(bersaglio.cella[0], bersaglio.cella[1], bersaglio.cella[2]);
-    if (id != null) { regScena.scegli(id); if (officina) officina.pannello.vaiA('scena'); }
+    if (id != null) regScena.scegli(id);
   }
   const [verbo] = azioneCorrente();
   // il destro (o il tocco senza piccone): posa, o accende/spegne, o tocca
@@ -658,12 +658,12 @@ async function apriOfficinaPartita() {
   // sono registri di manopole — si disegnano da sé (vedi `officina/schema.js`),
   // ed è l'estensione che ha reso possibile rifare l'Officina senza buttare il
   // pannello, che di suo funziona: schede, annulla/ripeti, dock, tema scuro.
-  const { registroScenaEntita } = await import('./officina/scena.js');
+  const { creaScena } = await import('./officina/scena.js');
   const { registroCreativa, voci } = await import('./officina/creativa.js');
   const { CATEGORIE_BLOCCHI } = await import('./world/blocks.js');
   const { CATALOGO } = await import('./partita/catalogo.js');
   const esaDi = (t) => { const c = coloreDiTipo(t); return c == null ? '#888888' : '#' + (c >>> 0).toString(16).padStart(6, '0'); };
-  regScena = registroScenaEntita({
+  regScena = creaScena({
     entita,
     dove: () => ({ x: passeggero.x, y: passeggero.y, z: passeggero.z }),
     coloreDi: esaDi, nomeDi: nomeDiTipo, rigaDi,
@@ -684,18 +684,25 @@ async function apriOfficinaPartita() {
   // ⚠ FUORI DAL GIOCO, SCURA: una colonna a destra della tela (il committente:
   // «l'officina doveva essere in dark mode esterna», non un pannello sopra la GUI)
   document.body.classList.add('con-officina');
-  const dock = document.getElementById('dock');
   statoGiocatore.cameraTira = () => cam3.tira; statoGiocatore.impostaCameraTira = (v) => (cam3.tira = !!v);
   statoGiocatore.buco = () => cam3.buco; statoGiocatore.impostaBuco = (v) => (cam3.buco = !!v);
   statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = impostaMiraCentro;
   officina = apriOfficina({
-    // ⚠ LA SCENA E LA CREATIVA VENGONO PRIME, e non è un vezzo d'ordine: sono
-    // quello che si apre per lavorare. Le manopole restano — sono la taratura
-    // della resa e vanno bene — ma non devono più essere la prima cosa e
-    // soprattutto non l'unica.
-    registri: [regScena, regCreativa, registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, vetrina: opz.vetrina, seme: opz.seme })],
+    // ⚠ QUATTRO RIQUADRI, NON DIECI SCHEDE. La gerarchia e l'ispettore servono
+    // INSIEME (si sfoglia l'albero e si guarda cosa si è preso), e così gli
+    // assets e l'ispettore: in una colonna sola sarebbero schede, cioè cose che
+    // non si possono vedere nello stesso momento. Le manopole restano — sono la
+    // taratura della resa e vanno bene — ma in un riquadro loro, in basso a
+    // destra, dove stanno le impostazioni in ogni editor.
+    gruppi: [
+      { contenitore: document.getElementById('rqGerarchia'), etichetta: 'Gerarchia', registri: [regScena.gerarchia], azioni: false },
+      { contenitore: document.getElementById('rqAssets'), etichetta: 'Assets', registri: [regCreativa], azioni: false },
+      { contenitore: document.getElementById('rqIspettore'), etichetta: 'Ispettore', registri: [regScena.ispettore], azioni: true },
+      { contenitore: document.getElementById('rqImpostazioni'), etichetta: 'Impostazioni', azioni: false,
+        registri: [registroResa(resa, bagliori), registroStile(resa), registroGiornoPartita(giorno), registroMeteo(meteo), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, vetrina: opz.vetrina, seme: opz.seme })] },
+    ],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
-    autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
+    autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),
   });
   document.getElementById('chiudiDock').addEventListener('click', () => document.body.classList.remove('con-officina'));

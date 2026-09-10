@@ -1,11 +1,18 @@
-// Officina — LA SCENA E L'ISPETTORE.
+// Officina — LA GERARCHIA E L'ISPETTORE.
 //
 // ⚠ È LA PARTE CHE MANCAVA, e il committente l'ha detto con precisione: «non è
 // per niente l'editor stile Unity, è solo una lista buggata e brutta e
 // complicata con slider, manca proprio il concetto di oggetto metadati
 // inspector scene». Il difetto non era il pannello: era che **nel motore non
 // esisteva l'oggetto**. Adesso esiste (`partita/entita.js`), e questo è il suo
-// specchio: sopra l'albero della scena, sotto l'ispettore di quello scelto.
+// specchio.
+//
+// ⚠ DUE RIQUADRI, NON UNO — e nemmeno due schede. «Voglio comunque una GUI
+// dell'officina come Unity, quindi sinistra e destra, inspector, tutto completo
+// con assets». La gerarchia e l'ispettore servono INSIEME: si sfoglia l'albero
+// e si guarda cosa si è preso. Due schede sono due cose che non si possono
+// vedere nello stesso momento, ed è precisamente ciò che una scheda non sa
+// fare — il motivo per cui un cassetto non è un editor.
 //
 // ⚠ LE MODIFICHE PASSANO DAL BUS DEI COMANDI, non toccano le entità a mano. È
 // il motivo per cui l'ispettore ha annulla/ripeti senza scrivere una riga: il
@@ -14,12 +21,14 @@
 // quando qualcuno posa un albero e non si può dichiarare prima.
 //
 // ⚠ NIENTE GL, NIENTE MOTORE: DOM e un oggetto `entita`. Le funzioni pure
-// (l'elenco, l'ordine, il taglio) stanno in fondo e si provano in Node.
+// (l'ordine, il taglio, i metadati) stanno in fondo e si provano in Node.
 
 const CSS = `
 #officina .sc-barra { display: flex; gap: 4px; align-items: center; margin-bottom: 6px; }
 #officina .sc-barra input { flex: 1; min-width: 0; max-width: none; }
 #officina .sc-albero { max-height: 34vh; overflow: auto; border: 1px solid var(--riga); border-radius: 7px; background: var(--campo); }
+/* nel riquadro suo, la gerarchia prende tutta l'altezza che ha */
+#officina .sc-albero.sc-alto { max-height: none; flex: 1; min-height: 120px; }
 #officina .sc-gruppo > .sc-cap { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
   font: inherit; color: var(--inch); background: var(--tenue); border: 0; border-bottom: 1px solid var(--riga); padding: 5px 8px; cursor: pointer; }
 #officina .sc-cap .sc-quanti { margin-left: auto; opacity: .6; font-variant-numeric: tabular-nums; }
@@ -32,6 +41,7 @@ const CSS = `
 #officina .sc-altri { padding: 4px 8px 5px 20px; font-size: 10.5px; opacity: .6; }
 #officina .sc-vuoto { padding: 10px; font-size: 11px; opacity: .7; }
 #officina .sc-isp { margin-top: 8px; border-top: 1px solid var(--riga); padding-top: 8px; }
+#officina .sc-isp.sc-solo { margin-top: 0; border-top: 0; padding-top: 0; }
 #officina .sc-titolo { display: flex; align-items: center; gap: 6px; font-weight: 700; margin-bottom: 2px; }
 #officina .sc-tipo { font-size: 10.5px; opacity: .62; margin-bottom: 6px; }
 #officina .sc-tre { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
@@ -41,7 +51,7 @@ const CSS = `
 #officina .sc-azioni { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
 #officina .sc-azioni button { font: inherit; font-size: 11px; color: var(--inch); background: var(--tenue);
   border: 1px solid var(--riga); border-radius: 6px; padding: 4px 9px; cursor: pointer; }
-#officina .sc-azioni button.rosso { color: #b3352c; }
+#officina .sc-azioni button.rosso { color: #e0857c; }
 #officina .sc-meta { margin-top: 8px; font-size: 11px; }
 #officina .sc-meta textarea { width: 100%; min-height: 46px; font: inherit; font-size: 11px; color: var(--inch);
   background: var(--campo); border: 1px solid var(--riga); border-radius: 6px; padding: 4px 6px; resize: vertical; }
@@ -74,7 +84,7 @@ export function vociVicine(elenco, da, tetto = TETTO_VOCI) {
 export function esa(n) { return '#' + (n >>> 0 & 0xffffff).toString(16).padStart(6, '0'); }
 
 /**
- * Il registro «Scena» dell'Officina.
+ * LA SCENA, IN DUE RIQUADRI che condividono la selezione.
  *
  * @param entita     lo store delle entità
  * @param dove       () => ({x, y, z}) — chi guarda, per ordinare per distanza
@@ -83,48 +93,38 @@ export function esa(n) { return '#' + (n >>> 0 & 0xffffff).toString(16).padStart
  * @param rigaDi     (tipo) → la riga di catalogo, mostrata in sola lettura
  * @param onVaiA     (entità) → void: porta la camera lì (facoltativo)
  */
-export function registroScenaEntita({ entita, dove, coloreDi, nomeDi, rigaDi, onVaiA = null }) {
+export function creaScena({ entita, dove, coloreDi, nomeDi, rigaDi, onVaiA = null }) {
   const stato = { scelto: null, aperti: new Set(), filtro: '' };
+  const viste = {};   // chiave del riquadro → la sua funzione che ridisegna
 
-  const reg = {
-    chiave: 'scena',
-    nome: '🗂 Scena',
-    nota: 'Gli oggetti del mondo. Si sceglie da qui o cliccandoli nel gioco.',
+  // ⚠ I RIQUADRI SI AVVISANO A VICENDA. Scegliere nell'albero deve rifare
+  // l'ispettore; cancellare dall'ispettore deve rifare l'albero. Senza, si
+  // resta a guardare i dati di una cosa che non c'è più — che è il difetto
+  // classico di due pannelli che tengono lo stesso stato ognuno per sé.
+  const avvisa = () => { for (const f of Object.values(viste)) if (f) f(); };
 
-    // ⚠ I CAMPI DELL'ISPETTORE NASCONO CON L'OGGETTO, quindi non stanno nello
-    // schema: la chiave è «<id>.<proprietà>» e la scrittura passa comunque dal
-    // bus, che è ciò che dà annulla/ripeti a tutta la scheda.
-    scriviDinamico(chiave, valore) {
-      const p = chiave.indexOf('.');
-      const id = Number(chiave.slice(0, p)), prop = chiave.slice(p + 1);
-      if (prop === 'nome') { entita.battezza(id, valore || null); return; }
-      if (prop === 'meta') { entita.metadati(id, valore); return; }
-      if (prop === 'tinta') { entita.posa(id, { tinta: valore }); return; }
-      entita.posa(id, { [prop]: valore });
-    },
+  function stile() {
+    if (!document.getElementById('officina-scena-stile')) {
+      const s = document.createElement('style'); s.id = 'officina-scena-stile'; s.textContent = CSS; document.head.appendChild(s);
+    }
+  }
 
-    /** Chi seleziona da fuori (un clic nel mondo) passa di qui. */
-    scegli(id) { stato.scelto = id; if (reg._ridisegna) reg._ridisegna(); },
-    get scelto() { return stato.scelto; },
-
-    disegna(box, pannello) {
-      if (!document.getElementById('officina-scena-stile')) {
-        const s = document.createElement('style'); s.id = 'officina-scena-stile'; s.textContent = CSS; document.head.appendChild(s);
-      }
+  // ── LA GERARCHIA ───────────────────────────────────────────────────────────
+  const gerarchia = {
+    chiave: 'gerarchia',
+    nome: '🗂 Gerarchia',
+    disegna(box) {
+      stile();
+      box.style.display = 'flex'; box.style.flexDirection = 'column';
       const barra = document.createElement('div'); barra.className = 'sc-barra';
       const cerca = document.createElement('input'); cerca.type = 'text'; cerca.placeholder = 'cerca un tipo…'; cerca.value = stato.filtro;
-      cerca.addEventListener('input', () => { stato.filtro = cerca.value.trim().toLowerCase(); disegnaAlbero(); });
       const conta = document.createElement('span'); conta.className = 'valore';
       barra.append(cerca, conta);
+      const albero = document.createElement('div'); albero.className = 'sc-albero sc-alto';
+      box.append(barra, albero);
+      cerca.addEventListener('input', () => { stato.filtro = cerca.value.trim().toLowerCase(); disegna(); });
 
-      const albero = document.createElement('div'); albero.className = 'sc-albero';
-      const isp = document.createElement('div'); isp.className = 'sc-isp';
-      box.append(barra, albero, isp);
-
-      const scrivi = (id, prop, prima, dopo) =>
-        pannello.bus.esegui({ registro: 'scena', campo: `${id}.${prop}`, prima, dopo });
-
-      function disegnaAlbero() {
+      function disegna() {
         albero.innerHTML = '';
         const tipi = entita.perTipo().filter(([t]) => !stato.filtro || t.toLowerCase().includes(stato.filtro) || (nomeDi(t) || '').toLowerCase().includes(stato.filtro));
         conta.textContent = `${entita.conta} oggetti`;
@@ -138,7 +138,7 @@ export function registroScenaEntita({ entita, dove, coloreDi, nomeDi, rigaDi, on
           const nm = document.createElement('span'); nm.textContent = (aperto ? '▾ ' : '▸ ') + (nomeDi(tipo) || tipo);
           const qn = document.createElement('span'); qn.className = 'sc-quanti'; qn.textContent = quanti;
           cap.append(pal, nm, qn);
-          cap.addEventListener('click', () => { if (aperto) stato.aperti.delete(tipo); else stato.aperti.add(tipo); disegnaAlbero(); });
+          cap.addEventListener('click', () => { if (aperto) stato.aperti.delete(tipo); else stato.aperti.add(tipo); disegna(); });
           g.appendChild(cap);
 
           if (aperto) {
@@ -151,7 +151,7 @@ export function registroScenaEntita({ entita, dove, coloreDi, nomeDi, rigaDi, on
               const et = document.createElement('span'); et.textContent = (e && e.nome) || `#${v.id}`;
               const lo = document.createElement('span'); lo.className = 'sc-lont'; lo.textContent = v.lontano.toFixed(0) + ' m';
               b.append(et, lo);
-              b.addEventListener('click', () => { stato.scelto = v.id; disegnaAlbero(); disegnaIspettore(); });
+              b.addEventListener('click', () => { stato.scelto = v.id; avvisa(); });
               g.appendChild(b);
             }
             if (altri) { const a = document.createElement('div'); a.className = 'sc-altri'; a.textContent = `e altri ${altri}, più lontani`; g.appendChild(a); }
@@ -159,6 +159,35 @@ export function registroScenaEntita({ entita, dove, coloreDi, nomeDi, rigaDi, on
           albero.appendChild(g);
         }
       }
+      viste.gerarchia = disegna;
+      disegna();
+      // ⚠ L'AGGIORNAMENTO PERIODICO NON RIDISEGNA L'ALBERO: gira ogni mezzo
+      // secondo, e rifare seicento nodi due volte al secondo cancellerebbe
+      // quello che qualcuno sta scrivendo nella casella di ricerca.
+      return { aggiorna() { conta.textContent = `${entita.conta} oggetti`; } };
+    },
+  };
+
+  // ── L'ISPETTORE ────────────────────────────────────────────────────────────
+  const ispettore = {
+    chiave: 'ispettore',
+    nome: '🔍 Ispettore',
+
+    scriviDinamico(chiave, valore) {
+      const p = chiave.indexOf('.');
+      const id = Number(chiave.slice(0, p)), prop = chiave.slice(p + 1);
+      if (prop === 'nome') { entita.battezza(id, valore || null); avvisa(); return; }
+      if (prop === 'meta') { entita.metadati(id, valore); return; }
+      if (prop === 'tinta') { entita.posa(id, { tinta: valore }); return; }
+      entita.posa(id, { [prop]: valore });
+    },
+
+    disegna(box, pannello) {
+      stile();
+      const isp = document.createElement('div'); isp.className = 'sc-isp sc-solo';
+      box.appendChild(isp);
+      const scrivi = (id, prop, prima, dopo) =>
+        pannello.bus.esegui({ registro: 'ispettore', campo: `${id}.${prop}`, prima, dopo });
 
       function riga(padre, etichetta, min, max, passo, leggi, prop, formato = (v) => v.toFixed(2)) {
         const r = document.createElement('div'); r.className = 'sc-riga';
@@ -178,12 +207,12 @@ export function registroScenaEntita({ entita, dove, coloreDi, nomeDi, rigaDi, on
         r.append(n, s, v); padre.appendChild(r);
       }
 
-      function disegnaIspettore() {
+      function disegna() {
         isp.innerHTML = '';
         const e = stato.scelto == null ? null : entita.leggi(stato.scelto);
         if (!e) {
           const v = document.createElement('div'); v.className = 'sc-vuoto';
-          v.textContent = 'Nessun oggetto scelto. Cliccane uno nel gioco, o aprine un gruppo qui sopra.';
+          v.textContent = 'Nessun oggetto scelto. Cliccane uno nel gioco, o aprine un gruppo nella Gerarchia.';
           isp.appendChild(v); return;
         }
 
@@ -201,7 +230,6 @@ export function registroScenaEntita({ entita, dove, coloreDi, nomeDi, rigaDi, on
           : `${e.tipo} · id ${e.id} · fuori catalogo`;
         isp.appendChild(tipo);
 
-        // posizione: tre caselle, che è il modo in cui la si legge e si corregge
         const tre = document.createElement('div'); tre.className = 'sc-tre';
         for (const asse of ['x', 'y', 'z']) {
           const l = document.createElement('label'); l.textContent = asse;
@@ -226,7 +254,6 @@ export function registroScenaEntita({ entita, dove, coloreDi, nomeDi, rigaDi, on
         });
         rt.append(nt, ct); isp.appendChild(rt);
 
-        // i metadati: testo libero, una riga per voce — ⚠ non sporcano la resa
         const meta = document.createElement('div'); meta.className = 'sc-meta';
         const ml = document.createElement('div'); ml.textContent = 'dati (chiave: valore, uno per riga)'; ml.style.opacity = '.7';
         const ta = document.createElement('textarea');
@@ -240,24 +267,24 @@ export function registroScenaEntita({ entita, dove, coloreDi, nomeDi, rigaDi, on
         dup.addEventListener('click', () => {
           const s = entita.leggi(stato.scelto); if (!s) return;
           stato.scelto = entita.aggiungi(s.tipo, s.x + 1, s.y, s.z, { giro: s.giro, scala: s.scala, tinta: s.tinta, nome: s.nome, dati: s.dati });
-          disegnaAlbero(); disegnaIspettore();
+          avvisa();
         });
         const via = document.createElement('button'); via.type = 'button'; via.className = 'rosso'; via.textContent = '✕ elimina';
-        via.addEventListener('click', () => { entita.togli(stato.scelto); stato.scelto = null; disegnaAlbero(); disegnaIspettore(); });
+        via.addEventListener('click', () => { entita.togli(stato.scelto); stato.scelto = null; avvisa(); });
         az.append(dup, via); isp.appendChild(az);
       }
 
-      reg._ridisegna = () => { disegnaAlbero(); disegnaIspettore(); };
-      disegnaAlbero(); disegnaIspettore();
-
-      // ⚠ L'AGGIORNAMENTO PERIODICO NON RIDISEGNA L'ALBERO. Gira ogni mezzo
-      // secondo, e rifare seicento nodi due volte al secondo mentre qualcuno
-      // scrive in una casella gli cancellerebbe quello che sta scrivendo. Si
-      // aggiorna solo il numero, che è l'unica cosa che cambia da sola.
-      return { aggiorna() { conta.textContent = `${entita.conta} oggetti`; } };
+      viste.ispettore = disegna;
+      disegna();
+      return { aggiorna() { /* si ridisegna quando cambia la scelta, non a orologio: qui dentro si sta scrivendo */ } };
     },
   };
-  return reg;
+
+  return {
+    gerarchia, ispettore,
+    scegli(id) { stato.scelto = id; avvisa(); },
+    get scelto() { return stato.scelto; },
+  };
 }
 
 /** «chiave: valore» per riga → oggetto. Funzione pura: si prova in Node. */
