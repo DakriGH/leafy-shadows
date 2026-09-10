@@ -26,9 +26,18 @@ Aperti dal **10/09/2026**.
 | 9 | La schiuma **appare quando ti avvicini**, e va retta da migliaia di oggetti | ✅ fatto (mappa delle impronte) |
 | 10 | Niente schiuma attorno ad alberi e furniture | ✅ fatto |
 | 11 | Le furniture non fanno ombra alla luce dei lampioni | ✅ fatto (il tronco, a cilindro) |
-| 12 | **Waterlogging**: le cose posate in acqua devono TENERE l'acqua | ⏳ |
-| 13 | **L'acqua non scorre**: una fonte piena accanto a una cella vuota deve riempirla, come Minecraft | ⏳ |
-| 14 | **L'acqua che scala fino ai bordi**, con i livelli smooth | ⏳ |
+| 12 | **Waterlogging**: le cose posate in acqua devono TENERE l'acqua | ✅ fatto |
+| 13 | **L'acqua non scorre**: una fonte piena accanto a una cella vuota deve riempirla, come Minecraft | ✅ fatto |
+| 14 | **L'acqua che scala fino ai bordi**, con i livelli smooth | ✅ viene dal 13 |
+| 15 | La schiuma «troppo splamata, sfocata, agli angoli si perde, non segue i lati del blocco» | ✅ da guardare |
+| 16 | La schiuma attorno agli oggetti **flickera quando il player salta** | ✅ fatto |
+
+**Il 6 è chiuso**: `?omega`. Primo numero su questa macchina, raggio 128 —
+**142 fps, p50 7,0 ms, JS 1,9 ms, 74 disegni, 7.177 istanze di modelli in 13
+chiamate di disegno, 2,05 milioni di triangoli.**
+
+⚠ **Manca ancora il 🩺 DAL TELEFONO**, che è il numero che conta davvero: su
+questa macchina il vsync copre tutto. `?omega` è il posto giusto per farlo.
 
 ⚠ **«✅ da guardare» non vuol dire chiuso.** Le voci 1 e 2 sono cambiamenti
 visivi, e il verdetto è del committente su scatti affiancati: finché non li
@@ -156,6 +165,30 @@ Tre cose distinte, in ordine di quanto scavano:
 
 ⚠ **Il 2 e il 3 sono lo stesso lavoro** visto da due lati: se lo scorrimento
 produce i livelli giusti, i bordi vengono da sé.
+
+## 15. La schiuma: netta NON vuol dire a quadretti, e nemmeno spalmata
+
+> «Troppo splamata, sfocata e poco netta e agli angoli si perde non segue i
+> lati del blocco»
+
+⚠ **Questa voce è una lezione di metodo, e vale oltre la schiuma.** Le tre cure
+in fila si sono pestate i piedi a vicenda:
+
+1. la prima stesura era **seghettata** — il campo era un test sì/no su una
+   griglia di un texel per colonna, quindi il bordo ereditava la griglia;
+2. per toglierla ho messo la **media di sedici assaggi su un anello**. Ha
+   funzionato, ma una media su un anello è un **filtro passa-basso**: spiana,
+   allarga, e a un angolo CONVESSO perde metà degli assaggi — quindi la schiuma
+   spariva proprio dove il bordo gira;
+3. la cura giusta non era né l'una né l'altra: si stima la **distanza vera**
+   dalla riva (altezza interpolata diviso la pendenza). La curva di livello
+   segue il bordo dei blocchi, angoli compresi, e la larghezza della fascia la
+   decide un numero in blocchi. E costa cinque letture invece di sedici.
+
+La morale: **netto**, **non seghettato** e **fedele al bordo** sono tre
+proprietà diverse, e vanno prese da tre posti diversi — il gradino dal taglio,
+la continuità dal filtro della texture, la forma dalla geometria del campo.
+Confonderne due fa nascere il terzo difetto.
 
 ## L'ordine, e perché
 
