@@ -25,7 +25,7 @@ Aperti dal **10/09/2026**.
 | 8 | La schiuma segue il player **a scatti** | ✅ fatto |
 | 9 | La schiuma **appare quando ti avvicini**, e va retta da migliaia di oggetti | ✅ fatto (mappa delle impronte) |
 | 10 | Niente schiuma attorno ad alberi e furniture | ✅ fatto |
-| 11 | Le furniture non fanno ombra alla luce dei lampioni | ✅ fatto (il tronco, a cilindro) |
+| 11 | Le furniture non fanno ombra alla luce dei lampioni | ✅ fatto **davvero** dal 10/09 (vedi 20) |
 | 12 | **Waterlogging**: le cose posate in acqua devono TENERE l'acqua | ✅ fatto |
 | 13 | **L'acqua non scorre**: una fonte piena accanto a una cella vuota deve riempirla, come Minecraft | ✅ fatto |
 | 14 | **L'acqua che scala fino ai bordi**, con i livelli smooth | ✅ viene dal 13 |
@@ -34,6 +34,8 @@ Aperti dal **10/09/2026**.
 | 17 | **Le ombre seghettate** «che ancora infestano questo progetto» | ✅ da guardare |
 | 18 | L'ombra che gli alberi **castano** e che **ricevono** dalle lampade | ✅ fatto |
 | 19 | La **hotbar** (di nuovo) e due cose dell'Officina | ✅ fatto |
+| 20 | «L'ombra non avviene dai lampioni se c'è un albero davanti» | ✅ fatto |
+| 21 | Il player «ha le mesh invertite da molte versioni» | ✅ fatto |
 
 **Il 6 è chiuso**: `?omega`. Primo numero su questa macchina, raggio 128 —
 **142 fps, p50 7,0 ms, JS 1,9 ms, 74 disegni, 7.177 istanze di modelli in 13
@@ -203,3 +205,65 @@ Confonderne due fa nascere il terzo difetto.
 4. **L'acqua e la schiuma** (1, 2), un difetto alla volta, come per il resto
    dell'acqua: è la regola già presa il 09/09.
 5. **Gli alberi** (4), che a quel punto hanno il catalogo sotto.
+
+## 20. «L'ombra non avviene dai lampioni se c'è un albero davanti»
+
+> «L'ombra non avviene dai lampioni se c'è un albero davanti, va sistemato. Per
+> il test basta che vai di notte e vedi tutto su una piana piazzando una serie
+> di lampioni e alberi.»
+
+Fatto esattamente così — notte, piana, una fila di lampioni e alberi — e il
+difetto c'era. Erano **due** bug nella stessa funzione (`ombraLampada`), e
+tutti e due invisibili leggendo il codice.
+
+**Il primo: il controllo c'era, ed era impossibile.** Il raggio verso la
+lanterna cammina cella per cella (Amanatides–Woo); quando la cella conteneva un
+oggetto si guardava quanto passasse lontano dal suo centro e si chiedeva
+`< 0,34`. Ma la distanza si misurava nel punto in cui il raggio **entra** nella
+cella — un punto che sta per costruzione sul **bordo**, cioè ad almeno mezza
+cella dal centro. Una soglia di un terzo di cella non poteva essere vera **mai**,
+per nessun raggio, in nessuna scena: l'ombra degli oggetti alla luce dei
+lampioni non è mai esistita. Adesso si misura al punto **più vicino**
+(`tc = clamp(dot(ac, dir), 0, lungo)`), che è la distanza vera fra la retta e
+l'asse della cella.
+
+⚠ E per questo la riga 11 di questa tabella diceva «fatto» da giorni: il codice
+c'era, la prova a occhio era stata fatta su un tronco largo, e nessuno aveva
+chiesto alla funzione di rispondere su un caso scelto.
+
+**Il secondo: il lampione si spegneva la propria pozza.** Il lampione è alto
+tre celle ed è un oggetto anche lui nel canale B della mappa; il raggio verso la
+sua lanterna passa **necessariamente** per la sua cella. Appena il primo bug è
+stato tolto, il secondo si è acceso: ogni pozza si fermava a un blocco dal palo.
+Cura: `!all(equal(cella, cellaLampada))`.
+
+**E l'oggetto adesso è un cono, non un palo.** In basso c'è il tronco (raggio
+0,30), in alto la chioma (0,85), interpolati sull'altezza a cui il raggio passa:
+un albero che fermasse la luce solo col tronco farebbe un'ombra che non somiglia
+a un albero.
+
+### Come sono stati trovati, che è la parte che serve
+
+Non guardando lo schermo: **rifacendo il cammino dello shader in JavaScript**
+sui dati veri del mondo e interrogandolo nei punti scelti. A schermo il primo
+difetto sembrava «un albero che non fa ombra» (che è un'assenza, e le assenze
+non si notano) e il secondo «una pozza un po' piccola» — nessuno dei due fa
+sospettare un errore di geometria. In JS la risposta è un numero: dietro
+l'albero `luce: 0`, negli altri quadranti `luce: 1`.
+
+⚠ **E le due copie di `ombraLampada` adesso hanno un guardiano**
+(`test/ombra-lampada-gemella.test.mjs`): la stessa funzione vive in
+`nucleo/resa.js` (i blocchi) e in `nucleo/modelli.js` (alberi, lampioni,
+arredi), perché sono due programmi diversi e il GLSL non si importa. Erano già
+divergute una volta — i due canali della mappa erano finiti solo in `resa.js`,
+quindi l'ombra quadrata era curata sui blocchi e **ancora viva sui modelli**. La
+prova toglie commenti e spazi e confronta quello che la GPU esegue davvero.
+
+## 21. «Il player ha le mesh invertite da molte versioni»
+
+Non era una mesh: era `giroVoluto = Math.PI - passeggero.verso`, cioè una
+**riflessione** — giusta lungo X e rovesciata lungo Z. Un modello girato male
+sbaglia sempre e si nota subito; uno specchiato sbaglia **metà delle volte**, e
+sopravvive tante versioni. Misurato (giro 0 → faccia a +Z, giro π/2 → faccia a
++X): la formula giusta è `giro = verso`. E la nota in `arredi.js` diceva il
+contrario in tre punti — corretta.
