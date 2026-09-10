@@ -9,6 +9,23 @@
 
 Aperti dal **10/09/2026**.
 
+## Come siamo messi
+
+| # | difetto | stato |
+|---|---|---|
+| 1 | Il riflesso verso il sole: tiling e distorsione | ✅ da guardare |
+| 2 | La schiuma (spessa, seghettata, un materiale solo, non dinamica, senza forma) | ✅ da guardare |
+| 3 | Non si mettono oggetti in acqua | ✅ fatto |
+| 4 | Gli alberi: ombra quadrata e schiuma di troppo | ✅ fatto |
+| 5 | Hotbar e inventario creativo | ✅ fatto |
+| 6 | **L'OMEGA TEST** | ⏳ **il prossimo** |
+| + | Le cose in acqua rimbalzano (detto il 10/09) | ✅ fatto |
+| + | «Niente pixel né quadrati» (detto il 10/09) | ✅ sulla schiuma; da ripassare altrove |
+
+⚠ **«✅ da guardare» non vuol dire chiuso.** Le voci 1 e 2 sono cambiamenti
+visivi, e il verdetto è del committente su scatti affiancati: finché non li
+guarda restano qui.
+
 ---
 
 ## 1. L'acqua: il riflesso verso il sole
