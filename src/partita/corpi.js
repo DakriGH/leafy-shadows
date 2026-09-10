@@ -51,7 +51,7 @@ export class Corpi {
    * [r, g, b] in 0..1, `giro` in radianti (solo per il disegno).
    */
   aggiungi({ x, y, z, vx = 0, vy = 0, vz = 0, lato = 0.5, colore = [1, 1, 1], giro = 0 }) {
-    const c = { x, y, z, vx, vy, vz, lato, colore, giro, aTerra: false, sonno: 0, dorme: false, inAcqua: false };
+    const c = { x, y, z, vx, vy, vz, lato, colore, giro, aTerra: false, sonno: 0, dorme: false, inAcqua: false, sommerso: 0 };
     this.lista.push(c);
     return c;
   }
@@ -137,6 +137,9 @@ export class Corpi {
       // ⚠ `inAcqua` LO LEGGE ANCHE LA SCHIUMA (resa.galleggianti): chi galleggia
       // fa il suo anello sul pelo dell'acqua.
       c.inAcqua = f > 0.02;
+      // ⚠ QUANTO è sommerso, non solo SE: lo legge la schiuma, che con un sì/no
+      // lampeggerebbe a ogni dondolio sul pelo.
+      c.sommerso = f;
       if (c.inAcqua) {
         c.vy += GRAVITA * SPINTA_ACQUA * f * PASSO;
         // e l'attrito cresce con la parte sommersa: mezzo corpo fuori frena meno

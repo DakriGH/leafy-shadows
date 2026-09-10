@@ -438,6 +438,43 @@ float riva(highp vec3 pos, float onda) {
   }
   return s * 0.0625;
 }
+/** L'altezza del terreno solido qui, interpolata (il sampler dell'unita 2 e lineare). */
+float altezzaLiscia(highp vec2 q) {
+  highp vec2 uv = (q - uAltRett.xy) * uAltRett.zw;
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return -99.0;
+  return texture(uAltezze, uv).g * 255.0;
+}
+/**
+ * QUANTO SIAMO LONTANI DALLA RIVA, in blocchi. Sotto zero: a terra.
+ *
+ * ⚠ E' LA CURA DI «troppo splamata, sfocata e poco netta, e agli angoli si
+ * perde, non segue i lati del blocco». La stesura di prima faceva la MEDIA di
+ * sedici assaggi su due anelli: la media serviva a togliere la scaletta, ma una
+ * media su un anello e' un filtro PASSA-BASSO — spiana, allarga, e a un angolo
+ * CONVESSO perde meta' degli assaggi, quindi il campo cala e la schiuma
+ * sparisce proprio dove il bordo gira. Curava un difetto facendone due.
+ *
+ * Qui invece si stima la DISTANZA vera dalla curva di livello: si legge
+ * l'altezza interpolata e la si divide per la pendenza (due differenze
+ * centrali). La curva di livello dell'altezza SEGUE il bordo dei blocchi,
+ * angoli compresi, e la larghezza della fascia la decide un numero — non la
+ * dimensione dell'anello.
+ *
+ * ⚠ E COSTA MENO: cinque letture invece di sedici.
+ * ⚠ La pendenza si tiene lontana da zero: sul fondale piatto vale zero, e senza
+ * il freno la distanza esploderebbe in un infinito (che a schermo e' un NaN).
+ */
+float distanzaRiva(highp vec3 pos, float onda) {
+  float cima = floor(pos.y) + 1.0;
+  highp vec2 p = pos.xz;
+  float h = altezzaLiscia(p);
+  if (h < -50.0) return 99.0;                       // fuori dalla finestra della mappa
+  float e = 0.35;
+  float gx = altezzaLiscia(p + vec2(e, 0.0)) - altezzaLiscia(p - vec2(e, 0.0));
+  float gz = altezzaLiscia(p + vec2(0.0, e)) - altezzaLiscia(p - vec2(0.0, e));
+  float g = max(length(vec2(gx, gz)) / (2.0 * e), 0.30);
+  return (cima - 0.5 - h) / g + onda * 0.30;
+}
 /**
  * ⚠ IL CAMPO È CONTINUO, IL TAGLIO NO — e la distinzione è tutta qui.
  *
@@ -571,14 +608,12 @@ void main() {
   // è il segno che l'acqua tocca qualcosa, e in Leafy è quello che dà vita.
   float onda = 0.13 * sin(uTempo * 1.5 + vPos.x * 1.9 + vPos.z * 1.1) + 0.08 * sin(uTempo * 2.3 - vPos.x * 1.3 + vPos.z * 2.7);
   // ⚠ DUE BANDE NETTE alla riva: piena attaccata a terra, magra un passo fuori.
-  // ⚠ LE SOGLIE SONO CONTATE, non a occhio. A distanza d da una riva dritta la
-  // quota di assaggi che cadono a terra vale acos(d/r)/pi per anello: con
-  // raggi 0,35 e 0,75 viene circa 0,47 a filo di riva, 0,36 a un quinto di
-  // blocco, 0,16 a due quinti, 0 oltre. Quindi 0,40 taglia la risacca piena
-  // (un decimo di blocco) e 0,14 quella magra (mezzo blocco): due bande nette,
-  // larghe in tutto poco meno di mezzo blocco.
-  float campo = riva(vPos, onda);
-  float sRiva = max(aGradini(campo, 0.30), aGradini(campo, 0.10) * 0.5);
+  // ⚠ ADESSO LE SOGLIE SONO DISTANZE IN BLOCCHI, e si leggono: la risacca piena
+  // arriva a 0,26 dalla riva, quella magra a 0,55. Prima erano quote di assaggi
+  // su un anello — un numero che non voleva dire niente e che cambiava senso a
+  // ogni raggio toccato.
+  float dRiva = distanzaRiva(vPos, onda);
+  float sRiva = max(aGradini(0.26 - dRiva, 0.0), aGradini(0.55 - dRiva, 0.0) * 0.5);
   // ⚠ LA SCHIUMA DEGLI OGGETTI FERMI viene dalla MAPPA, non dagli uniform: gli
   // alberi, i lampioni e i funghi nell'acqua la fanno tutti, quanti che siano.
   // Stesso giro di assaggi della riva — quindi stesso bordo netto e curvo — ma
