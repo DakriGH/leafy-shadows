@@ -40,6 +40,7 @@ import { Meteo } from './partita/meteo.js';
 import { raggioDaSchermo } from './partita/raggio.js';
 import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
 import { rigaDi } from './partita/catalogo.js';
+import { SimAcqua } from './world/acqua.js';
 
 const params = new URLSearchParams(location.search);
 const opz = {
@@ -93,6 +94,19 @@ mondo.onEvento = (e) => entita.evento(e);
 const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
 const genera = opz.vetrina ? generaChunkVetrina : opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
 const streaming = new Streaming(mondo, resa, genera, { erba: opz.erba, raggioResa: opz.raggio, lavoro });
+// ⚠ L'ACQUA VIVA (`world/acqua.js`), che fino a oggi NON GIRAVA: quel modulo
+// importava un `config.js` che qui non esiste ed era rimasto indietro dalla
+// migrazione da Lantern, quindi `SimAcqua` non compariva in un solo import di
+// tutto il progetto. La simulazione c'era, scritta e ragionata; non l'aveva mai
+// eseguita nessuno. Il committente se n'è accorto dal risultato — «l'acqua non
+// si aggiorna in modo dinamico come su Minecraft» — che è l'unico modo di
+// accorgersi di una cosa che semplicemente non gira.
+const simAcqua = new SimAcqua(mondo);
+/** ⚠ CINQUE VOLTE AL SECONDO, come Minecraft. Non a ogni fotogramma: l'acqua
+ *  che si muove a 144 Hz sembrerebbe nervosa, e il budget verrebbe speso a
+ *  vuoto. A 0,2 s il flusso avanza di una cella per tick e si legge come acqua. */
+const PASSO_ACQUA = 0.2;
+let restoAcqua = 0;
 const bagliori = new Bagliori(gl);
 resa.apriFinestraAltezze(0.5, 0.5, 512);
 // ⚠ IL SALVATAGGIO SI RIMETTE PRIMA DI GENERARE: sono le modifiche del
@@ -412,6 +426,11 @@ function azioneCorrente() {
 function cambiaBlocco(x, y, z, tipo) {
   if (tipo) mondo.metti(x, y, z, tipo); else mondo.togli(x, y, z);
   streaming.tocca(x, z);
+  // ⚠ L'ACQUA SI SVEGLIA SOLO DOVE SI TOCCA. È il modello di Minecraft e non è
+  // pigrizia: un mondo in streaming ha centomila celle d'acqua ferme e in
+  // equilibrio: riesaminarle tutte sarebbe pagare ovunque per una cosa che
+  // succede in un punto. Scavando accanto a un lago, l'acqua entra.
+  simAcqua.pianificaAttorno([x, y, z]);
   salvaFra = 1000;
 }
 function posa() {
@@ -571,6 +590,12 @@ function sole(dt) {
   const luce = Math.max(0, Math.min(1, (Math.sin(a) + 0.1) * 2));
   resa.sole.forza = luce;
   resa.mare = meteo.aggiorna(dt);
+  // ⚠ L'ACQUA A PASSO FISSO, e non più di un tick per fotogramma: se la scheda
+  // è stata in secondo piano, `dt` arriva enorme e recuperare venti tick in
+  // una volta farebbe uno scatto — l'acqua che salta avanti di mezzo secondo.
+  // Meglio che arrivi un attimo dopo: nessuno cronometra un ruscello.
+  restoAcqua += dt;
+  if (restoAcqua >= PASSO_ACQUA) { restoAcqua = Math.min(restoAcqua - PASSO_ACQUA, PASSO_ACQUA); simAcqua.tick(); }
   lampadeVicine();
   galleggiantiVicini(nuotando);
   // ⚠ A MEZZOGIORNO IL SOLE È BIANCO: al sole pieno si vede la palette ESATTA
@@ -759,4 +784,4 @@ const diagnostica = new Diagnostica(() => ({
   worldgenMs: tCostruzione, meshMs: tCostruzione,
 }), () => { resa.disegna(camera(), 0, modelli); modelli.disegna(resa, camera()); resa.disegnaAcqua(); return Promise.resolve(tela.toDataURL('image/webp', 0.6)); });
 
-globalThis.PARTITA = { resa, modelli, mondo, passeggero, sguardo, corpi, streaming, entita, opz, lanciaCubi, intento, zoom: () => distanzaTerza, mirato: () => bersaglio, statistiche: () => ({ fps: 1000 / (q(tempi, 0.5) || 1), p50: q(tempi, 0.5), p99: q(tempi, 0.99), js: q(jsMs, 0.5), ...resa.statistiche, modelli: { ...modelli.statistiche }, streaming: { ...streaming.statistiche }, corpi: { ...corpi.statistiche }, fotogrammi }), diagnostica };
+globalThis.PARTITA = { resa, modelli, mondo, passeggero, sguardo, corpi, streaming, entita, simAcqua, opz, lanciaCubi, intento, zoom: () => distanzaTerza, mirato: () => bersaglio, statistiche: () => ({ fps: 1000 / (q(tempi, 0.5) || 1), p50: q(tempi, 0.5), p99: q(tempi, 0.99), js: q(jsMs, 0.5), ...resa.statistiche, modelli: { ...modelli.statistiche }, streaming: { ...streaming.statistiche }, corpi: { ...corpi.statistiche }, fotogrammi }), diagnostica };
