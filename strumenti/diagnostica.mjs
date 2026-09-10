@@ -8,19 +8,17 @@
 // Servendo anche le pagine, il rapporto va alla STESSA origine da cui è arrivato
 // il gioco — che funziona sempre, anche da un telefono via Tailscale.
 //
-// ⚠ E IL GETTONE È GENERATO A CASO, non scelto. Una chiave scelta da una persona
-// è quasi sempre una chiave che quella persona usa anche altrove; e questa qui
-// finisce in chiaro in un file sul disco e nel «localStorage» di ogni
-// dispositivo autorizzato. Serve a una cosa sola — che un rapporto arrivi solo
-// da noi — e per quella un numero a caso va meglio di una password vera.
+// ⚠ NIENTE PIÙ GETTONE (10/09/2026), e la ragione vale più della comodità: la
+// password non faceva da lucchetto ma da INDIRIZZO, e se su un dispositivo ne
+// finiva una diversa i rapporti da lì sparivano SENZA UN ERRORE: il gioco
+// diceva «mandato ✔» e il lettore «nessun rapporto», tutt'e due veri. È
+// successo davvero, col Chromebook. Adesso non c'è niente da digitare.
 //
 // Uso:  node strumenti/diagnostica.mjs [porta]
-// Poi:  apri il gioco, premi 🩺, e la prima volta incolla il gettone stampato qui.
+// Poi:  apri il gioco dal telefono su questo indirizzo e premi 🩺. Basta quello.
 
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
@@ -29,12 +27,11 @@ import { networkInterfaces } from 'node:os';
 // «/C:/Users/…» — con lo slash davanti e i %20 al posto degli spazi — e
 // `resolve` ci antepone la radice del disco, quindi la radice diventava un
 // percorso col disco DUE VOLTE e gli spazi ancora codificati. Il collettore in
-// casa non ha mai potuto aprire la chiave sulla macchina del committente:
+// casa non ha mai potuto aprire un file sulla macchina del committente:
 // moriva con un ENOENT su un percorso che nessuno ha mai scritto. Su Linux e
 // macOS il campo coincide col percorso, e per questo e' rimasto invisibile.
 const RADICE = fileURLToPath(new URL('..', import.meta.url));
 const CARTELLA = join(RADICE, 'diagnostica');
-const FILE_CHIAVE = join(RADICE, 'diagnostica.chiave');
 const PORTA = Number(process.argv[2]) || 8144;
 /** ⚠ Un tetto, se no un rapporto con dentro uno scatto sbagliato riempie il
  *  disco. 8 MB stanno larghi anche per una figura a piena risoluzione. */
@@ -44,40 +41,27 @@ const MAX_CORPO = 8 * 1024 * 1024;
 //
 // ⚠ QUESTO SERVER PUÒ FINIRE SU INTERNET, e cambia tutto. Finché stava sulla
 // rete di casa serviva la cartella del progetto e amen; aperto al mondo, un
-// «GET /diagnostica.chiave» consegnerebbe la password a chiunque la chieda — e
-// «GET /.git/config» il resto. Non è un difetto che si nota: il file arriva,
-// nessuno se ne accorge, e la chiave è di tutti.
+// «GET /.env» consegnerebbe quello che ci fosse dentro a chiunque lo chieda, e
+// «GET /.git/config» il resto. Non è un difetto che si nota: il file arriva e
+// nessuno se ne accorge.
 //
 // ⚠ DIVIETI **E** PERMESSI, tutti e due. Un permesso dimenticato si vede subito
 // (il gioco non parte); un divieto dimenticato non si vede MAI. Quindi il
-// divieto è largo — tutto quello che comincia per punto, la chiave, i rapporti,
+// divieto è largo — tutto quello che comincia per punto, i rapporti già arrivati,
 // i log — e in più passa solo chi ha un'estensione che al gioco serve davvero.
 const VIETATI = [
   /(^|\/)\./,                  // .git, .env, .gitignore: qualunque cosa nascosta
-  /^\/?diagnostica\.chiave$/,  // LA CHIAVE
   /^\/?diagnostica\//,         // i rapporti già arrivati
   /\.log$/i,
 ];
 
-// ⚠ E QUESTA È LA PROTEZIONE VERA PER UNA PASSWORD CORTA SU UN INDIRIZZO
-// PUBBLICO. Su una rete di casa «Bb7papa70» va benissimo; aperta al mondo, una
-// password di nove caratteri si indovina a tentativi — a meno che i tentativi
-// finiscano. Otto ogni dieci minuti per indirizzo la rendono inattaccabile per
-// forza bruta senza togliere niente a chi la sa.
-const TENTATIVI_MAX = 8, FINESTRA_MS = 10 * 60 * 1000;
-const tentativi = new Map();
-
-function troppiTentativi(ip) {
-  const t = tentativi.get(ip);
-  if (!t) return false;
-  if (Date.now() - t.da > FINESTRA_MS) { tentativi.delete(ip); return false; }
-  return t.n >= TENTATIVI_MAX;
-}
-function segnaTentativo(ip) {
-  const t = tentativi.get(ip);
-  if (!t || Date.now() - t.da > FINESTRA_MS) tentativi.set(ip, { n: 1, da: Date.now() });
-  else t.n++;
-}
+// ⚠ NIENTE PIÙ GETTONE E NIENTE PIÙ LUCCHETTO (10/09/2026). Servivano a una
+// cosa sola — che un rapporto arrivasse solo da noi — e costavano una password
+// da digitare su ogni dispositivo, che è precisamente il pezzo che si è rotto
+// (su un coso ne era finita una diversa e i rapporti sparivano in silenzio).
+// Questo server è uno STRUMENTO DI SVILUPPO su una rete di casa: chi ci arriva
+// può già leggere il sorgente del gioco. Le guardie che restano sono quelle che
+// contano davvero — l'elenco dei file che NON si servono, e il tetto sul corpo.
 
 // ⚠ E MANCARE UN TIPO QUI NON DÀ UN ERRORE DI PERMESSI: dà un 404. La riga
 // sotto è insieme il permesso e la tabella dei tipi, quindi un'estensione
@@ -94,15 +78,6 @@ const TIPI = {
   '.bin': 'application/octet-stream', '.txt': 'text/plain; charset=utf-8',
 };
 
-/** Il gettone: si LEGGE dal file se c'è, e solo se non c'è se ne fa uno a caso.
- *  ⚠ Quindi per cambiarlo si apre «diagnostica.chiave» e si scrive dentro. */
-function chiave() {
-  if (existsSync(FILE_CHIAVE)) return readFileSync(FILE_CHIAVE, 'utf8').trim();
-  const k = randomBytes(16).toString('hex');
-  writeFile(FILE_CHIAVE, k + '\n');
-  return k;
-}
-const CHIAVE = chiave();
 
 /** Gli indirizzi da cui il gioco è raggiungibile: comodo per aprirlo dal telefono. */
 function indirizzi() {
@@ -142,30 +117,7 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
 
   if (req.method === 'POST' && url.pathname === '/_diagnostica') {
-    // ⚠ SI RIPULISCE PRIMA DI CONFRONTARE, e non basta farlo dal lato del gioco:
-    // una chiave si digita a mano su un telefono, le tastiere ci attaccano uno
-    // spazio in fondo, e un rapporto può arrivare anche da altro (curl, un'altra
-    // pagina). Il controllo va dove sta la decisione.
     const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
-    // ⚠ PRIMA SI GUARDA LA CHIAVE, POI IL CONTATORE, E L'ORDINE È IL PUNTO.
-    // Al contrario (contatore prima) chi sbaglia otto volte a digitare su un
-    // telefono resta chiuso fuori DIECI MINUTI anche quando finalmente la
-    // azzecca — cioè il lucchetto punisce l'unica persona autorizzata. E non
-    // serve a niente per la forza bruta: quella è fatta di TENTATIVI, e
-    // lasciare passare la chiave giusta non ne regala nemmeno uno.
-    const giusta = CHIAVE && String(req.headers['x-chiave'] || '').trim() === CHIAVE;
-    if (!giusta) {
-      segnaTentativo(ip);
-      const chiuso = troppiTentativi(ip);
-      console.log(`  ✗ ${ip}: gettone sbagliato${chiuso ? ' — chiuso per dieci minuti' : ''}`);
-      res.writeHead(chiuso ? 429 : 403, { 'content-type': 'text/plain' });
-      return res.end(chiuso ? 'troppi tentativi' : 'gettone sbagliato');
-    }
-    if (troppiTentativi(ip)) {
-      // ⚠ La chiave è giusta ma questo indirizzo stava tentando: si riapre. Chi
-      // la sa non è chi la stava indovinando.
-      tentativi.delete(ip);
-    }
     let corpo = '', troppo = false;
     req.on('data', (c) => {
       corpo += c;
@@ -208,7 +160,7 @@ const server = createServer(async (req, res) => {
   const dentro = join(RADICE, normalize(p));
   if (!dentro.startsWith(RADICE)) { res.writeHead(403); return res.end('no'); }
   // ⚠ E IL DIVIETO SI CONTROLLA SUL PERCORSO SCIOLTO, non su quello arrivato:
-  // «/diagnostica.chiave», «/./diagnostica.chiave» e «/a/../diagnostica.chiave»
+  // «/.env», «/./.env» e «/a/../.env» sono lo stesso file scritto in tre modi:
   // sono lo stesso file scritto in tre modi, e un controllo fatto prima di
   // sciogliere i «..» li lascerebbe passare tutti tranne il primo.
   const relativo = dentro.slice(RADICE.length);
@@ -253,8 +205,7 @@ server.listen(PORTA, '0.0.0.0', () => {
   console.log(`  ─────────────────────────────────────────`);
   console.log(`  qui:       http://localhost:${PORTA}/`);
   for (const a of indirizzi()) console.log(`  da fuori:  http://${a.split(' ')[0]}:${PORTA}/   ${a.slice(a.indexOf('('))}`);
-  console.log(`\n  gettone:   ${CHIAVE}`);
-  console.log(`  (si digita una volta per dispositivo, premendo 🩺 nel gioco;`);
-  console.log(`   per cambiarlo basta aprire  diagnostica.chiave )`);
+  console.log(`
+  niente password: si preme 🩺 e basta.`);
   console.log(`\n  i rapporti finiscono in  diagnostica/\n`);
 });

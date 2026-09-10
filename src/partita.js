@@ -1049,7 +1049,11 @@ import('./ui/omega.js').then(({ TastoOmega }) => {
     vaiAlBanco: () => { location.search = '?omega&banco&raggio=' + opz.raggio; },
     avvia: () => { banco = new BancoOmega(); applicaCarico(banco.avvia()); return banco; },
     ferma: () => { if (banco) banco.ferma(); banco = null; applicaCarico({ pozze: true, arredi: 0, corpi: 0, ar: false }); },
-    manda: (testo) => { diagnostica.apri(); const n = document.getElementById('diagNota'); if (n) n.value = testo.slice(0, 200); navigator.clipboard?.writeText(testo); },
+    // ⚠ LA TABELLA VA NEGLI ALLEGATI, NON NELLA NOTA. La nota è tagliata a 400
+    // caratteri — ed è giusto, è una riga scritta a mano — mentre l'esito
+    // dell'omega test sono otto righe di numeri: infilarcelo dentro voleva dire
+    // mandare il primo quinto della tabella e credere di aver mandato tutto.
+    manda: (testo) => { diagnostica.allega('omega', testo); diagnostica.apri(); },
   });
   if (opz.omega && params.has('banco')) {
     // ⚠ NON SUBITO: si aspetta che lo streaming abbia finito di popolare il

@@ -2,9 +2,17 @@
 // LEGGI I RAPPORTI ARRIVATI DAL CLOUD.
 //
 // ⚠ È LA METÀ CHE MANCAVA: il gioco deposita un messaggio su ntfy.sh, e questo
-// lo va a prendere. L'argomento si ricava dalla password — la stessa che si
-// digita nel gioco — quindi non c'è nessun indirizzo da ricordare: chi ha la
-// password ha anche il posto dove guardare.
+// lo va a prendere. L'argomento è FISSO e sta in «src/ui/canale.js»: non c'è
+// niente da digitare né da ricordare, di qua o di là.
+//
+// ⚠ PRIMA SI RICAVAVA DA UNA PASSWORD, ed è esattamente quello che si è rotto:
+// su un dispositivo era finita una password diversa, i suoi rapporti andavano
+// su un altro argomento, e non c'era modo di accorgersene — il gioco diceva
+// «mandato ✔» e questo strumento «nessun rapporto», tutt'e due veri.
+//
+// ⚠ E L'ARGOMENTO SI IMPORTA DAL SORGENTE DEL GIOCO, non si riscrive qui: due
+// copie dello stesso nome sono il difetto che questo canale ha già pagato una
+// volta. Se divergono, nessuno dei due lati sbaglia e non arriva niente.
 //
 // ⚠ E SCARICA ANCHE GLI ALLEGATI. Sopra i 4 KB ntfy trasforma il corpo in un
 // file a parte (misurato: 200 in tutti i casi fino a mezzo megabyte, ma il
@@ -15,102 +23,108 @@
 // ⚠ GLI ALLEGATI DURANO TRE ORE, i messaggi dodici. Se un rapporto vecchio
 // risulta «scaduto» non è rotto niente: è passato troppo tempo.
 //
-// Uso:  node strumenti/leggi-diagnostica.mjs [password]
-//       (senza password legge «diagnostica.chiave»)
+// Uso:  npm run leggi              una volta
+//       npm run leggi -- --segui   resta in ascolto, mentre si prova
 
-import { createHash } from 'node:crypto';
 import { mkdir, writeFile, readdir } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ⚠ `fileURLToPath`, NON `new URL(...).pathname`: su Windows quel campo vale
 // «/C:/Users/…» — con lo slash davanti e i %20 al posto degli spazi — e
 // `resolve` ci antepone la radice del disco, quindi la radice diventava un
 // percorso col disco DUE VOLTE e gli spazi ancora codificati. Il collettore in
-// casa non ha mai potuto aprire la chiave sulla macchina del committente:
-// moriva con un ENOENT su un percorso che nessuno ha mai scritto. Su Linux e
-// macOS il campo coincide col percorso, e per questo e' rimasto invisibile.
+// casa non ha mai potuto aprire un file sulla macchina del committente: moriva
+// con un ENOENT su un percorso che nessuno ha mai scritto. Su Linux e macOS il
+// campo coincide col percorso, e per questo e' rimasto invisibile.
 const RADICE = fileURLToPath(new URL('..', import.meta.url));
 const CARTELLA = join(RADICE, 'diagnostica');
-const FILE_CHIAVE = join(RADICE, 'diagnostica.chiave');
 
-const password = process.argv[2]
-  || (existsSync(FILE_CHIAVE) ? readFileSync(FILE_CHIAVE, 'utf8').trim() : '');
-if (!password) {
-  console.error('serve la password: node strumenti/leggi-diagnostica.mjs <password>');
-  process.exit(1);
-}
+const { ARGOMENTO } = await import('../src/ui/canale.js');
+const segui = process.argv.includes('--segui');
 
-/** ⚠ LO STESSO CONTO DEL GIOCO, alla lettera: stesso prefisso, stesso taglio.
- *  Se le due parti calcolassero due nomi diversi non ci sarebbe nessun errore —
- *  semplicemente non arriverebbe mai niente, che è il difetto peggiore. */
-function argomentoDi(pw) {
-  const esa = createHash('sha256').update('leafy-shadows/' + pw).digest('hex');
-  return 'leafy-' + esa.slice(0, 24);
-}
-
-const argomento = argomentoDi(password);
-console.log(`\n  argomento:  ${argomento}`);
-console.log(`  (https://ntfy.sh/${argomento})\n`);
-
-const r = await fetch(`https://ntfy.sh/${argomento}/json?poll=1`);
-if (!r.ok) { console.error('ntfy ha detto no:', r.status); process.exit(1); }
-const righe = (await r.text()).split('\n').filter(Boolean);
-if (!righe.length) { console.log('  nessun rapporto. (i messaggi durano 12 ore)\n'); process.exit(0); }
+console.log(`\n  argomento:  ${ARGOMENTO}`);
+console.log(`  (https://ntfy.sh/${ARGOMENTO})\n`);
 
 await mkdir(CARTELLA, { recursive: true });
 const gia = new Set(await readdir(CARTELLA).catch(() => []));
-let nuovi = 0;
 
-for (const riga of righe) {
-  let m;
-  try { m = JSON.parse(riga); } catch { continue; }
-  if (m.event !== 'message') continue;
+const primi = await giro();
+console.log(`  ${primi} nuovi, in  diagnostica/\n`);
 
-  let testo = m.message || '';
-  if (m.attachment && m.attachment.url) {
-    const a = await fetch(m.attachment.url);
-    if (!a.ok) {
-      console.log(`  ⏳ ${m.id}: allegato scaduto (durano 3 ore)`);
-      continue;
-    }
-    testo = await a.text();
+if (segui) {
+  // ⚠ SI RICHIEDE, NON SI RESTA APPESI ALLO STREAM: quello di ntfy cade da solo
+  // dopo un po', e un ascolto «per sempre» muore in silenzio dopo mezz'ora —
+  // cioè proprio quando serve. Un giro ogni dieci secondi non costa niente e
+  // non può incantarsi.
+  console.log('  in ascolto (ctrl-C per smettere)…\n');
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 10000));
+    const n = await giro();
+    if (n) console.log(`  ${n} nuovi.\n`);
   }
-
-  let d;
-  try { d = JSON.parse(testo); } catch { console.log(`  ? ${m.id}: non è un rapporto`); continue; }
-  if (d.gioco !== 'Leafy-Shadows') { console.log(`  ? ${m.id}: non è roba nostra`); continue; }
-
-  const p = d.prestazioni || {};
-  const cl = (d.dispositivo && d.dispositivo.classe) || 'ignoto';
-  const nome = `${m.id}-${cl}-${p.fps ?? '?'}fps.json`;
-  if (gia.has(nome)) continue;
-
-  // ⚠ LO SCATTO SI SCRIVE A PARTE, come figura vera: dentro il JSON è una riga
-  // di base64 lunghissima, che rende il file illeggibile proprio nello strumento
-  // (il terminale) in cui va letto.
-  let figura = null;
-  if (typeof d.scatto === 'string' && d.scatto.startsWith('data:image/')) {
-    const est = d.scatto.slice(11, d.scatto.indexOf(';')) || 'png';
-    figura = `${m.id}-${cl}.${est}`;
-    await writeFile(join(CARTELLA, figura), Buffer.from(d.scatto.slice(d.scatto.indexOf(',') + 1), 'base64'));
-  }
-  await writeFile(join(CARTELLA, nome), JSON.stringify(d, null, 1));
-  nuovi++;
-
-  const quando = new Date(m.time * 1000).toLocaleString('it');
-  console.log(`  📩 ${nome}${figura ? '  + ' + figura : ''}`);
-  // ⚠ LO STESSO CONTO DEL PANNELLO: lì è «q0/6» perché conta i gradini da zero.
-  // Due modi di scrivere lo stesso numero fanno perdere tempo a confrontarli.
-  console.log(`     ${quando} · ${cl} · q${d.qualita?.livello}/${(d.qualita?.di ?? 1) - 1}` +
-    `${d.versione ? '  · build ' + d.versione : ''}`);
-  console.log(`     ${p.fps ?? '?'} fps · ${p.p50ms ?? '?'}/${p.p99ms ?? '?'} ms · ` +
-    `${p.disegni ?? '?'} disegni · ${(p.triangoli ?? 0).toLocaleString('it')} triangoli`);
-  if (d.scheda?.nome) console.log(`     ${d.scheda.nome.slice(0, 70)}`);
-  if (d.nota) console.log(`     «${d.nota}»`);
-  if (d.errori?.length) console.log(`     ⚠ ${d.errori.length} errori`);
-  console.log();
 }
 
-console.log(`  ${nuovi} nuovi, in  diagnostica/\n`);
+async function giro() {
+  const r = await fetch(`https://ntfy.sh/${ARGOMENTO}/json?poll=1`);
+  if (!r.ok) { console.error('ntfy ha detto no:', r.status); return 0; }
+  const righe = (await r.text()).split('\n').filter(Boolean);
+  if (!righe.length) { if (!segui) console.log('  nessun rapporto. (i messaggi durano 12 ore)'); return 0; }
+  let nuovi = 0;
+
+  for (const riga of righe) {
+    let m;
+    try { m = JSON.parse(riga); } catch { continue; }
+    if (m.event !== 'message') continue;
+
+    let testo = m.message || '';
+    if (m.attachment && m.attachment.url) {
+      const a = await fetch(m.attachment.url);
+      if (!a.ok) { if (!segui) console.log(`  ⏳ ${m.id}: allegato scaduto (durano 3 ore)`); continue; }
+      testo = await a.text();
+    }
+
+    let d;
+    try { d = JSON.parse(testo); } catch { continue; }
+    // ⚠ LA FIRMA SCARTA IL RUMORE, non protegge da niente: l'argomento è
+    // pubblico e chiunque potrebbe scriverci. Serve a impedire che uno scherzo
+    // riempia l'elenco e nasconda il rapporto vero.
+    if (d.gioco !== 'Leafy-Shadows') continue;
+
+    const p = d.prestazioni || {};
+    const cl = (d.dispositivo && d.dispositivo.classe) || 'ignoto';
+    const nome = `${m.id}-${cl}-${p.fps ?? '?'}fps.json`;
+    if (gia.has(nome)) continue;
+    gia.add(nome);
+
+    // ⚠ LO SCATTO SI SCRIVE A PARTE, come figura vera: dentro il JSON è una riga
+    // di base64 lunghissima, che rende il file illeggibile proprio nello
+    // strumento (il terminale) in cui va letto.
+    let figura = null;
+    if (typeof d.scatto === 'string' && d.scatto.startsWith('data:image/')) {
+      const est = d.scatto.slice(11, d.scatto.indexOf(';')) || 'png';
+      figura = `${m.id}-${cl}.${est}`;
+      await writeFile(join(CARTELLA, figura), Buffer.from(d.scatto.slice(d.scatto.indexOf(',') + 1), 'base64'));
+    }
+    await writeFile(join(CARTELLA, nome), JSON.stringify(d, null, 1));
+    nuovi++;
+
+    const quando = new Date(m.time * 1000).toLocaleString('it');
+    console.log(`  📩 ${nome}${figura ? '  + ' + figura : ''}`);
+    console.log(`     ${quando} · ${cl}${d.versione ? '  · build ' + d.versione : ''}`);
+    console.log(`     ${p.fps ?? '?'} fps · ${p.p50ms ?? '?'}/${p.p99ms ?? '?'} ms · `
+      + `${p.disegni ?? '?'} disegni · ${(p.triangoli ?? 0).toLocaleString('it')} triangoli`);
+    if (d.scheda?.nome) console.log(`     ${d.scheda.nome.slice(0, 70)}`);
+    if (d.nota) console.log(`     «${d.nota}»`);
+    if (d.errori?.length) console.log(`     ⚠ ${d.errori.length} errori`);
+    // ⚠ E L'OMEGA TEST SI STAMPA PER INTERO: è la tabella per cui il rapporto
+    // esiste, e cercarla dentro un JSON da sessanta kilobyte è il modo sicuro
+    // di non guardarla mai.
+    if (d.allegati && d.allegati.omega) {
+      console.log();
+      for (const riga of String(d.allegati.omega).split('\n')) console.log('     ' + riga);
+    }
+    console.log();
+  }
+  return nuovi;
+}

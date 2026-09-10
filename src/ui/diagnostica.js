@@ -7,15 +7,16 @@
 // dice che il gradino di qualità è sceso tre volte in un minuto, che è
 // esattamente il genere di cosa che spiega un difetto.
 //
-// ⚠ E IL GETTONE NON STA NEL CODICE. Una chiave scritta qui dentro sarebbe
-// leggibile da chiunque apra la pagina: la si incolla UNA VOLTA per dispositivo
-// e resta nel «localStorage» di quel coso. Chi la stampa è il collettore
-// («strumenti/diagnostica.mjs»), che è l'unico posto dove esiste davvero.
+// ⚠ E DAL 10/09/2026 NON SI DIGITA PIÙ NIENTE. Prima serviva una password:
+// non faceva da lucchetto ma da INDIRIZZO (l'argomento su ntfy si ricavava da
+// lei). Sulla carta era la cosa giusta; nella pratica ha fatto il danno che
+// doveva evitare — su un dispositivo era finita una password diversa, i suoi
+// rapporti andavano su un altro argomento, e nessuno poteva accorgersene: il
+// gioco diceva «mandato ✔» e il lettore «nessun rapporto», tutt'e due veri.
+// Adesso l'argomento è fisso e sta in «ui/canale.js», col suo prezzo scritto lì.
 
 import { costruisciRapporto, pesoKB } from './rapporto.js';
 import { manda as mandaAlCanale } from './canale.js';
-
-const CHIAVE_LOCALE = 'leafy.diagnostica.chiave';
 
 const STILE = `
 /* ⚠ UNA PILLOLA CON LA SCRITTA, NON UN'ICONA MUTA. La prima versione erano due
@@ -57,9 +58,7 @@ const STILE = `
 #diagPanel p { margin: 0 0 8px; color: #3c5a4a; }
 #diagPanel input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px;
   border: 1px solid rgba(13,42,26,.25); font: 13px ui-monospace, monospace; margin-bottom: 8px; }
-/* ⚠ IL CAMPO DELLA PASSWORD SI DEVE VEDERE CHE È QUELLO: committente, «dove
-   mettere poi la password per mandartelo». Bordo scuro e sfondo appena tinto. */
-#diagPanel input#diagChiave { border: 2px solid #0d2a1a; background: #f4f8f5; }
+
 #diagPanel .righe { display: flex; gap: 8px; }
 #diagPanel button { flex: 1; padding: 11px; border-radius: 8px; cursor: pointer;
   border: 1px solid rgba(13,42,26,.22); background: #fff; font: 13px system-ui, sans-serif; }
@@ -104,11 +103,16 @@ export class Diagnostica {
     if (this.errori.length > 40) this.errori.shift();
   }
 
-  get chiave() {
-    try { return localStorage.getItem(CHIAVE_LOCALE) || ''; } catch { return ''; }
-  }
-  set chiave(v) {
-    try { localStorage.setItem(CHIAVE_LOCALE, v); } catch { /* navigazione privata */ }
+  /**
+   * ⚠ IL RAPPORTO PUÒ PORTARSI DIETRO UN PEZZO IN PIÙ, e serve davvero: l'omega
+   * test produce una tabella che nel campo «nota» non ci starebbe (quello è
+   * tagliato a 400 caratteri, ed è giusto così — è una riga scritta a mano).
+   * Chi ha qualcosa da allegare lo mette qui e finisce nel rapporto come
+   * sezione sua, intera.
+   */
+  allega(nome, dato) {
+    if (!this.allegati) this.allegati = {};
+    this.allegati[nome] = dato;
   }
 
   apri() {
@@ -118,11 +122,11 @@ export class Diagnostica {
     // i numeri dicono COSA sta succedendo, la riga scritta a mano dice cosa si
     // stava facendo. «stavo girando la camera sul bosco» vale più di dieci
     // campi in più.
+    // ⚠ NIENTE PIÙ PASSWORD: l'indirizzo è fisso e sta in «ui/canale.js». Il
+    // pannello adesso è un tocco solo — nota facoltativa, scatto sì/no, Manda.
     p.innerHTML = `
       <h4>Manda la diagnostica</h4>
-      <p>${this.chiave
-        ? 'Numeri, storia degli fps, errori e uno scatto. Niente di personale.'
-        : '<b>Serve la password.</b> Non è un lucchetto: è l\'indirizzo dove finisce il rapporto. Si mette una volta sola su questo dispositivo.'}</p>
+      <p>Numeri, storia degli fps, errori e uno scatto. Niente di personale.${this.allegati ? ' <b>Con i risultati dell\'omega test.</b>' : ''}</p>
       <input id="diagNota" placeholder="Cosa stavi facendo? (facoltativo)" maxlength="200">
       <!-- ⚠ LO SCATTO È UTILISSIMO E COSTOSO INSIEME, quindi si sceglie. Con la
            figura il rapporto sta sui 60 KB e sul cloud diventa un ALLEGATO, che
@@ -133,13 +137,6 @@ export class Diagnostica {
         <input type="checkbox" id="diagScatto" checked style="width:auto;margin:0">
         con lo scatto della scena (più pesante, dura meno)
       </label>
-      ${this.chiave ? '' : '<input id="diagChiave" placeholder="password (una volta per dispositivo)" ' +
-        // ⚠ LE TASTIERE DEI TELEFONI CI METTONO LE MANI: maiuscola automatica
-        // sulla prima lettera, correttore, completamento. Una chiave digitata
-        // su un telefono arriva diversa da com'è stata scritta, e il rifiuto
-        // poi sembra colpa del codice invece che della tastiera. Lo spazio in
-        // coda lo toglie il «trim», di qua e di là.
-        'autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">'}
       <div class="righe">
         <button class="primo" id="diagVai">Manda</button>
         <button id="diagCopia">Copia</button>
@@ -158,8 +155,6 @@ export class Diagnostica {
   }
 
   async vai(soloCopia) {
-    const campoChiave = this.pannello.querySelector('#diagChiave');
-    if (campoChiave && campoChiave.value.trim()) this.chiave = campoChiave.value.trim();
     const nota = (this.pannello.querySelector('#diagNota') || {}).value || '';
 
     this.nodo.classList.add('corso');
@@ -172,7 +167,7 @@ export class Diagnostica {
 
     const rapporto = costruisciRapporto({
       ...this.leggi(), quando: new Date().toISOString(), nota,
-      errori: this.errori, scatto,
+      errori: this.errori, scatto, allegati: this.allegati || null,
     });
     const peso = pesoKB(rapporto);
     const testo = JSON.stringify(rapporto, null, 1);
@@ -201,12 +196,10 @@ export class Diagnostica {
       try {
         const r = await fetch('/_diagnostica', {
           method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-chiave': this.chiave },
+          headers: { 'content-type': 'application/json' },
           body: testo,
         });
-        if (r.status === 403) { this._dice('password sbagliata.'); this.chiave = ''; }
-        else if (r.status === 429) this._dice('troppi tentativi: riprova fra dieci minuti.');
-        else if (!r.ok) this._dice('il collettore ha detto no: ' + r.status);
+        if (!r.ok) this._dice('il collettore ha detto no: ' + r.status);
         else {
           const d = await r.json().catch(() => ({}));
           this._dice(`mandato in casa ✔  ${d.nome || ''}  (${peso} KB)`);
@@ -218,17 +211,12 @@ export class Diagnostica {
     }
 
     // ---- 2) IL CLOUD, che è il caso «sono fuori casa» -------------------------
-    // ⚠ È QUI CHE SERVE LA PASSWORD DAVVERO. Non fa da lucchetto — il servizio
-    // è pubblico e non chiede niente a nessuno — fa da INDIRIZZO: l'argomento
-    // su cui il messaggio viene depositato si ricava da lei. Chi non la sa non
-    // sa nemmeno dove guardare. Vedi «ui/canale.js».
-    if (!this.chiave) {
-      this._dice('serve la password: è l\'indirizzo dove finisce il rapporto.');
-      this.nodo.classList.remove('corso');
-      return;
-    }
+    // ⚠ L'ARGOMENTO È FISSO e sta in «ui/canale.js»: non c'è niente da digitare
+    // e niente che possa essere diverso su un dispositivo rispetto a un altro.
+    // Era proprio QUELLO a rompersi in silenzio — il gioco diceva «mandato ✔» e
+    // il lettore «nessun rapporto», tutt'e due veri, su due argomenti diversi.
     try {
-      const esito = await mandaAlCanale(this.chiave, testo);
+      const esito = await mandaAlCanale(testo);
       this._dice(esito.ok ? esito.dice + '\n(fuori casa: passa dal cloud)' : esito.dice);
       if (esito.ok) setTimeout(() => this.pannello.classList.remove('aperto'), 2200);
     } catch (e) {
