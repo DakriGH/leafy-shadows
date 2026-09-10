@@ -173,6 +173,7 @@ float ombraLampada(highp vec3 pos, highp vec3 L) {
   highp vec2 verso = vec2(dir.x >= 0.0 ? 1.0 : -1.0, dir.y >= 0.0 ? 1.0 : -1.0);
   highp vec2 mod_ = max(abs(dir), vec2(1e-6));       // niente divisioni per zero sui raggi assiali
   highp vec2 cella = floor(pos.xz);
+  highp vec2 cellaLampada = floor(L.xz);   // la sua cella non fa ombra a se stessa
   highp vec2 prossimo = (cella + max(verso, vec2(0.0)) - pos.xz) / (verso * mod_);   // quanto manca al confine
   highp vec2 quanto = 1.0 / mod_;                    // e quanto da un confine al prossimo
   for (int i = 0; i < 14; i++) {
@@ -200,11 +201,34 @@ float ombraLampada(highp vec3 pos, highp vec3 L) {
     float h = mappa.g * 255.0;
     if (h > y + 0.05 && h > pos.y + 0.6) return 0.0;
     float ho = mappa.b * 255.0;
-    if (ho > y + 0.05 && ho > pos.y + 0.3) {
-      // quanto passa lontano dall'asse della cella, sul piano
-      highp vec2 centro = cella + 0.5;
-      highp vec2 qui = pos.xz + (L.xz - pos.xz) * (t / lungo);
-      if (length(qui - centro) < 0.34) return 0.0;
+    // ⚠ LA CELLA DELLA LAMPADA NON FA OMBRA A SE STESSA. Il lampione e' un
+    // oggetto anche lui (canale B, alto tre celle) e il raggio verso la sua
+    // lanterna passa NECESSARIAMENTE per la sua cella: senza questa riga ogni
+    // lampione si spegneva da solo la pozza oltre il primo blocco. Trovato non
+    // guardando lo schermo ma rifacendo il cammino in JavaScript sui dati veri
+    // e interrogandolo in punti scelti — a schermo sembrava solo «una pozza un
+    // po' piccola», che e' il genere di cosa che non fa sospettare niente.
+    if (ho > pos.y + 0.3 && !all(equal(cella, cellaLampada))) {
+      // ⚠ LA DISTANZA SI MISURA AL PUNTO PIU' VICINO, non dove il raggio ENTRA
+      // nella cella. La prima stesura usava il punto d'ingresso, che sta per
+      // costruzione sul BORDO della cella: da li' il centro e' sempre almeno
+      // mezza cella lontano, e una soglia di un terzo non poteva scattare MAI.
+      // Il controllo c'era, era scritto, e non poteva essere vero — ed e' il
+      // motivo per cui «l'ombra non avviene dai lampioni se c'e' un albero
+      // davanti». Un difetto che non si vede leggendo: si vede solo mettendo
+      // un albero davanti a un lampione di notte e guardando.
+      highp vec2 ac = (cella + 0.5) - pos.xz;
+      highp float tc = clamp(dot(ac, dir), 0.0, lungo);
+      highp float dist = length(ac - dir * tc);
+      highp float yc = pos.y + (L.y - pos.y) * (tc / lungo);
+      // ⚠ L'OGGETTO E' UN CONO, non un palo. In basso c'e' il tronco (stretto),
+      // in alto la chioma (larga): un albero che fermasse la luce solo col
+      // tronco farebbe un'ombra che non somiglia a un albero. La base la dice
+      // il terreno di quella colonna (canale G), la cima l'oggetto (canale B).
+      float base = max(h, pos.y);
+      float su = clamp((yc - base) / max(1.0, ho - base), 0.0, 1.0);
+      float raggio = mix(0.30, 0.85, smoothstep(0.10, 0.70, su));
+      if (dist < raggio && ho > yc + 0.05) return 0.0;
     }
   }
   return 1.0;

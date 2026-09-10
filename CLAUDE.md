@@ -1528,6 +1528,32 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   passo e non sul bordo del blocco — «l'ombra è seghettata quadrata». Coi
   confini delle celle il taglio è dritto e le letture sono anche meno (una per
   cella attraversata, al massimo quattordici: il raggio è 4,6).
+  ⚠ **LA DISTANZA DALL'OGGETTO SI MISURA AL PUNTO PIÙ VICINO** (10/09/2026,
+  «l'ombra non avviene dai lampioni se c'è un albero davanti»). La prima
+  stesura la misurava dove il raggio ENTRA nella cella — un punto che sta per
+  costruzione sul BORDO, quindi ad almeno mezza cella dal centro: la soglia di
+  0,34 non poteva scattare MAI, per nessun raggio, in nessuna scena. Il
+  controllo c'era, era scritto, ed era impossibile: gli oggetti non hanno mai
+  fatto ombra alle lampade. Adesso `tc = clamp(dot(ac, dir), 0, lungo)`, che è
+  la distanza vera fra la retta e l'asse della cella.
+  ⚠ **E LA CELLA DELLA LAMPADA NON FA OMBRA A SE STESSA**: il lampione è alto
+  tre celle ed è un oggetto anche lui nel canale B, e il raggio verso la sua
+  lanterna passa NECESSARIAMENTE per la sua cella. Tolto il primo difetto, ogni
+  pozza si fermava a un blocco dal palo. `!all(equal(cella, cellaLampada))`.
+  ⚠ **L'oggetto è un CONO**: tronco 0,30 in basso, chioma 0,85 in alto,
+  interpolati sulla quota a cui il raggio passa. La base la dà il terreno di
+  quella colonna (canale G), la cima l'oggetto (canale B).
+  ⚠ **Trovati rifacendo il cammino in JAVASCRIPT sui dati veri**, non
+  guardando: a schermo il primo sembrava «un albero che non fa ombra» (cioè
+  un'assenza, e le assenze non si notano) e il secondo «una pozza un po'
+  piccola». In JS la risposta è un numero, e la si può chiedere in un punto
+  scelto.
+  ⚠ **E LE DUE COPIE HANNO UN GUARDIANO** (`test/ombra-lampada-gemella.test.mjs`):
+  `ombraLampada` vive in `nucleo/resa.js` E in `nucleo/modelli.js` — due
+  programmi diversi, e il GLSL non si importa. Erano già divergute una volta (i
+  due canali della mappa erano finiti solo in resa.js: ombra quadrata curata sui
+  blocchi e ANCORA VIVA sui modelli). La prova toglie commenti e spazi e
+  confronta quello che la GPU esegue davvero.
 - **LA POZZA A TERRA sono DUE CERCHI CONCENTRICI piatti** dello stesso colore,
   in trasparenza: la pozza per pixel (`pozza()`), come le «fake point light» di
   Unity, niente alone bianco sfumato.

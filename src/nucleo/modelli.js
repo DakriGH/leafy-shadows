@@ -152,6 +152,7 @@ float ombraLampada(highp vec3 pos, highp vec3 L) {
   highp vec2 verso = vec2(dir.x >= 0.0 ? 1.0 : -1.0, dir.y >= 0.0 ? 1.0 : -1.0);
   highp vec2 mod_ = max(abs(dir), vec2(1e-6));       // niente divisioni per zero sui raggi assiali
   highp vec2 cella = floor(pos.xz);
+  highp vec2 cellaLampada = floor(L.xz);   // la sua cella non fa ombra a se stessa
   highp vec2 prossimo = (cella + max(verso, vec2(0.0)) - pos.xz) / (verso * mod_);   // quanto manca al confine
   highp vec2 quanto = 1.0 / mod_;                    // e quanto da un confine al prossimo
   for (int i = 0; i < 14; i++) {
@@ -170,10 +171,22 @@ float ombraLampada(highp vec3 pos, highp vec3 L) {
     vec4 mappa = texture(uAltezze, uvC);
     float h = mappa.g * 255.0;
     if (h > y + 0.05 && h > pos.y + 0.6) return 0.0;
-    float ho = mappa.b * 255.0;                      // l'OGGETTO: il tronco, non la chioma
-    if (ho > y + 0.05 && ho > pos.y + 0.3) {
-      highp vec2 qui = pos.xz + (L.xz - pos.xz) * (t / lungo);
-      if (length(qui - (cella + 0.5)) < 0.34) return 0.0;   // un cilindro, non un cubo
+    float ho = mappa.b * 255.0;                      // l'OGGETTO: albero, lampione, fungo
+    if (ho > pos.y + 0.3 && !all(equal(cella, cellaLampada))) {
+      // ⚠ GEMELLA DI QUELLA IN resa.js, e vanno cambiate INSIEME: sono due copie
+      // della stessa regola in due programmi diversi, e sono gia' divergute una
+      // volta (i canali separati erano finiti solo in resa.js, e l'ombra
+      // quadrata era curata sui blocchi e viva sui modelli).
+      // ⚠ La distanza si misura al punto PIU' VICINO: il punto d'ingresso nella
+      // cella sta sul bordo, quindi la soglia non scattava mai.
+      highp vec2 ac = (cella + 0.5) - pos.xz;
+      highp float tc = clamp(dot(ac, dir), 0.0, lungo);
+      highp float dist = length(ac - dir * tc);
+      highp float yc = pos.y + (L.y - pos.y) * (tc / lungo);
+      float base = max(h, pos.y);
+      float su = clamp((yc - base) / max(1.0, ho - base), 0.0, 1.0);
+      float raggio = mix(0.30, 0.85, smoothstep(0.10, 0.70, su));
+      if (dist < raggio && ho > yc + 0.05) return 0.0;
     }
   }
   return 1.0;
