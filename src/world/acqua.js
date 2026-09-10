@@ -10,8 +10,28 @@
 // La sim scrive silenziosa (niente eventi): in multiplayer si sincronizzano
 // solo le azioni sulle sorgenti, il resto è deterministico.
 
-import { ACQUA } from '../config.js';
 import { defDi, livelloAcqua } from './blocks.js';
+
+/**
+ * ⚠ QUESTO FILE NON SI E' MAI CARICATO. Importava `../config.js`, che in
+ * Leafy-Shadows non esiste — e' rimasto indietro dalla migrazione da Lantern.
+ * Quindi la simulazione c'era, scritta e ragionata, e non l'ha mai eseguita
+ * nessuno: `SimAcqua` non compariva in un solo `import` di tutto il progetto.
+ * Il committente l'ha notato dal risultato — «l'acqua non si aggiorna in modo
+ * dinamico come su Minecraft» — non dal codice, che e' l'unico modo di
+ * accorgersi di una cosa che semplicemente non gira.
+ *
+ * Le costanti stanno qui adesso, e sono tre:
+ *  · `portata`  quante celle si allontana un flusso da una sorgente. Sette come
+ *    in Minecraft: e' anche il massimo che ci sta nei quattro bit del livello.
+ *  · `budget`   quante celle si riesaminano per tick. E' il freno: senza, una
+ *    diga aperta su un lago grande fa un tick da diecimila celle e il
+ *    fotogramma sparisce. Con un budget l'acqua ci mette qualche tick in piu' e
+ *    non si vede la differenza — l'acqua vera ci mette anche lei un momento.
+ *  · `yMin`     sotto questa quota l'acqua che cade svanisce, invece di
+ *    riempire il vuoto sotto il mondo per sempre.
+ */
+export const ACQUA = { portata: 7, budget: 256, yMin: -32 };
 
 const LATI = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const chiave = (x, y, z) => x + ',' + y + ',' + z;

@@ -184,9 +184,18 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   // d'acqua alta una cella spunta di un sedicesimo sopra il pelo abbassato e
   // sul lago si vedono mille velette grigie (visto nel banco, primo piano).
   const qa = (x, y, z, n, col, prof, liv, cima) => [x - ox, y + SCARTO_Y, z - oz, n, prof, liv, col, cima ? 1 : 0, 0];
+  /**
+   * C'è acqua in questa cella? Anche BAGNATA, cioè trattenuta da un modello.
+   * ⚠ Va usata ovunque si chiedeva `eAcqua(mondo.tipo(...))` per un VICINO o
+   * per la profondità: una cella bagnata è acqua a tutti gli effetti, e
+   * trattarla come solida farebbe comparire una parete d'acqua attorno a ogni
+   * tronco piantato nel lago.
+   */
+  const acquaIn = (x, y, z) => eAcqua(mondo.tipo(x, y, z)) || (mondo.bagnate ? mondo.bagnata(x, y, z) !== null : false);
 
   mondo.perOgniDelChunk(kc, (x, y, z, tipo) => {
     const def = defDi(tipo);
+    const bagnata = mondo.bagnate ? mondo.bagnata(x, y, z) : null;   // waterlogging: livello, o null
     if (def.forma === 'modello' && def.modello === 'albero') {
       // ⚠ L'ALBERO STA NELLA MAPPA DELLE ALTEZZE con la sua chioma: un DISCO di
       // raggio 2 (cupola: +4 al centro, +3 attorno, +2 sull'orlo), così l'ombra
@@ -210,8 +219,12 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
         if (cima > impronte[i]) impronte[i] = cima;
       }
     }
-    if (FORME_VUOTE.has(def.forma)) return;          // piante, lastre, modelli: F3
-    const acqua = eAcqua(tipo);
+    // ⚠ UNA FORMA VUOTA **BAGNATA** NON ESCE DI QUI: deve emettere la sua acqua.
+    // È il waterlogging — «manca anche il waterloggare le cose». Un albero
+    // posato in un lago non disegna geometria (è un modello) ma l'acqua che
+    // tiene sì, se no resterebbe un buco asciutto in mezzo allo specchio.
+    if (FORME_VUOTE.has(def.forma) && bagnata === null) return;   // piante, lastre, modelli: F3
+    const acqua = eAcqua(tipo) || bagnata !== null;
     const ly = y + SCARTO_Y;
     if (ly < 0 || ly > 254) return;
     const i = (x - ox) * CHUNK + (z - oz);
@@ -221,7 +234,9 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
     // dov'è l'ostacolo — e una chioma non è né una riva né un muro.
     if (!acqua && opaco(tipo) && y > solide[i]) solide[i] = y;
 
-    let pal = paletteBlocco(tipoBase(tipo), y);
+    // ⚠ UNA CELLA BAGNATA SI DIPINGE DA ACQUA, non dal colore dell'albero che
+    // ci sta dentro: la geometria che emette è il pelo, e il pelo è acqua.
+    let pal = paletteBlocco(bagnata !== null ? 'acqua' : tipoBase(tipo), y);
     if (def.motivo) pal = tintaPalette(pal, def.motivo, def.motivoForza ?? 1, x, y, z);
     const materia = materiaDi(def);
     if (materia) {
@@ -259,17 +274,20 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
     // la profondità e il livello, solo per l'acqua
     let prof = 0, liv = 0;
     if (acqua) {
-      liv = Math.max(0, Math.min(15, livelloAcqua(tipo) || 0));
-      while (prof < 15 && eAcqua(mondo.tipo(x, y - 1 - prof, z))) prof++;
+      liv = Math.max(0, Math.min(15, bagnata !== null ? bagnata : (livelloAcqua(tipo) || 0)));
+      while (prof < 15 && acquaIn(x, y - 1 - prof, z)) prof++;
     }
     // ⚠ LA PROFONDITÀ SI CAMPIONA AL VERTICE (media delle celle d'acqua attorno):
     // per cella tutti e quattro i vertici erano uguali e il colore faceva
     // QUADRATI netti sul pelo. Così sfuma da un vertice all'altro.
-    const profCella = (cx, cz) => { if (!eAcqua(mondo.tipo(cx, y, cz))) return -1; let p = 0; while (p < 15 && eAcqua(mondo.tipo(cx, y - 1 - p, cz))) p++; return p; };
+    const profCella = (cx, cz) => { if (!acquaIn(cx, y, cz)) return -1; let p = 0; while (p < 15 && acquaIn(cx, y - 1 - p, cz)) p++; return p; };
     const profV = (vx, vz) => { let s = 0, k = 0; for (const cx of [vx - 1, vx]) for (const cz of [vz - 1, vz]) { const p = profCella(cx, cz); if (p >= 0) { s += p; k++; } } return k ? Math.round(s / k) : prof; };
     if (acqua) for (const [dx, dy, dz, n, asse, segno] of FACCE) {
       const vic = mondo.tipo(x + dx, y + dy, z + dz);
-      if (vic && (eAcqua(vic) || opaco(vic))) continue;   // il pelo verso l'aria, mai fra acqua e acqua
+      // ⚠ ANCHE UNA CELLA BAGNATA È ACQUA per il vicino: se no, fra il lago e
+      // l'albero che ci sta dentro comparirebbe una parete d'acqua — una veletta
+      // verticale attorno a ogni tronco.
+      if (acquaIn(x + dx, y + dy, z + dz) || (vic && opaco(vic))) continue;   // il pelo verso l'aria, mai fra acqua e acqua
       const col = coloreFaccia(pal, asse, segno);
       const X = x, Y = y, Z = z;
       let a, b, cc, d;

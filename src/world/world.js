@@ -45,6 +45,7 @@ export class Mondo {
     this.chunks = new Map();         // "cx,cz" → Map("x,y,z" → tipo)
     this.sporchi = new Set();        // chunk da rimeshare per intero
     this.sporchiAcqua = new Set();   // chunk dove è cambiata SOLO acqua (rebuild leggero)
+    this.bagnate = new Map();        // chiave cella → livello: l'acqua trattenuta da un modello (waterlogging)
     this._rev = new Map();           // kc → quante volte è cambiato (vedi revisione)
     this.furni = new Map();          // "x,y,z" → istanza furni che occupa la cella
     // L'INGOMBRO CHE FA OMBRA AL SOLE, che NON è la stessa cosa di `furni`:
@@ -231,6 +232,9 @@ export class Mondo {
     const k = chiave(x, y, z);
     const prima = c.get(k);
     if (!c.delete(k)) return false;
+    // ⚠ TOGLIENDO LA COSA SE NE VA ANCHE L'ACQUA CHE TENEVA: se no resterebbe
+    // una cella d'acqua invisibile e senza padrone in mezzo al terreno.
+    this.bagnate.delete(k);
     this.contaBlocchi--;
     if (c.size === 0) { this.chunks.delete(kc); this._scordaMemo(); }
     const eraAcqua = !!(prima && prima.startsWith('acqua'));
@@ -238,6 +242,39 @@ export class Mondo {
     if (!eraAcqua) this._cambiata(x, y, z);
     if (!silenzioso) { this._annotaModifica(x, y, z, null); if (this.onEvento) this.onEvento({ tipo: 'togli', cella: [x, y, z] }); }
     return true;
+  }
+
+  // ── LE CELLE BAGNATE (waterlogging) ────────────────────────────────────────
+  //
+  // ⚠ IL COMMITTENTE: «manca anche il waterloggare le cose». Il difetto è che
+  // il mondo tiene UN TIPO PER CELLA: posando un albero in un lago, l'albero
+  // prendeva il posto dell'acqua e restava lì asciutto in mezzo al lago.
+  //
+  // ⚠ NON SI CAMBIA IL TIPO, SI AGGIUNGE UN DATO ACCANTO. Mettere «albero
+  // bagnato» come tipo nuovo vorrebbe dire raddoppiare la tabella dei blocchi
+  // (una versione bagnata di ogni cosa posabile) e riscrivere il salvataggio.
+  // Una mappa a parte tiene il livello dell'acqua per le poche celle che ce
+  // l'hanno — sono poche per definizione: solo dove qualcuno ha posato qualcosa
+  // dentro l'acqua.
+  //
+  // ⚠ E VALE SOLO PER CHI NON RIEMPIE LA CELLA (modelli, piante): un blocco
+  // pieno l'acqua la caccia, come in Minecraft. Chi chiama decide; qui si tiene
+  // il dato e basta.
+  /** Segna che in questa cella resta dell'acqua di livello `livello` (0 = sorgente). */
+  bagna(x, y, z, livello = 0) {
+    this.bagnate.set(chiave(x, y, z), Math.max(0, Math.min(15, livello | 0)));
+    this._sporca(x, z, this.sporchiAcqua);
+  }
+  /** Toglie l'acqua da una cella bagnata. */
+  asciuga(x, y, z) {
+    if (!this.bagnate.delete(chiave(x, y, z))) return false;
+    this._sporca(x, z, this.sporchiAcqua);
+    return true;
+  }
+  /** Il livello dell'acqua trattenuta in questa cella, o `null`. */
+  bagnata(x, y, z) {
+    const v = this.bagnate.get(chiave(x, y, z));
+    return v === undefined ? null : v;
   }
 
   occupaFurni(celle, istanza) { for (const [x, y, z] of celle) this.furni.set(chiave(x, y, z), istanza); }
