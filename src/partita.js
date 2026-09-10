@@ -724,7 +724,20 @@ function giro(adesso) {
   modelli.istanze('cubo', bufIstanze = corpi.istanze(bufIstanze), 8);
   // ⚠ ALLA ANIMAL CROSSING: il gatto si gira verso dove CAMMINA (non verso la
   // camera), con una rotazione morbida; cammina con un passetto
-  if (intento.avanti || intento.destra || meta) giroVoluto = Math.PI - passeggero.verso;
+  // ⚠ `giro = verso`, NON `Math.PI - verso`. Il committente: «il player ha le
+  // mesh invertite da molte versioni», e non era una mesh: era questa riga.
+  //
+  // `Math.PI - verso` non è uno SCOSTAMENTO, è una RIFLESSIONE: tiene il seno e
+  // ribalta il coseno. Con il modello che guarda +Z (verificato a schermo:
+  // giro 0 → faccia a +Z, giro π/2 → faccia a +X, quindi avanti = (sin, cos)),
+  // il gatto puntava (sin verso, −cos verso) — cioè la direzione giusta lungo X
+  // e ROVESCIATA lungo Z.
+  //
+  // ⚠ È PER QUESTO CHE SEMBRAVA UNA MESH SPECCHIATA e non un modello girato di
+  // 180°: camminando lungo X era giusto, lungo Z era all'indietro. Un modello
+  // girato male sbaglia SEMPRE; uno specchiato sbaglia METÀ DELLE VOLTE, ed è
+  // quello che si vedeva — motivo per cui è sopravvissuto tante versioni.
+  if (intento.avanti || intento.destra || meta) giroVoluto = passeggero.verso;
   let dg = giroVoluto - giroGatto; dg = Math.atan2(Math.sin(dg), Math.cos(dg)); giroGatto += dg * (1 - Math.exp(-dt / 0.08));
   const passo = (intento.avanti || intento.destra || meta) && passeggero.aTerra ? Math.abs(Math.sin(adesso / 90)) * 0.06 : 0;
   const [gx, gy, gz] = posizioneDisegnata();
