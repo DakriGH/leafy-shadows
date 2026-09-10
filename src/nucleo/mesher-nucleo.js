@@ -170,6 +170,13 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   // restano negli uniform (cambiano ogni fotogramma); tutto ciò che sta fermo
   // entra qui, e sta fermo il 99 % delle cose.
   const impronte = new Int16Array(CHUNK * CHUNK).fill(-1);
+  // ⚠ LE SORGENTI DI LUCE DEL CHUNK, dichiarate da chi cammina già ogni cella.
+  // Prima l'unico modo di sapere dove fossero le lampade era chiedere al
+  // REGISTRO DELLE ENTITÀ, che conosce solo i lampioni: un blocco-lampada non
+  // faceva pozza, e migliaia di luci colorate erano semplicemente impossibili da
+  // trovare senza rileggere il mondo. Qui costa zero — il ciclo c'è già.
+  // Ogni voce è [x, y della SORGENTE (con la quota), z, tipo].
+  const luci = [];
   let minY = 255, maxY = 0;
   // la fascia verticale del chunk, per cuocere la luce solo dove serve
   let yLo = Infinity, yHi = -Infinity;
@@ -219,6 +226,13 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
         if (cima > impronte[i]) impronte[i] = cima;
       }
     }
+    // ⚠ PRIMA DELL'USCITA anche questa, e per lo stesso motivo dell'impronta:
+    // il lampione è una «forma vuota» e uscirebbe di qui senza dire di esistere.
+    // ⚠ SI SALVA LA CELLA, NON LA LANTERNA: la quota (2,6 per il lampione) la
+    // aggiunge lo shader, perché la POZZA si misura dalla base e l'OMBRA si
+    // cammina verso la lanterna. Sommandola qui le due cose userebbero lo stesso
+    // punto, e la pozza salirebbe in aria.
+    if (def.luce) luci.push([x, y, z, tipo]);
     // ⚠ UNA FORMA VUOTA **BAGNATA** NON ESCE DI QUI: deve emettere la sua acqua.
     // È il waterlogging — «manca anche il waterloggare le cose». Un albero
     // posato in un lago non disegna geometria (è un modello) ma l'acqua che
@@ -313,7 +327,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   });
   if (minY > maxY) { minY = 0; maxY = 0; }
   const d = c.dati();
-  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, solide, impronte, acqua: { ...ca.dati(), pelo: peloMax === -Infinity ? null : peloMax }, erba: ce.dati() };
+  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, solide, impronte, luci, acqua: { ...ca.dati(), pelo: peloMax === -Infinity ? null : peloMax }, erba: ce.dati() };
 }
 
 function scurisci(c, k) {

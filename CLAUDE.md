@@ -1554,6 +1554,75 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   due canali della mappa erano finiti solo in resa.js: ombra quadrata curata sui
   blocchi e ANCORA VIVA sui modelli). La prova toglie commenti e spazi e
   confronta quello che la GPU esegue davvero.
+
+### ⚠ LA REVISIONE DELLE LUCI (10/09/2026): quattro difetti, una radice sola
+
+Il committente, con una foto: «è da rivedere bene la questione luci e ombre
+perché non è funzionante e corretta; durante la generazione le luci non si sono
+aggiornate se avevano ostacoli; ogni tanto capita che sui blocchi si veda una
+luce fantasma illuminante dalla faccia che in teoria dovrebbe essere in ombra».
+Aveva ragione quattro volte, e la radice era una sola: **il motore sapeva UNA
+lampada — il lampione — e tutto il resto era scritto a mano attorno a quella.**
+
+- **LA POZZA NON GUARDAVA LA NORMALE**, quindi passava attraverso i blocchi e
+  accendeva la faccia di dietro. La cura è una riga —
+  `if (dot(n, lanterna - pos) <= 0.0) continue;` — ed è un **SÌ/NO**, non un
+  `dot` sfumato: una rampa di N·L sarebbe il face shading che qui è vietato,
+  mentre «o vede la luce o no» è esattamente la regola della casa.
+  ⚠ E NON LA PUÒ FARE `ombraLampada`: quella cammina una mappa di ALTEZZE, che
+  per costruzione non sa da che parte del muro sta il pixel. **Misurato**: sulla
+  faccia di spalle di un muro, alla quota della cima, NESSUN margine — nemmeno
+  zero — la spegne. Solo la normale lo sa.
+  ⚠ E costa meno di niente: chi è di spalle salta le quattordici letture.
+- **IL MARGINE ERA 0,6** (`h > pos.y + 0.6`), cioè nessun ostacolo alto meno di
+  sei decimi PIÙ del pixel poteva fermare la luce: sulla faccia di spalle di ogni
+  muro restava accesa una FASCIA in cima alta sei decimi di blocco. È **quella**
+  nella foto. Adesso 0,05.
+- **UNA LAMPADA-BLOCCO SI FACEVA OMBRA DA SÉ**, tutta: è solida, quindi sta nel
+  canale del terreno, e il raggio verso di lei entra per forza nella sua cella.
+  La guardia `!all(equal(cella, cellaLampada))` c'era già sul canale degli
+  OGGETTI e mancava su questo — invisibile finché le lampade erano solo lampioni,
+  che sono modelli e nel terreno non ci sono.
+- **E LE LAMPADE-BLOCCO NON ESISTEVANO PROPRIO.** `lampadeVicine()` chiedeva
+  `entita.ognunaDi('lampione')`, cioè UN tipo; `luce-cotta.js` cercava le
+  sorgenti in `DECORAZIONI`. Lucciola, cristallo, lanterna e le tre lampade
+  rossa/verde/blu di `blocks.js` dichiaravano una luce da mesi e **non
+  illuminavano niente**: né pozza né luce cotta. «Luci colorate» era una casella
+  vuota. Adesso la regola è una sola — *se `def.luce` c'è, quella cella è una
+  sorgente* — e vale anche per i blocchi registrati a caldo.
+
+**E i tre numeri del lampione erano cotti in tre file diversi**: il raggio 4,6 in
+`partita.js`, la quota 2,6 nel fragment, la tinta `vec3(1.30, 1.02, 0.58)` pure
+nel fragment. Nessuna seconda lampada poteva essere diversa dalla prima. Adesso
+vengono tutti e tre dalla def (`uLampCol` porta tinta e quota).
+⚠ **E la tinta approvata NON è cambiata di un pixel**: `lampione.luce.pozza` vale
+0xffc872, che è esattamente quella costante diviso 1,30. La costante è diventata
+un dato, non un'altra tinta. `colore` è rimasto com'era perché lo legge il motore
+vecchio (`main.js`), che è il gioco pubblicato su index.html.
+⚠ **E la sorgente di una lampada-blocco è il CENTRO della cella, anche in Y**: una
+lampada appoggiata sul terreno ha la sorgente ESATTAMENTE sul piano che deve
+illuminare, il prodotto scalare vale zero e la regola della normale spegne tutto.
+Mezzo blocco, e non è pignoleria: senza, la lampada non accende niente.
+
+⚠ **IL PESO SI SATURA, IL COLORE NO**: due pozze che si sovrappongono prendono la
+MEDIA delle tinte a piena forza. Sommando i colori, un rosso e un verde vicini
+davano giallo pieno — che non è nessuna delle due lampade.
+
+⚠ **E UN CHUNK NUOVO RIMETTE IN CODA I VICINI GIÀ COSTRUITI** (`onGenerato` in
+`world/frontiera.js` → `streaming.tocca`): la luce cotta arriva a sei celle oltre
+il confine e la terra nuova ci fa OMBRA, quindi un vicino già costruito resta con
+la luce di quando quel chunk non c'era. Di solito non capita — si genera
+trentadue celle oltre la resa — ma correndo la generazione resta indietro: è il
+«ogni tanto capita» del committente. Il «già costruiti» è ciò che rende la cura
+gratis: alla frontiera quell'insieme è quasi sempre vuoto.
+
+⚠ **E IL MESHER DICHIARA LE SORGENTI DEL CHUNK** (`luci`, in
+`nucleo/mesher-nucleo.js`): cammina già ogni cella, quindi costa zero, ed è
+l'unico elenco delle lampade che esista. Il registro delle entità conosce solo i
+lampioni. `test/pozza-faccia.test.mjs` presidia tutto: rispecchia il cammino in
+JS ma **legge i numeri dal GLSL vero**, quindi rimettere il margine a 0,6 o
+togliere la riga della normale la fa diventare rossa (verificato in tutt'e due i
+versi).
 - **LA POZZA A TERRA sono DUE CERCHI CONCENTRICI piatti** dello stesso colore,
   in trasparenza: la pozza per pixel (`pozza()`), come le «fake point light» di
   Unity, niente alone bianco sfumato.

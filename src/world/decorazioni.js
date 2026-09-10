@@ -43,7 +43,15 @@ export const DECORAZIONI = {
     // ⚠ QUATTRO E SEI, che è il raggio VERO del lampione di Leafy-Lantern (nel
     // suo registro dei furni). Avevo messo 8,5 prendendolo dalla lampada-blocco,
     // e il committente l'ha visto: «il raggio di luce era più corto».
-    luce: { colore: 0xffd889, raggio: 4.6, intensita: 1.0, ombra: true, quota: 2.6 },
+    // ⚠ `pozza` È LA TINTA DELLA POZZA A TERRA, e vale 0xffc872 per una ragione
+    // precisa: è ESATTAMENTE la costante che stava scritta nello shader del
+    // nucleo — vec3(1.30, 1.02, 0.58) diviso 1,30. La tinta approvata dal
+    // committente non cambia di un pixel: è solo passata da una costante dentro
+    // un fragment a un DATO accanto alla lampada, dove chi la cambia la vede.
+    // ⚠ E NON È `colore`: quello lo legge il motore vecchio (`main.js`) per la
+    // sfera di luce, e cambiarlo cambierebbe il gioco pubblicato su index.html.
+    // Chi non dichiara `pozza` usa `colore`, che è la regola giusta di fabbrica.
+    luce: { colore: 0xffd889, pozza: 0xffc872, raggio: 4.6, intensita: 1.0, ombra: true, quota: 2.6 },
     notte: true,
   },
   albero: {
@@ -74,6 +82,15 @@ export function registraDecorazioni() {
       // lampione. Senza, il mesher può solo dire «qui c'è un modello» e non
       // quanto è alto né quanto è largo.
       altezza: d.altezza, mezza: d.mezza,
+      // ⚠ E LA LUCE PURE, per la stessissima ragione, scoperta il 10/09/2026:
+      // `luce-cotta.js` cercava le sorgenti in DECORAZIONI, quindi UN BLOCCO CHE
+      // DICHIARA UNA LUCE (lucciola, cristallo, lanterna…) NON ILLUMINAVA NIENTE:
+      // accendeva la pozza per pixel e non cuoceva un solo livello. Con la luce
+      // nella def la regola è una sola per tutti — «se `def.luce` c'è, quella
+      // cella è una sorgente» — e vale anche per i blocchi registrati a caldo
+      // (gli arredi, l'abominio dell'omega test), che in DECORAZIONI non ci sono
+      // e non ci saranno mai.
+      luce: d.luce,
     }, CATEGORIA_OFFICINA);
   }
 }

@@ -36,9 +36,24 @@ export class Streaming {
     this.lavoro = lavoro;
     this._marca = new Map();
     this._vuoti = new Set();   // chunk generati senza blocchi (lo zoo, il vuoto): non si rimettono in coda a ogni giro
-    this.frontiera = new Frontiera(mondo, genera, { margineGenera: 2 * CHUNK, margineTieni: 5 * CHUNK });
+    this.frontiera = new Frontiera(mondo, genera, {
+      margineGenera: 2 * CHUNK, margineTieni: 5 * CHUNK,
+      // ⚠ UN CHUNK NUOVO RIMETTE IN CODA I VICINI **GIÀ COSTRUITI**, e solo
+      // quelli: la loro luce cotta è di quando lui non c'era. Il «già costruiti»
+      // non è un'ottimizzazione da poco, è quello che rende la cura gratis —
+      // alla frontiera i vicini non sono ancora costruiti quasi mai (si genera
+      // trentadue celle oltre la resa), quindi di solito questo insieme è vuoto
+      // e non si rifà niente. Quando NON è vuoto, è esattamente il caso rotto.
+      onGenerato: (kc, cx, cz) => {
+        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+          if (!dx && !dz) continue;
+          const v = (cx + dx) + ',' + (cz + dz);
+          if (this.resa.chunks.has(v)) { this.coda.add(v); this.statistiche.rifattiPerLuce++; }
+        }
+      },
+    });
     this.coda = new Set();
-    this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0, inVolo: 0 };
+    this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0, inVolo: 0, rifattiPerLuce: 0 };
     this._ordine = [];
   }
 

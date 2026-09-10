@@ -151,6 +151,14 @@ uniform vec2 uOmbreScala;        // come si decodifica: quota = r * x + y
 uniform highp vec4 uAltRett;           // x0, z0, 1/larghezza, 1/profondita
 uniform highp vec4 uLampade[8];   // x y z raggio dei lampioni ACCESI più vicini (la resa li riceve dalla partita)
 uniform int uNLampade;
+// ⚠ IL COLORE DELLA LAMPADA È UN DATO, non più una costante nello shader. Fino
+// al 10/09/2026 qui c'era vec3(1.30, 1.02, 0.58) scritto a mano: TUTTE le
+// lampade del gioco facevano la stessa pozza calda, e def.luce.colore — che
+// esiste da sempre in blocks.js, con tanto di lucciola verde e lampade rossa,
+// verde e blu — non arrivava a schermo. «Luci colorate» era una casella vuota.
+// xyz = la tinta già moltiplicata per l'intensità, w = la QUOTA della lanterna
+// sopra la cella (2,6 per il lampione, 0 per un blocco-lampada).
+uniform highp vec4 uLampCol[8];
 // ⚠ LE POZZE DEI LAMPIONI SONO CERCHI NETTI A DUE BANDE, per pixel: la luce
 // cotta nel vertice, interpolata sui triangoli, faceva poligoni («esagonale»).
 // La luce cotta resta come MASCHERA (dietro un muro non si passa) e per le
@@ -165,7 +173,13 @@ uniform sampler2D uAltezze;   // la mappa delle altezze (cima di ogni colonna + 
 // è seghettata quadrata non va bene»). Camminando i confini delle celle il
 // taglio è esattamente il profilo del blocco, dritto, e le letture sono meno:
 // una per cella attraversata, al massimo quattordici (il raggio è 4,6).
-float ombraLampada(highp vec3 pos, highp vec3 L) {
+float ombraLampada(highp vec3 pos0, vec3 n, highp vec3 L) {
+  // SI PARTE APPENA FUORI DALLA SUPERFICIE, non dal pixel: sulla faccia di un
+  // blocco pos.xz cade ESATTAMENTE sul confine fra due celle e floor sceglie a
+  // testa o croce secondo l'arrotondamento, quindi meta' dei pixel di una faccia
+  // partivano dalla cella del blocco e meta' da quella d'aria. Uno scostamento
+  // lungo la normale lo decide, e sempre nello stesso verso.
+  highp vec3 pos = pos0 + n * 0.02;
   highp vec2 d = L.xz - pos.xz;
   highp float lungo = length(d);
   if (lungo < 0.001) return 1.0;
@@ -199,7 +213,18 @@ float ombraLampada(highp vec3 pos, highp vec3 L) {
     highp vec2 uvC = (cella + 0.5 - uAltRett.xy) * uAltRett.zw;
     vec4 mappa = texture(uAltezze, uvC);
     float h = mappa.g * 255.0;
-    if (h > y + 0.05 && h > pos.y + 0.6) return 0.0;
+    // IL MARGINE E' PICCOLO, e prima era 0,6. Serve solo perche' la colonna su cui
+    // si posa il pixel non si faccia ombra da se': a 0,6 nessun ostacolo alto meno
+    // di sei decimi PIU' del pixel poteva fermare la luce, e sulla faccia di spalle
+    // di un muro restava accesa una FASCIA in cima alta sei decimi di blocco —
+    // «una luce fantasma illuminante dalla faccia che dovrebbe essere in ombra».
+    // E LA CELLA DELLA LAMPADA NON FA OMBRA A SE STESSA NEANCHE QUI. La stessa
+    // guardia c'era gia' sul canale degli OGGETTI, e mancava su questo: finche'
+    // le lampade erano solo lampioni (modelli, che nel terreno non ci sono) non
+    // si vedeva. Un BLOCCO-lampada e' solido, quindi sta nel canale del terreno,
+    // e il raggio verso di lui entra PER FORZA nella sua cella: ogni lampada
+    // appoggiata a terra si spegneva da sola, tutta, e non accendeva niente.
+    if (h > y + 0.05 && h > pos.y + 0.05 && !all(equal(cella, cellaLampada))) return 0.0;
     float ho = mappa.b * 255.0;
     // ⚠ LA CELLA DELLA LAMPADA NON FA OMBRA A SE STESSA. Il lampione e' un
     // oggetto anche lui (canale B, alto tre celle) e il raggio verso la sua
@@ -233,19 +258,39 @@ float ombraLampada(highp vec3 pos, highp vec3 L) {
   }
   return 1.0;
 }
-float pozza(highp vec3 pos, float cotto) {
-  float s = 0.0;
+vec3 pozza(highp vec3 pos, vec3 n, float cotto) {
+  float peso = 0.0;
+  vec3 tinta = vec3(0.0);
   for (int i = 0; i < 8; i++) {
     if (i >= uNLampade) break;
+    highp vec3 lanterna = uLampade[i].xyz + vec3(0.0, uLampCol[i].w, 0.0);
+    // LA FACCIA CHE GUARDA DALL'ALTRA PARTE NON E' ILLUMINATA, e basta: e' un
+    // SI'/NO, non un dot sfumato — la regola della casa dice «o vede la luce o
+    // no», e una rampa di N dot L sarebbe il face shading che qui e' vietato.
+    // Senza questa riga la pozza passava ATTRAVERSO i blocchi e accendeva la
+    // faccia di dietro.
+    // E NON LA PUO' FARE ombraLampada: quella cammina una mappa di ALTEZZE, che
+    // per costruzione non sa da che parte del muro sta il pixel. Misurato: sulla
+    // faccia di spalle di un muro, alla quota della cima, NESSUN margine per
+    // quanto piccolo la spegne. Solo la normale lo sa.
+    // E COSTA MENO DI NIENTE: chi e' di spalle salta le quattordici letture.
+    if (dot(n, lanterna - pos) <= 0.0) continue;
     highp vec3 d = pos - uLampade[i].xyz; d.y *= 0.7;
     float q = length(d) / uLampade[i].w;
     if (q >= 1.0) continue;
-    // ⚠ TRE CERCHI CONCENTRICI PIATTI, un solo centro (il lampione) e una sola
+    // TRE CERCHI CONCENTRICI PIATTI, un solo centro (il lampione) e una sola
     // ombra: la «fake point light» che piace al committente. Niente sfumature.
     float anello = q < 0.35 ? 1.0 : (q < 0.65 ? 0.72 : 0.42);
-    s += anello * ombraLampada(pos, uLampade[i].xyz + vec3(0.0, 2.6, 0.0));
+    float a = anello * ombraLampada(pos, n, lanterna);
+    peso += a;
+    tinta += a * uLampCol[i].rgb;
   }
-  return min(s, 1.0);
+  // IL PESO SI SATURA, IL COLORE NO: due pozze che si sovrappongono non
+  // sbiancano, prendono la MEDIA delle due tinte a piena forza. Sommando i
+  // colori, un rosso e un verde vicini davano giallo pieno — che non e' nessuna
+  // delle due lampade. Con una lampada sola il conto e' identico a prima.
+  if (peso <= 0.0) return vec3(0.0);
+  return (tinta / peso) * min(peso, 1.0);
 }
 uniform highp vec4 uBuco;        // il buco di visuale della terza persona: il giocatore (xyz) e il raggio (0 = spento)
 uniform highp vec3 uOcchio;      // da dove guarda la camera
@@ -311,14 +356,14 @@ void main() {
   // («i cerchi hanno un'ombra che non è normale»). vBlocco resta nel vertice.
   // ⚠ DI GIORNO I CERCHI RESTANO, in trasparenza (45 %): come i lampioni accesi di Leafy
   float notte = mix(0.45, 1.0, 1.0 - smoothstep(0.30, 0.75, uSoleForza));
-  float lamp = pozza(vPos, vBlocco) * notte;
+  vec3 lamp = pozza(vPos, vN, vBlocco) * notte;
   float sole = vSole * step(0.99, vCielo) * luce;
   // l'ombra: il colore stilizzato (hue shift), tinto dal giorno/notte, più scuro senza cielo
   vec3 ombra = vOmbra * uCieloCol * (0.30 + 0.70 * cieloB);
   vec3 pieno = vBase * uSoleCol;
   if (vEmis > 0.0) { ombra = mix(ombra, vBase * 1.15, vEmis); pieno = mix(pieno, vBase * 1.15, vEmis); }   // emissiva: scavalca ombra e notte
   // ⚠ LE POZZE DEI LAMPIONI SONO CALDE E PIENE: 1,3 sopra il bianco
-  vec3 c = mix(ombra, pieno, sole) + vBase * vec3(1.30, 1.02, 0.58) * lamp;
+  vec3 c = mix(ombra, pieno, sole) + vBase * lamp;
   // ⚠ I CONTI SONO IN SPAZIO LINEARE: qui si torna in sRGB, o tutto esce scuro e saturo.
   c = pow(mix(c, pow(uNebbiaCol, vec3(2.2)), vNebbia), vec3(1.0 / 2.2));
   colore = vec4(c, 1.0);
@@ -847,7 +892,7 @@ export class Resa {
     this.gl = gl;
     this.programma = compila(gl, VS, FS);
     this.u = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade', 'uStile', 'uAltezze']) {
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uMaterie', 'uNebbia', 'uCam', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade', 'uLampCol', 'uStile', 'uAltezze']) {
       this.u[n] = gl.getUniformLocation(this.programma, n);
     }
     // ⚠ UN SOLO BUFFER DI INDICI PER TUTTI I CHUNK (formato.js)
@@ -857,7 +902,7 @@ export class Resa {
     // stesso fragment dei solidi (horizon mapping, nebbia), ma con i colori INTERPOLATI: la lamella sfuma dalla base alla punta
     this.programmaErba = compila(gl, VS_ERBA, FS.replace(/flat in /g, 'in '));
     this.ue = {};
-    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade', 'uStile', 'uAltezze']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
+    for (const n of ['uVP', 'uChunk', 'uTempo', 'uSoleVerso', 'uSoleCol', 'uSoleForza', 'uCieloCol', 'uNebbia', 'uCam', 'uVento', 'uNebbiaCol', 'uOmbra', 'uOmbre', 'uOmbreScala', 'uAltRett', 'uTaglio', 'uErbaFinoA', 'uBuco', 'uOcchio', 'uMappaStat', 'uMappaDin', 'uLuceVP', 'uLuceVPDin', 'uMappaTexel', 'uMappaOn', 'uMappaSbieco', 'uLampade', 'uNLampade', 'uLampCol', 'uStile', 'uAltezze']) this.ue[n] = gl.getUniformLocation(this.programmaErba, n);
     // ⚠ LA PASSATA D'OMBRA: solo posizione, niente colore (il fragment è vuoto)
     this.programmaOmbra = compila(gl, VS_OMBRA, FS_VUOTO);
     this.uo = { uVP: gl.getUniformLocation(this.programmaOmbra, 'uVP'), uChunk: gl.getUniformLocation(this.programmaOmbra, 'uChunk') };
@@ -932,6 +977,11 @@ export class Resa {
     this.mappa = { attiva: true, lato: 2048, latoDin: 1024, raggio: 32, raggioDin: 14, stat: null, din: null, vp: new Float32Array(16), vpDin: new Float32Array(16), centro: [1e9, 0, 1e9], sole: [0, 0, 0], sporca: true, on: false, calcoli: 0, disegni: 0, triangoli: 0 };
     // i lampioni accesi più vicini, per le pozze per pixel: [x, y, z, raggio] × 8 (la partita li scrive)
     this.lampade = new Float32Array(32); this.nLampade = 0;
+    // ⚠ QUATTRO FLOAT PER LAMPADA ANCHE QUI: rgb della tinta (già moltiplicata
+    // per l'intensità) e w = la QUOTA della lanterna sopra la cella. Chi riempie
+    // `lampade` riempie anche questo, se no la pozza esce NERA — cioè sparisce,
+    // che è il genere di guasto che sembra «le lampade non funzionano più».
+    this.lampadeCol = new Float32Array(32);
     // chi galleggia, per la schiuma dell'acqua: [x, y, z, raggio] × 8 (la partita li scrive)
     this.galleggianti = new Float32Array(32); this.nGalleggianti = 0;
     // lo stile dell'ombra (ombraStile nei vertex): tinta verso il blu, saturazione, valore
@@ -1014,6 +1064,10 @@ export class Resa {
       gl.bindBuffer(gl.ARRAY_BUFFER, c.vboAcqua);
       gl.bufferData(gl.ARRAY_BUFFER, a.byte, gl.STATIC_DRAW);
     }
+    // ⚠ LE SORGENTI DEL CHUNK, che il mesher dichiara camminando le celle: è
+    // l'unico elenco delle lampade che esista: il registro delle entità conosce
+    // solo i lampioni, e un blocco-lampada non ci compare.
+    c.luci = dati.luci || [];
     c.x0 = dati.cx * 16; c.z0 = dati.cz * 16; c.minY = dati.minY; c.maxY = dati.maxY;
     c.y0 = dati.y0 || 0;
     c.chunk = [c.x0, c.y0, c.z0];
@@ -1328,7 +1382,7 @@ void main() {
     gl.uniform2f(u.uMappaTexel, 0.5 / m.lato, 0.5 / m.latoDin);
     // un texel e mezzo lungo la normale, e un decimo di blocco di profondità (su 220 di intervallo)
     gl.uniform2f(u.uMappaSbieco, 1.5 * (2 * m.raggio / m.lato), 0.1 / 220);
-    gl.uniform4fv(u.uLampade, this.lampade); gl.uniform1i(u.uNLampade, this.nLampade);
+    gl.uniform4fv(u.uLampade, this.lampade); gl.uniform1i(u.uNLampade, this.nLampade); gl.uniform4fv(u.uLampCol, this.lampadeCol);
     gl.uniform3f(u.uStile, this.stile.tinta, this.stile.saturazione, this.stile.valore);
     if (this.altezze) { gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(u.uAltezze, 3); gl.activeTexture(gl.TEXTURE0); }
   }

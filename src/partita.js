@@ -588,15 +588,79 @@ if (opz.corpi > 0) {
 
 // ── la giornata (come il banco) ──────────────────────────────────────────────
 const giorno = { ora: opz.ora ?? 0.35, auto: opz.ora === null, durata: 600 };
-// ⚠ I LAMPIONI ACCESI PIÙ VICINI AL GATTO (otto): le pozze per pixel della resa
+// ── LE LAMPADE ACCESE PIÙ VICINE (otto): le pozze per pixel della resa ───────
+//
+// ⚠ UNA LISTA SOLA PER TUTTE LE LAMPADE, e prima non era così: si chiedeva al
+// registro delle entità `ognunaDi('lampione')`, cioè si guardava UN tipo. Un
+// blocco che dichiara una luce — la lucciola verde, il cristallo, le tre lampade
+// colorate di `blocks.js`, e tutto quello che si registra a caldo — non faceva
+// pozza: c'era il dato, non c'era chi lo leggesse. «Luci colorate» era una
+// casella vuota da mesi.
+//
+// ⚠ E IL COLORE, IL RAGGIO E LA QUOTA VENGONO DALLA DEF, non da tre costanti
+// sparse: il raggio era `4.6` scritto qui, la quota `2.6` scritta nel fragment e
+// la tinta `vec3(1.30, 1.02, 0.58)` pure. Tre numeri del lampione cotti in tre
+// file diversi, e nessuna seconda lampada poteva essere diversa dalla prima.
+//
+// ⚠ DUE SORGENTI, DE-DUPLICATE PER CELLA: le entità (risposta IMMEDIATA quando
+// si accende un lampione col clic) e le luci che il mesher dichiara per chunk
+// (tutto il resto). Senza le entità, accendere un lampione aspetterebbe il giro
+// del worker; senza i chunk, i blocchi-lampada non esisterebbero.
 const _lampade = [];
+const _viste = new Set();
+const RAGGIO_CERCA = 60;
+function tintaPozza(l) {
+  // la tinta è già moltiplicata per l'intensità, e si normalizza sul canale più
+  // alto: così `intensita` vuol dire «quanto forte» e il colore resta il colore
+  const c = l.pozza ?? l.colore ?? 0xffffff;
+  const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255;
+  const max = Math.max(r, g, b, 1e-3);
+  const k = 1.30 * (l.intensita ?? 1) / max;   // 1,30 = la forza della pozza di casa
+  return [r * k, g * k, b * k];
+}
 function lampadeVicine() {
   const p = passeggero;
-  _lampade.length = 0;
-  entita.ognunaDi('lampione', (x, y, z) => { const d = (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z); if (d < 60 * 60) _lampade.push([d, x, y, z]); });
+  _lampade.length = 0; _viste.clear();
+  // ⚠ LA CHIAVE È LA CELLA, non la posizione: le due sorgenti danno lo stesso
+  // lampione con due coordinate diverse (l'entità è centrata in x e z ma non in
+  // y, la cella no) e senza l'arrotondamento lo stesso lampione contava DUE
+  // VOLTE — cioè occupava due degli otto posti, e le lampade più lontane
+  // sparivano a coppie.
+  const raccogli = (x, y, z, tipo) => {
+    const dx = x - p.x, dz = z - p.z, d = dx * dx + dz * dz;
+    if (d >= RAGGIO_CERCA * RAGGIO_CERCA) return;
+    const k = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`; if (_viste.has(k)) return;
+    const luce = defDi(tipo).luce; if (!luce) return;
+    _viste.add(k);
+    _lampade.push([d, x, y, z, luce]);
+  };
+  entita.ognunaDi('lampione', (x, y, z) => raccogli(x, y, z, 'lampione'));
+  for (const c of resa.chunks.values()) {
+    if (!c.luci || !c.luci.length) continue;
+    // ⚠ SI SCARTA IL CHUNK INTERO PRIMA DI GUARDARCI DENTRO: con l'omega test i
+    // chunk in resa sono centinaia e le luci migliaia, e un giro per fotogramma
+    // su tutte sarebbe il collo di bottiglia proprio nel banco che deve misurare
+    // il collo di bottiglia.
+    if (Math.abs(c.x0 + 8 - p.x) > RAGGIO_CERCA + 12 || Math.abs(c.z0 + 8 - p.z) > RAGGIO_CERCA + 12) continue;
+    // ⚠ AL CENTRO DELLA CELLA, **anche in Y**, e il mezzo blocco non è pignoleria:
+    // una lampada-blocco sta APPOGGIATA sul terreno, quindi con la quota della
+    // cella nuda la sorgente cade ESATTAMENTE sul piano che deve illuminare —
+    // il prodotto scalare con la normale del suolo vale zero, e la regola «la
+    // faccia che guarda dall'altra parte non è illuminata» spegne tutto. Una
+    // lampada che non accende niente, e nessun errore da nessuna parte.
+    // Il lampione no: la sua entità dà i piedi, e la lanterna la alza `quota`.
+    for (const [x, y, z, tipo] of c.luci) raccogli(x + 0.5, y + 0.5, z + 0.5, tipo);
+  }
   _lampade.sort((a, b) => a[0] - b[0]);
   const n = Math.min(8, _lampade.length);
-  for (let i = 0; i < n; i++) { const l = _lampade[i]; resa.lampade[i * 4] = l[1]; resa.lampade[i * 4 + 1] = l[2]; resa.lampade[i * 4 + 2] = l[3]; resa.lampade[i * 4 + 3] = 4.6; }
+  for (let i = 0; i < n; i++) {
+    const [, x, y, z, luce] = _lampade[i];
+    resa.lampade[i * 4] = x; resa.lampade[i * 4 + 1] = y; resa.lampade[i * 4 + 2] = z;
+    resa.lampade[i * 4 + 3] = luce.raggio ?? 4.6;
+    const [r, g, b] = tintaPozza(luce);
+    resa.lampadeCol[i * 4] = r; resa.lampadeCol[i * 4 + 1] = g; resa.lampadeCol[i * 4 + 2] = b;
+    resa.lampadeCol[i * 4 + 3] = luce.quota ?? 0;
+  }
   resa.nLampade = resa.lampadeAccese === false ? 0 : n;
 }
 // ⚠ CHI GALLEGGIA, per la schiuma sul pelo dell'acqua (otto: i corpi in acqua
