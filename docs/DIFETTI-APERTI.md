@@ -31,6 +31,9 @@ Aperti dal **10/09/2026**.
 | 14 | **L'acqua che scala fino ai bordi**, con i livelli smooth | ✅ viene dal 13 |
 | 15 | La schiuma «troppo splamata, sfocata, agli angoli si perde, non segue i lati del blocco» | ✅ da guardare |
 | 16 | La schiuma attorno agli oggetti **flickera quando il player salta** | ✅ fatto |
+| 17 | **Le ombre seghettate** «che ancora infestano questo progetto» | ✅ da guardare |
+| 18 | L'ombra che gli alberi **castano** e che **ricevono** dalle lampade | ✅ fatto |
+| 19 | La **hotbar** (di nuovo) e due cose dell'Officina | ✅ fatto |
 
 **Il 6 è chiuso**: `?omega`. Primo numero su questa macchina, raggio 128 —
 **142 fps, p50 7,0 ms, JS 1,9 ms, 74 disegni, 7.177 istanze di modelli in 13

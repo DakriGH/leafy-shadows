@@ -8,9 +8,15 @@
 // della canna, la rete del retino. Palette letta dalle reference. La luce
 // piatta del nucleo fa il resto: ogni faccia è un colore, come nel disegno.
 //
+// ⚠ IL DAVANTI DEI MODELLI È +Z, non −Z come diceva questa nota fino al
+// 10/09/2026. Verificato a schermo con il giro forzato: giro 0 → la faccia
+// guarda +Z, giro π/2 → guarda +X, quindi «avanti» è (sin giro, cos giro).
+// La nota sbagliata è sopravvissuta perché nessuno la aveva mai messa alla
+// prova: alberi e lampioni sono tondi e non hanno un davanti.
+//
 // ⚠ NIENTE DOM, NIENTE GL: torna modelli e registra BLOCCHI (forma «modello»),
 // così si posano dalla cassetta e il registro dei modelli li disegna a istanze.
-// Davanti = −Z, origine ai piedi.
+// Davanti = +Z (vedi la nota qui sopra), origine ai piedi.
 import { modelloDaCuboidi, scatola, piramide, tornio } from '../nucleo/cuboidi.js';
 import { registraBlocco, BLOCCHI } from '../world/blocks.js';
 import { registraAsset } from './catalogo.js';
@@ -25,7 +31,7 @@ export const TAVOLOZZE = {
 /**
  * IL GATTO delle reference: testa larga e sfaccettata, orecchie alte a punta,
  * occhi bianchi con la pupilla verso il naso, corpo a pera, zampette tonde.
- * Alto ~1,2 blocchi (le orecchie a 1,4), guarda −Z.
+ * Alto ~1,2 blocchi (le orecchie a 1,4), guarda +Z.
  */
 export function gatto(t = TAVOLOZZE.blu, { zaino = false } = {}) {
   const pezzi = [
