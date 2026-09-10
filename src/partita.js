@@ -214,7 +214,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyH') { const st = document.getElementById('stato'); st.hidden = !st.hidden; }
   if (e.code === 'KeyM') impostaMiraCentro(!miraCentro);   // M: mirino al centro / dove sta il mouse
   if (e.code === 'KeyC') lanciaCubi(20);
-  if (/^Digit[0-9]$/.test(e.code)) scegli(e.code === 'Digit0' ? 9 : +e.code.slice(5) - 1);
+  if (/^Digit[1-9]$/.test(e.code)) scegli(+e.code.slice(5) - 1);
+  if (e.code === 'KeyE') { apriCreativa(); return; }   // ⚠ la creativa ha un tasto, come in ogni gioco che ne ha una
 });
 window.addEventListener('keyup', (e) => giu.delete(e.code));
 window.addEventListener('blur', () => giu.clear());
@@ -314,7 +315,26 @@ function camera(dt = 0) {
 const barra = document.getElementById('barra');
 const azioneEl = document.getElementById('azione');
 let scelto = 1;
-const CASSETTA_PARTITA = [...CASSETTA, ...Object.keys(ARREDI)];
+/**
+ * LA HOTBAR: NOVE CASELLE FISSE, non un elenco che cresce.
+ *
+ * ⚠ IL COMMITTENTE, due volte: «voglio una hotbar migliore, questa è inutile
+ * buggata» e poi «sistema la hotbar». Il difetto è che NON ERA UNA HOTBAR: era
+ * la cassetta intera più tutti gli arredi, ventisette caselle in fila che
+ * crescevano ogni volta che si prendeva qualcosa dalla creativa. Con
+ * ventisette caselle i tasti 1-9 coprono un terzo di quello che c'è dentro, il
+ * resto si raggiunge solo scorrendo una striscia senza barra, e la cosa appena
+ * presa finisce in fondo — dove non la vedi.
+ *
+ * Una hotbar è NOVE CASELLE e un modo di riempirle. Tutto il resto sta nella
+ * creativa (🎒 nell'Officina), che è il posto giusto e che esiste apposta.
+ * ⚠ La prima è la MANO VUOTA e non si sostituisce: è uno strumento (si rompe e
+ * si interagisce), non un buco nell'elenco.
+ */
+const SLOT = 9;
+const CASSETTA_PARTITA = [null, 'erba', 'terra', 'pietra', 'legno', 'sabbia', 'lampione', 'albero', 'lampadaPesante']
+  .slice(0, SLOT)
+  .map((t) => (t && !BLOCCHI[t] ? null : t));
 
 /** Il colore con cui si mostra un tipo (barra, albero della scena, creativa). */
 function coloreDiTipo(t) {
@@ -334,13 +354,28 @@ function nomeDiTipo(t) {
 
 function creaBottone(t, i) {
   const b = document.createElement('button');
-  const col = coloreDiTipo(t);
-  b.innerHTML = `<span class="q" style="background:${col != null ? '#' + (col >>> 0).toString(16).padStart(6, '0') : 'transparent'}"></span>${nomeDiTipo(t)}`;
   b.addEventListener('click', () => scegli(i));
   barra.appendChild(b);
   return b;
 }
 const bottoni = CASSETTA_PARTITA.map(creaBottone);
+/**
+ * Ridisegna una casella. ⚠ IL NUMERO CI VUOLE: senza, i tasti 1-9 sono una
+ * scorciatoia che non sa nessuno — e con nove caselle fisse ognuna ce l'ha
+ * davvero, che è il motivo per cui adesso si può scrivere.
+ */
+function aggiornaBottone(i) {
+  const t = CASSETTA_PARTITA[i], b = bottoni[i], col = coloreDiTipo(t);
+  const sfondo = col != null ? '#' + (col >>> 0).toString(16).padStart(6, '0') : 'transparent';
+  // ⚠ UNA CASELLA VUOTA DICE «vuota», non «mano»: la mano vuota è la PRIMA e
+  // basta, ed è uno strumento. Chiamare «mano» ogni buco farebbe sembrare che
+  // ci siano nove mani.
+  const nome = t ? nomeDiTipo(t) : (i === 0 ? 'mano' : '—');
+  b.innerHTML = `<span class="n">${i + 1}</span><span class="q" style="background:${sfondo}"></span>${nome}`;
+  b.classList.toggle('vuota', t === null && i !== 0);
+  b.title = t ? `${nomeDiTipo(t)} — tasto ${i + 1}` : (i === 0 ? 'mano vuota: rompi e interagisci' : 'vuota');
+}
+for (let i = 0; i < CASSETTA_PARTITA.length; i++) aggiornaBottone(i);
 
 /**
  * METTE IN MANO UN TIPO QUALUNQUE, anche se nella barra non c'era.
@@ -355,10 +390,16 @@ const bottoni = CASSETTA_PARTITA.map(creaBottone);
 function prendi(tipo) {
   if (tipo === null || tipo === undefined) { scegli(0); return; }
   const i = CASSETTA_PARTITA.indexOf(tipo);
-  if (i >= 0) { scegli(i); return; }
-  CASSETTA_PARTITA.push(tipo);
-  bottoni.push(creaBottone(tipo, CASSETTA_PARTITA.length - 1));
-  scegli(CASSETTA_PARTITA.length - 1);
+  if (i >= 0) { scegli(i); return; }              // ce l'hai già: te la metti in mano
+  // ⚠ VA NELLA CASELLA SCELTA, non in fondo. È il gesto di ogni creativa: quello
+  // che prendi ce l'hai in mano subito, e va a occupare il posto che stavi
+  // guardando. Appendendo in coda finiva fuori dallo schermo, e bisognava
+  // scorrere per usare la cosa appena presa — cioè il contrario di una hotbar.
+  // ⚠ Mai sulla mano vuota (casella 0): quella è uno strumento, non un posto.
+  const dove = scelto === 0 ? 1 : scelto;
+  CASSETTA_PARTITA[dove] = tipo;
+  aggiornaBottone(dove);
+  scegli(dove);
 }
 function scegli(i) { scelto = ((i % CASSETTA_PARTITA.length) + CASSETTA_PARTITA.length) % CASSETTA_PARTITA.length; bottoni.forEach((b, k) => b.classList.toggle('scelto', k === scelto)); bottoni[scelto].scrollIntoView({ inline: 'center', block: 'nearest' }); }
 scegli(1);
@@ -798,6 +839,13 @@ async function apriOfficinaPartita() {
 // ⚠ IL TASTO NON SI CHIAMA «officina»: è l'id del PANNELLO dell'Officina, e il suo
 // foglio di stile lo prendeva per sé (fisso, senza puntatore): il tasto spariva.
 document.getElementById('apriOfficina').addEventListener('click', apriOfficinaPartita);
+/** Apre l'Officina e va dritta alla creativa: è la porta della hotbar da nove caselle. */
+async function apriCreativa() {
+  if (!officina) await apriOfficinaPartita();
+  else document.body.classList.add('con-officina');
+  if (officina && officina.vaiA) officina.vaiA('creativa');
+}
+document.getElementById('apriCreativa').addEventListener('click', apriCreativa);
 if (params.has('officina')) apriOfficinaPartita();
 
 // ── il 🩺 ────────────────────────────────────────────────────────────────────

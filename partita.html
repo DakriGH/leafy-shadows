@@ -33,7 +33,11 @@
   #dockSx, #dockDx { display: none; }
   body.con-officina #dockSx, body.con-officina #dockDx {
     display: grid; height: 100%; min-height: 0; background: #151c18; color: #dfe8e2; position: relative;
-    grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr); }
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  /* ⚠ A SINISTRA GLI ASSETS VOGLIONO PIÙ SPAZIO della gerarchia: la gerarchia è
+     un elenco corto (due o tre tipi) finché non si apre un gruppo, la creativa
+     è una griglia di quaranta icone che senza spazio mostra due righe e mezza. */
+  body.con-officina #dockSx { grid-template-rows: minmax(0, 0.85fr) minmax(0, 1.15fr); }
   body.con-officina #dockSx { grid-column: 1; grid-row: 1; border-right: 1px solid rgba(223,232,226,.14); }
   body.con-officina #dockDx { grid-column: 3; grid-row: 1; border-left: 1px solid rgba(223,232,226,.14); }
   /* ogni riquadro scorre per conto suo: se no il pannello lungo trascina l'altro */
@@ -44,6 +48,12 @@
   body.con-officina #fps, body.con-officina #azioni, body.con-officina #versione { right: calc(var(--dock-dx) + 8px); }
   body.con-officina #comandi .btn { right: calc(var(--dock-dx) + 18px); }
   body.con-officina #diagPanel { right: calc(var(--dock-dx) + 8px); }
+  /* ⚠ E ANCHE LE PILLOLE DI SINISTRA vanno spostate. Sono `position: fixed;
+     left: 8px`, quindi con l'editor aperto finivano SOPRA il riquadro degli
+     Assets — due bottoni del gioco appiccicati addosso a un pannello
+     dell'editor. Gli elementi fissi di destra erano già stati spostati; questi
+     due erano rimasti indietro perché a destra non si guarda mai a sinistra. */
+  body.con-officina #diag, body.con-officina #modoGui { left: calc(var(--dock-sx) + 8px); }
   body.con-officina #barra { left: calc(var(--dock-sx) + (100vw - var(--dock-sx) - var(--dock-dx)) / 2); max-width: calc(100vw - var(--dock-sx) - var(--dock-dx) - 20px); }
   body.con-officina #mira { left: calc(var(--dock-sx) + (100vw - var(--dock-sx) - var(--dock-dx)) / 2); }
   body.con-officina #azione { left: calc(var(--dock-sx) + (100vw - var(--dock-sx) - var(--dock-dx)) / 2); }
@@ -77,7 +87,14 @@
   #barra button { flex: 0 0 auto; min-width: 46px; height: 44px; border-radius: 6px; border: 1px solid rgba(13,42,26,.18);
                   background: rgba(255,255,255,.85); font: 600 11px/1.1 ui-monospace, monospace; color: #0d2a1a; padding: 2px 6px; }
   #barra button.scelto { background: #0d2a1a; color: #fff; }
+  #barra button { position: relative; }
   #barra button .q { display: block; width: 26px; height: 12px; margin: 0 auto 3px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); }
+  /* ⚠ IL NUMERO DELLA CASELLA: con nove caselle fisse ognuna ha davvero il suo
+     tasto, e una scorciatoia che non si vede non la usa nessuno. */
+  #barra button .n { position: absolute; left: 3px; top: 1px; font-size: 9px; opacity: .45; font-weight: 700; }
+  #barra button.scelto .n { opacity: .7; }
+  #barra button.vuota { opacity: .45; }
+  #barra button.vuota .q { background: none !important; border-style: dashed; }
   /* ⚠ LE PILLOLE «col mouse» e «diagnosi» NON STANNO SUL JOYSTICK: a metà
      schermo (46 %) su un telefono di traverso coprivano la parte alta della
      levetta, e spingendo «avanti» il dito partiva sulla pillola: il gatto non
@@ -100,6 +117,11 @@
   <div id="azione"></div>
   <div id="azioni">
     <button id="cubi" title="Lancia venti cubi (C)">🎲</button>
+    <!-- ⚠ LA CREATIVA HA UN TASTO SUO. La hotbar adesso è nove caselle, e tutto
+         il resto sta nella creativa dell'Officina: senza una porta diretta, per
+         cambiare un blocco bisognerebbe aprire l'Officina e trovare la scheda —
+         cioè tre gesti per una cosa che se ne merita uno. -->
+    <button id="apriCreativa" title="Creativa: tutti i blocchi e le furniture (E)">🎒</button>
     <button id="apriOfficina" title="Officina (apre e chiude)">🛠</button>
   </div>
   <div id="barra"></div>
