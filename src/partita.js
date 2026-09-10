@@ -21,7 +21,7 @@ import { defDi, tipoBase, registraBlocco, BLOCCHI } from './world/blocks.js';
 import { paletteBlocco } from './world/stagioni.js';
 import { Passeggero, tastiera } from './gioco/passeggero.js';
 import { mira, miraCompleta, PORTATA } from './gioco/mira.js';
-import { CASSETTA, ATTREZZI } from './gioco/cantiere.js';
+import { CASSETTA, ATTREZZI, riempibile } from './gioco/cantiere.js';
 import { Scavo, durataPer } from './gioco/scavo.js';
 import { ascoltaClic, ascoltaPressione } from './gioco/puntatore.js';
 import { ComandiTocco } from './ui/comandi.js';
@@ -393,8 +393,15 @@ function accendiSpegni(x, y, z, t) { mondo.togli(x, y, z); mondo.metti(x, y, z, 
 const mondoConAcqua = { solido: (x, y, z) => { if (mondo.solido(x, y, z)) return true; const t = mondo.tipo(x, y, z); return !!(t && defDi(t).acqua); } };
 function azioneCorrente() {
   if (!bersaglio) return ['niente', puntatore.visto ? 'troppo lontano' : ''];
-  if (bersaglio.acqua) return ['tocca', 'nuota fin lì'];
   const tipo = CASSETTA_PARTITA[scelto];
+  if (bersaglio.acqua) {
+    // ⚠ CON QUALCOSA IN MANO SI POSA ANCHE NELL'ACQUA. Prima il verbo sopra
+    // l'acqua era sempre «nuota fin lì», quindi con un blocco in mano non c'era
+    // nessun modo di metterlo nel lago — e il clic non arrivava mai a `posa()`.
+    // A mano vuota resta «nuota fin lì», che è la cosa giusta.
+    if (tipo && !ATTREZZI[tipo] && !comandi.demolisci) return ['posa', `posa nell'acqua: ${nomeDiTipo(tipo)}`];
+    return ['tocca', 'nuota fin lì'];
+  }
   const [x, y, z] = bersaglio.cella; const t = mondo.tipo(x, y, z);
   const lamp = lampioneIn(x, y, z);
   if (comandi.demolisci) return ['rompi', `rompi: ${t ? defDi(t).nome : ''} (tieni premuto)`];
@@ -408,11 +415,14 @@ function cambiaBlocco(x, y, z, tipo) {
   salvaFra = 1000;
 }
 function posa() {
-  if (!bersaglio || bersaglio.acqua) return;
+  if (!bersaglio) return;
   const tipo = CASSETTA_PARTITA[scelto];
   if (!tipo || ATTREZZI[tipo]) return;
-  const [x, y, z] = bersaglio.prima;
-  if (mondo.pieno(x, y, z)) return;
+  // ⚠ NELL'ACQUA SI POSA NELLA CELLA MIRATA, non in quella prima: il raggio si
+  // ferma sul pelo, e «la cella prima» è l'aria sopra — il blocco resterebbe
+  // sospeso a mezz'aria sopra il lago invece di entrarci.
+  const [x, y, z] = bersaglio.acqua ? bersaglio.cella : bersaglio.prima;
+  if (!riempibile(mondo, x, y, z)) return;
   // non addosso a chi cammina
   const p = passeggero;
   if (x + 1 > p.x - 0.3 && x < p.x + 0.3 && z + 1 > p.z - 0.3 && z < p.z + 0.3 && y + 1 > p.y && y < p.y + 0.9) return;
