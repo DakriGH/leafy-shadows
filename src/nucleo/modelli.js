@@ -160,8 +160,21 @@ float ombraLampada(highp vec3 pos, highp vec3 L) {
     if (prossimo.x < prossimo.y) { cella.x += verso.x; prossimo.x += quanto.x; }
     else { cella.y += verso.y; prossimo.y += quanto.y; }
     highp float y = pos.y + (L.y - pos.y) * (t / lungo);
-    float h = texture(uAltezze, (cella + 0.5 - uAltRett.xy) * uAltRett.zw).r * 255.0;
+    // ⚠ GLI STESSI DUE CANALI DI resa.js, e questa riga era rimasta indietro:
+    // il canale R e' la silhouette col FOGLIAME (serve al sole), e usarla qui
+    // rimetteva davanti alla lampada il disco di raggio due della chioma — cioe'
+    // l'ombra quadrata larga cinque celle, curata nei blocchi e ancora viva sui
+    // modelli. Due file che fanno la stessa cosa in due posti divergono, e si
+    // vede solo dove si guarda.
+    highp vec2 uvC = (cella + 0.5 - uAltRett.xy) * uAltRett.zw;
+    vec4 mappa = texture(uAltezze, uvC);
+    float h = mappa.g * 255.0;
     if (h > y + 0.05 && h > pos.y + 0.6) return 0.0;
+    float ho = mappa.b * 255.0;                      // l'OGGETTO: il tronco, non la chioma
+    if (ho > y + 0.05 && ho > pos.y + 0.3) {
+      highp vec2 qui = pos.xz + (L.xz - pos.xz) * (t / lungo);
+      if (length(qui - (cella + 0.5)) < 0.34) return 0.0;   // un cilindro, non un cubo
+    }
   }
   return 1.0;
 }

@@ -11,6 +11,26 @@ import { compila } from './gl.js';
 import { BYTE_VERTICE, indiciCondivisi, QUAD_MAX } from './formato.js';
 import { prospettiva, guarda, moltiplica, pianiFrustum, scatolaNelFrustum, ortografica, inverti } from './matrici.js';
 
+/**
+ * QUANTI TEXEL D'OMBRA PER BLOCCO.
+ *
+ * ⚠ È LA CURA DELLE «OMBRE SEGHETTATE CHE ANCORA INFESTANO QUESTO PROGETTO».
+ * La mappa delle ombre aveva UN TEXEL PER COLONNA, quindi il bordo dell'ombra
+ * cadeva sul bordo della colonna qualunque cosa si facesse dopo: filtrarla,
+ * ammorbidirla, tagliarla stretta. La scaletta era già nel DATO, e un filtro su
+ * un dato a gradini non fa una curva — fa una scaletta sfocata. L'unico modo di
+ * toglierla è avere più campioni del reticolo che la produce.
+ *
+ * ⚠ DUE, NON QUATTRO: la mappa passa da 512² a 1024², cioè un milione di
+ * texel invece di 262 mila. Il calcolo fa 48 letture per texel e gira a bande
+ * di 96 righe: con due, un rinfresco completo del sole costa undici fotogrammi
+ * spalmati invece di sei, e spalmati non si vedono. Con quattro sarebbero
+ * quattro megabyte di texture e ventotto fotogrammi su un telefono che deve
+ * fare novanta, per un guadagno che l'occhio non distingue: il grosso del
+ * lavoro lo fa la lettura BILINEARE delle altezze, non la fittezza.
+ */
+const SUPER_OMBRE = 2;
+
 const VS = `#version 300 es
 precision highp float;
 layout(location = 0) in uvec2 aAB;  // A: x z normale vento materia · B: y cielo blocco (nucleo/formato.js)
@@ -876,7 +896,7 @@ export class Resa {
     // (`_calcolaOmbre`) quando il sole si sposta o quando cambiano le altezze,
     // solo nel rettangolo cambiato; il fragment fa UNA lettura. Mezzo float se
     // la scheda lo permette (quote esatte), altrimenti R8 a quarti di blocco.
-    this.ombre = { tex: null, fbo: null, w: 0, h: 0, sporco: null, sole: [0, 0, 0], scala: 1, offset: 0, mezzoFloat: false, calcoli: 0 };
+    this.ombre = { tex: null, fbo: null, w: 0, h: 0, colonne: 0, sporco: null, sole: [0, 0, 0], scala: 1, offset: 0, mezzoFloat: false, calcoli: 0 };
     this._ombreMezzo = !!gl.getExtension('EXT_color_buffer_half_float') && !!gl.getExtension('OES_texture_half_float_linear');
     this.statistiche.calcoliOmbre = 0;
     // ⚠ LA MAPPA D'OMBRA VERA (vedi ombraMappa nel fragment): due texture di
@@ -1023,7 +1043,7 @@ export class Resa {
     if (!forza && Math.abs(x - (f.x0 + mezzo)) < f.lato / 4 && Math.abs(z - (f.z0 + mezzo)) < f.lato / 4) return false;
     f.x0 = Math.floor((x - mezzo) / 16) * 16; f.z0 = Math.floor((z - mezzo) / 16) * 16;
     this.altRett = [f.x0, f.z0, 1 / f.lato, 1 / f.lato];
-    if (this.ombre.w !== f.lato) this._preparaOmbre(f.lato, f.lato); else this.ombre.sporco = [0, 0, f.lato, f.lato];
+    if (this.ombre.colonne !== f.lato) this._preparaOmbre(f.lato, f.lato); else this.ombre.sporco = [0, 0, this.ombre.w, this.ombre.h];
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, f.lato, f.lato, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.vuota);
@@ -1118,8 +1138,14 @@ precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { co
     this.ombre.sporco = s ? [Math.min(s[0], r[0]), Math.min(s[1], r[1]), Math.max(s[2], r[2]), Math.max(s[3], r[3])] : r;
   }
 
-  _preparaOmbre(w, h) {
+  /**
+   * @param w,h  la dimensione della mappa delle ALTEZZE (un texel per colonna).
+   *   La mappa delle ombre viene `SUPER_OMBRE` volte più fitta.
+   */
+  _preparaOmbre(wCol, hCol) {
     const gl = this.gl, o = this.ombre;
+    o.colonne = wCol;
+    const w = wCol * SUPER_OMBRE, h = hCol * SUPER_OMBRE;
     if (!o.tex) { o.tex = gl.createTexture(); o.fbo = gl.createFramebuffer(); }
     gl.bindTexture(gl.TEXTURE_2D, o.tex);
     o.mezzoFloat = this._ombreMezzo;
@@ -1133,7 +1159,7 @@ precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { co
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, o.tex, 0);
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE && o.mezzoFloat) {
       // la scheda non rende su mezzo float: si ripiega sull'R8
-      this._ombreMezzo = false; gl.bindFramebuffer(gl.FRAMEBUFFER, null); return this._preparaOmbre(w, h);
+      this._ombreMezzo = false; gl.bindFramebuffer(gl.FRAMEBUFFER, null); return this._preparaOmbre(wCol, hCol);
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     o.w = w; o.h = h; o.sporco = [0, 0, w, h];
@@ -1142,26 +1168,34 @@ precision mediump float; uniform vec4 uColore; out vec4 colore; void main() { co
 void main() { vec2 q = vec2((gl_VertexID == 1) ? 3.0 : -1.0, (gl_VertexID == 2) ? 3.0 : -1.0); gl_Position = vec4(q, 0.0, 1.0); }`,
       `#version 300 es
 precision highp float;
-uniform sampler2D uAltezze;   // R8: la cima di ogni colonna (+1) / 255
-uniform vec4 uAltRett;        // x0, z0, 1/larghezza, 1/profondita
+uniform sampler2D uAltezze;   // la mappa: R silhouette (col fogliame), G solido, B oggetti
+uniform vec4 uAltRett;        // x0, z0, 1/larghezza, 1/profondita DELLA MAPPA DELLE OMBRE
 uniform vec3 uSole;           // direzione VERSO il sole in pianta (x, z), e la pendenza (tan dell'elevazione)
 uniform vec2 uCodifica;       // scala e offset: r = (quota - offset) / scala
+uniform float uSuper;         // quanti texel d'ombra per blocco
 out vec4 colore;
 void main() {
-  // la colonna di questo texel, al centro
+  // ⚠ LA MAPPA DELLE OMBRE HA PIU' TEXEL DEL MONDO (uSuper per blocco), ed e' la
+  // cura delle «ombre seghettate che ancora infestano questo progetto». Con un
+  // texel per colonna il bordo dell'ombra CADE SUL BORDO DELLA COLONNA,
+  // qualunque cosa si faccia dopo: si puo' filtrare, ammorbidire, tagliare
+  // stretto — la scaletta e' gia' nel DATO, e un filtro su un dato a gradini
+  // fa una scaletta sfocata, non una curva. L'unico modo di toglierla e' avere
+  // piu' campioni del reticolo che la produce.
   vec2 p = gl_FragCoord.xy;
   vec2 dir = uSole.xy; float tg = uSole.z;
   // la propria cima, un quarto di passo avanti: le pareti di schiena sono in ombra, le cime no
   float hs = texture(uAltezze, p * uAltRett.zw).r * 255.0 - 0.25 * tg;
   // ⚠ PASSO FISSO DI MEZZO BLOCCO PER 24 BLOCCHI: nessuna colonna saltata, che era la causa dei puntini
+  // ⚠ E il passo va convertito in texel: t e in BLOCCHI, la texture in texel.
   for (int i = 1; i <= 48; i++) {
     float t = float(i) * 0.5;
-    float h = texture(uAltezze, (p + dir * t) * uAltRett.zw).r * 255.0;
+    float h = texture(uAltezze, (p + dir * t * uSuper) * uAltRett.zw).r * 255.0;
     hs = max(hs, h - t * tg);
   }
   colore = vec4((hs - uCodifica.y) / uCodifica.x, 0.0, 0.0, 1.0);
 }`);
-      this.uOmbre = {}; for (const n of ['uAltezze', 'uAltRett', 'uSole', 'uCodifica']) this.uOmbre[n] = gl.getUniformLocation(this.programmaOmbre, n);
+      this.uOmbre = {}; for (const n of ['uAltezze', 'uAltRett', 'uSole', 'uCodifica', 'uSuper']) this.uOmbre[n] = gl.getUniformLocation(this.programmaOmbre, n);
       this.vaoOmbre = gl.createVertexArray();
     }
   }
@@ -1192,12 +1226,21 @@ void main() {
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
     gl.useProgram(this.programmaOmbre);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(this.uOmbre.uAltezze, 0);
-    gl.uniform4f(this.uOmbre.uAltRett, 0, 0, 1 / o.w, 1 / o.h);   // in texel: la mappa e le ombre hanno la stessa griglia
+    // ⚠ E QUI LE ALTEZZE SI LEGGONO LISCE. Infittire la mappa non basta da sola:
+    // se l'occlusore resta a gradini interi, un bordo d'ombra tre volte più
+    // fitto è una scaletta tre volte più fine — meglio, ma sempre una scaletta.
+    // Con l'altezza interpolata il profilo che getta l'ombra è una curva, e il
+    // bordo che ne esce lo è di conseguenza. La stessa mossa che ha tolto i
+    // quadrati alla schiuma, sullo stesso texel.
+    gl.bindSampler(0, this.campionatoreLiscio);
+    gl.uniform4f(this.uOmbre.uAltRett, 0, 0, 1 / o.w, 1 / o.h);   // normalizzato sulla mappa delle OMBRE
     gl.uniform3f(this.uOmbre.uSole, dir[0], dir[1], tg);
     gl.uniform2f(this.uOmbre.uCodifica, o.scala, o.offset);
+    gl.uniform1f(this.uOmbre.uSuper, SUPER_OMBRE);
     gl.bindVertexArray(this.vaoOmbre);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
+    gl.bindSampler(0, null);
     gl.disable(gl.SCISSOR_TEST); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
