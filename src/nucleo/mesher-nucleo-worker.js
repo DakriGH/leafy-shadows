@@ -15,7 +15,7 @@ self.onmessage = (ev) => {
   const f = ev.data;
   allineaAllaFoto(f);
   const d = costruisciChunkNucleo(new MondoFoto(f), f.kc, { erba: f.erba });
-  const buffer = [d.byte.buffer, d.altezze.buffer, d.solide.buffer];
+  const buffer = [d.byte.buffer, d.altezze.buffer, d.solide.buffer, d.impronte.buffer];
   if (d.acqua && d.acqua.byte) buffer.push(d.acqua.byte.buffer);
   if (d.erba && d.erba.byte) buffer.push(d.erba.byte.buffer);
   self.postMessage({ kc: f.kc, dati: d, marca: f.marca }, [...new Set(buffer)]);

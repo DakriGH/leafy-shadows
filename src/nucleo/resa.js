@@ -161,14 +161,31 @@ float ombraLampada(highp vec3 pos, highp vec3 L) {
     if (prossimo.x < prossimo.y) { cella.x += verso.x; prossimo.x += quanto.x; }
     else { cella.y += verso.y; prossimo.y += quanto.y; }
     highp float y = pos.y + (L.y - pos.y) * (t / lungo);
-    // ⚠ IL CANALE G: il solido VERO. Col canale R (la silhouette, chioma
-    // compresa) un albero metteva davanti alla lampada un disco di colonne
-    // alte quattro — cioè un ostacolo squadrato, e l'ombra che ne usciva era
-    // «un'ombra quadrata delle luci». Un albero adesso non fa ombra alla
-    // lampada: è meno sbagliato di una che non somiglia a lui, e la sua ombra
-    // vera dal sole ce l'ha già dalla mappa d'ombra (che è per forma).
-    float h = texture(uAltezze, (cella + 0.5 - uAltRett.xy) * uAltRett.zw).g * 255.0;
+    // ⚠ DUE OSTACOLI DIVERSI, e servono tutti e due.
+    //
+    // Il canale G e' il terreno VERO. Col canale R (la silhouette, chioma
+    // compresa) un albero metteva davanti alla lampada un disco di colonne alte
+    // quattro — un ostacolo squadrato largo cinque celle, e l'ombra che ne
+    // usciva era «un'ombra quadrata delle luci».
+    //
+    // Il canale B e' l'OGGETTO, e risponde a «l'ombra delle furniture complesse
+    // rispetto alla luce dei lampioni mi sembra non avvenire, la luce passa
+    // attraverso?». Passava, si': togliendo la chioma avevo tolto anche il
+    // tronco. Adesso l'albero ferma la luce col suo TRONCO — e non con un
+    // quadrato: si controlla che il raggio passi davvero vicino al centro della
+    // cella (un cilindro), se no un tronco largo un quinto di cella farebbe
+    // l'ombra di un cubo intero.
+    highp vec2 uvC = (cella + 0.5 - uAltRett.xy) * uAltRett.zw;
+    vec4 mappa = texture(uAltezze, uvC);
+    float h = mappa.g * 255.0;
     if (h > y + 0.05 && h > pos.y + 0.6) return 0.0;
+    float ho = mappa.b * 255.0;
+    if (ho > y + 0.05 && ho > pos.y + 0.3) {
+      // quanto passa lontano dall'asse della cella, sul piano
+      highp vec2 centro = cella + 0.5;
+      highp vec2 qui = pos.xz + (L.xz - pos.xz) * (t / lungo);
+      if (length(qui - centro) < 0.34) return 0.0;
+    }
   }
   return 1.0;
 }
@@ -372,6 +389,28 @@ float terraLi(highp vec2 q, float cima) {
   float h = texture(uAltezze, uv).g * 255.0;
   return smoothstep(cima - 0.85, cima - 0.15, h);
 }
+/**
+ * C'e' un OGGETTO qui? (albero, lampione, fungo: canale B della mappa)
+ *
+ * ⚠ «Attorno a modelli complessi come alberi non c'e' schiuma» — vero, e per
+ * colpa mia: togliendo la chioma dalla mappa del terreno (che curava la riva
+ * finta e l'ombra squadrata) un albero nell'acqua e' diventato NIENTE. Ma un
+ * albero nell'acqua l'acqua la increspa: gli serve una mappa sua.
+ *
+ * ⚠ E QUESTA SCALA A MIGLIAIA. Gli otto galleggianti sono un vettore di uniform
+ * — tetto di otto, un ciclo per pixel, e la schiuma che appare quando ti
+ * avvicini perche' entri negli otto piu' vicini. Una mappa non ha tetto: mille
+ * alberi costano quanto uno, perche' e' comunque UNA lettura. Negli uniform
+ * restano solo le cose che si muovono ogni fotogramma.
+ */
+float oggettoLi(highp vec2 q, float cima) {
+  highp vec2 uv = (q - uAltRett.xy) * uAltRett.zw;
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+  // la lettura e' LINEARE (sampler dell'unita' 2): l'impronta di una cella sola
+  // sfuma sui vicini, e la macchia che ne esce e' tonda invece che quadrata
+  float h = texture(uAltezze, uv).b * 255.0;
+  return smoothstep(cima - 1.2, cima + 0.2, h);
+}
 float riva(highp vec3 pos, float onda) {
   // ⚠ SENZA MARGINE: il pelo sta SEMPRE un po' SOTTO la cima della sua cella
   // (peloDi toglie almeno 1/16, l'onda al massimo 0,055), quindi floor(y) è la
@@ -394,8 +433,8 @@ float riva(highp vec3 pos, float onda) {
   for (int i = 0; i < 8; i++) {
     float a = float(i) * 0.7854 + onda * 0.6;   // quarantacinque gradi, e ruotano
     vec2 dir = vec2(cos(a), sin(a));
-    s += terraLi(pos.xz + dir * (0.35 + onda * 0.5), cima);
-    s += terraLi(pos.xz + dir * (0.75 + onda * 0.8), cima);
+    s += terraLi(pos.xz + dir * (0.42 + onda * 0.5), cima);
+    s += terraLi(pos.xz + dir * (0.92 + onda * 0.8), cima);
   }
   return s * 0.0625;
 }
@@ -440,7 +479,12 @@ float aGradini(float v, float soglia) {
  * come lui.
  */
 float anelloForma(highp vec2 p, highp vec2 centro, highp vec2 mezzo, float onda) {
-  highp vec2 q = abs(p - centro) - mezzo;
+  // ⚠ LA SCATOLA SI RESTRINGE E IL RESTO LO FA IL RAGGIO: con la scatola piena
+  // i quattro angoli si vedono, e un gatto che galleggia dentro un quadrato
+  // arrotondato non e' «niente quadrati». Tenendo la scatola al 40 % e
+  // lasciando che sia la distanza a fare il resto, l'impronta resta ALLUNGATA
+  // come l'oggetto ma i bordi sono archi.
+  highp vec2 q = abs(p - centro) - mezzo * 0.40;
   float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
   float x = d + onda * 0.5;
   // ⚠ DUE ANELLI NETTI, non una ghirlanda sfumata: dentro pieno, fuori magro,
@@ -494,8 +538,34 @@ void main() {
   float peso = mix(fres * 0.55, mix(0.22, 0.85, fres), uSchermo.z) * vPelo;
   acqua = mix(acqua, riflesso, peso);
   alfa = mix(alfa, 0.95, fres * vPelo);
-  float brillio = step(0.985, dot(reflect(-vista, n), -uSoleVerso)) * uSoleForza * vPelo;
-  acqua += vec3(0.9) * brillio;
+  // ⚠ IL BRILLIO NON È IL RIFLESSO, e vuole una normale SUA.
+  //
+  // Il committente: «il riflesso del sole è diventato questo mega blob brutto,
+  // lo stai aumentando ad ogni update — perché non dovrebbe essere più piccolo
+  // e denso, un po' come la vera acqua». Ed è colpa mia: passando alle onde
+  // lunghe per curare il tiling del RIFLESSO, la normale è diventata quasi
+  // piatta — quindi il prodotto scalare col sole cambia lentissimo e la soglia
+  // taglia una macchia enorme e continua. La stessa mossa che ha curato il
+  // riflesso ha rovinato il brillio, perché usavano la stessa normale.
+  //
+  // Il luccichio vero è UN CAMPO DI SCINTILLE PICCOLE, non una pozza di luce:
+  // lo fanno le increspature corte, che sono proprio quelle tolte al riflesso.
+  // Quindi due normali: quella lunga per lo specchio, questa (lunga + due
+  // ottave di increspature) per la scintilla, con la soglia molto più stretta.
+  // ⚠ Le due ottave hanno frequenze NON in rapporto semplice (1,13/0,61 e
+  // 2,07/1,79): con rapporti interi le scintille si allineerebbero in una
+  // griglia, che è il tiling curato un attimo fa spostato di un metro.
+  vec2 fine = vec2(0.0);
+  fine += vec2(sin(uTempo * 1.9 + vPos.x * 1.13 + vPos.z * 0.61),
+               cos(uTempo * 1.5 - vPos.x * 0.69 + vPos.z * 1.27)) * 0.052;
+  fine += vec2(sin(uTempo * 2.7 - vPos.x * 2.07 + vPos.z * 1.79),
+               cos(uTempo * 2.3 + vPos.x * 1.83 + vPos.z * 2.11)) * 0.031;
+  vec3 nBrillio = vPelo > 0.5 ? normalize(n + vec3(fine.x, 0.0, fine.y)) : n;
+  // ⚠ E SI SPEGNE CON LA DISTANZA: le scintille sono più fitte dei pixel già a
+  // venti blocchi, e una soglia dura su un campo più fine del pixel non fa
+  // luccichio — fa rumore che sfarfalla a ogni movimento della camera.
+  float brillio = step(0.9972, dot(reflect(-vista, nBrillio), -uSoleVerso)) * uSoleForza * vPelo * sfumaOnda;
+  acqua += vec3(0.85) * brillio;
   // ⚠ LA SCHIUMA: alla riva (dove il fondo è alto, vProf piccola) e attorno a
   // chi galleggia. Solo sul pelo, e sopra a tutto il resto (anche al riflesso):
   // è il segno che l'acqua tocca qualcosa, e in Leafy è quello che dà vita.
@@ -508,8 +578,29 @@ void main() {
   // (un decimo di blocco) e 0,14 quella magra (mezzo blocco): due bande nette,
   // larghe in tutto poco meno di mezzo blocco.
   float campo = riva(vPos, onda);
-  float sRiva = max(aGradini(campo, 0.40), aGradini(campo, 0.14) * 0.5);
-  float sTocco = 0.0;
+  float sRiva = max(aGradini(campo, 0.30), aGradini(campo, 0.10) * 0.5);
+  // ⚠ LA SCHIUMA DEGLI OGGETTI FERMI viene dalla MAPPA, non dagli uniform: gli
+  // alberi, i lampioni e i funghi nell'acqua la fanno tutti, quanti che siano.
+  // Stesso giro di assaggi della riva — quindi stesso bordo netto e curvo — ma
+  // su un anello piu' stretto, perche' l'impronta di un tronco e' una cella.
+  // ⚠ LA MEDIA SULL'ANELLO, NON IL MASSIMO — ed è la differenza fra una macchia
+  // TONDA e una quadrata. Col massimo basta un assaggio che tocchi l'impronta
+  // perché il pixel sia pieno: la forma che ne esce è l'unione degli assaggi,
+  // cioè il quadrato del texel allargato dal filtro bilineare (che di suo ha
+  // livelli squadrati). Con la media, la quota di assaggi che cadono
+  // sull'oggetto dipende SOLO dalla distanza dal centro: le curve di livello
+  // sono cerchi, per costruzione. È la stessa ragione per cui la riva usa la
+  // media, e ci ho messo un giro a vederlo anche qui.
+  float cimaCella = floor(vPos.y) + 1.0;
+  float campoOgg = 0.0;
+  for (int i = 0; i < 8; i++) {
+    float a = float(i) * 0.7854 - onda * 0.7;
+    vec2 dir = vec2(cos(a), sin(a));
+    campoOgg += oggettoLi(vPos.xz + dir * (0.30 + onda * 0.35), cimaCella);
+    campoOgg += oggettoLi(vPos.xz + dir * (0.68 + onda * 0.55), cimaCella);
+  }
+  campoOgg *= 0.0625;
+  float sTocco = max(aGradini(campoOgg, 0.40), aGradini(campoOgg, 0.14) * 0.5);
   for (int i = 0; i < 8; i++) {
     if (i >= uNGalleggianti) break;
     highp vec4 g = uGalleggianti[i];
@@ -741,7 +832,7 @@ export class Resa {
     // cammina (`apriFinestraAltezze`, `seguiAltezze`), e ogni chunk ci scrive la
     // sua tegola 16×16 quando entra o cambia. Nel banco resta la mappa intera.
     this.finestra = null;
-    this._tegolaVuota = new Uint8Array(512);
+    this._tegolaVuota = new Uint8Array(1024);
     this.taglio = -1e9;         // la quota sotto cui la passata in corso non disegna
     this.buco = [0, 0, 0, 0];   // il buco di visuale (xyz, raggio; 0 = spento: di fabbrica il gatto si vede in SAGOMA attraverso i blocchi, vedi modelli.js)
     // ⚠ LA MAPPA DELLE OMBRE: per ogni colonna della mappa delle altezze, la
@@ -855,13 +946,19 @@ export class Resa {
     // luci e creano tantissima schiuma in acqua». Due canali nello stesso texel
     // costano una lettura sola: la differenza è che adesso dicono due cose.
     if (dati.altezze) {
-      if (!c.tegola) c.tegola = new Uint8Array(512);
+      if (!c.tegola) c.tegola = new Uint8Array(1024);
       const sol = dati.solide || dati.altezze;
+      const imp = dati.impronte;
       for (let lx = 0; lx < 16; lx++) for (let lz = 0; lz < 16; lz++) {
-        const j = (lz * 16 + lx) * 2;
-        const a = dati.altezze[lx * 16 + lz], s = sol[lx * 16 + lz];
+        const j = (lz * 16 + lx) * 4, k = lx * 16 + lz;
+        const a = dati.altezze[k], s = sol[k], o = imp ? imp[k] : -1;
         c.tegola[j] = a < 0 ? 0 : Math.max(0, Math.min(255, a + 1));
         c.tegola[j + 1] = s < 0 ? 0 : Math.max(0, Math.min(255, s + 1));
+        // ⚠ B: la cima dell'oggetto (albero, lampione, fungo) in questa colonna.
+        // Non è terreno — non fa riva — ma esiste: increspa l'acqua e ferma la
+        // luce di una lampada.
+        c.tegola[j + 2] = o < 0 ? 0 : Math.max(0, Math.min(255, o + 1));
+        c.tegola[j + 3] = 255;
       }
       if (this.finestra) this._scriviTegola(c);
     }
@@ -874,7 +971,7 @@ export class Resa {
   apriFinestraAltezze(x, z, lato = 512) {
     const gl = this.gl;
     if (!this.altezze) this.altezze = gl.createTexture();
-    this.finestra = { lato, x0: 0, z0: 0, vuota: new Uint8Array(lato * lato * 2), spostamenti: 0 };   // ⚠ due canali per texel
+    this.finestra = { lato, x0: 0, z0: 0, vuota: new Uint8Array(lato * lato * 4), spostamenti: 0 };   // ⚠ quattro canali per texel
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -894,7 +991,7 @@ export class Resa {
     if (this.ombre.w !== f.lato) this._preparaOmbre(f.lato, f.lato); else this.ombre.sporco = [0, 0, f.lato, f.lato];
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, f.lato, f.lato, 0, gl.RG, gl.UNSIGNED_BYTE, f.vuota);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, f.lato, f.lato, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.vuota);
     for (const c of this.chunks.values()) if (c.tegola) this._scriviTegola(c);
     f.spostamenti++;
     return true;
@@ -906,7 +1003,7 @@ export class Resa {
     if (px < 0 || pz < 0 || px + 16 > f.lato || pz + 16 > f.lato) return;
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, px, pz, 16, 16, gl.RG, gl.UNSIGNED_BYTE, vuota ? this._tegolaVuota : c.tegola);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, px, pz, 16, 16, gl.RGBA, gl.UNSIGNED_BYTE, vuota ? this._tegolaVuota : c.tegola);
     this._sporcaOmbre(px, pz, 16, 16);
   }
 
@@ -1222,9 +1319,13 @@ void main() {
     // leggerebbe spazzatura dove il gioco legge il solido. Se il chiamante non
     // ha la mappa dei solidi, si ricopia la prima — il banco non ha laghi con
     // alberi dentro, e meglio uguale a prima che diverso a caso.
-    const due = new Uint8Array(larghezza * profondita * 2);
-    for (let i = 0; i < larghezza * profondita; i++) { due[i * 2] = byte[i]; due[i * 2 + 1] = solide ? solide[i] : byte[i]; }
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, larghezza, profondita, 0, gl.RG, gl.UNSIGNED_BYTE, due);
+    const quattro = new Uint8Array(larghezza * profondita * 4);
+    for (let i = 0; i < larghezza * profondita; i++) {
+      quattro[i * 4] = byte[i];
+      quattro[i * 4 + 1] = solide ? solide[i] : byte[i];
+      // B (le impronte) resta a zero: il banco non ha alberi nell'acqua
+    }
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, larghezza, profondita, 0, gl.RGBA, gl.UNSIGNED_BYTE, quattro);
     // ⚠ NEAREST, non lineare: filtrata, ogni gradino faceva una rampa d'ombra sul blocco accanto
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);

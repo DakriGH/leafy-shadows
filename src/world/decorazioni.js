@@ -66,6 +66,14 @@ export function registraDecorazioni() {
       // dentro un altro blocco) ma non si disegna e non ferma il passo.
       solido: false, nav: 10, fam: 'taglia',
       forma: 'modello', modello: d.modello,
+      // ⚠ L'INGOMBRO ENTRA NELLA DEF, e non è un doppione della tabella qui
+      // sopra: da qui lo legge il MESHER, che di `DECORAZIONI` non sa niente e
+      // non deve saperne (sta in `world/`, il mesher del nucleo lo importa
+      // già). Serve a due cose che prima non funzionavano: la schiuma attorno
+      // a un albero nell'acqua e l'ombra che l'albero fa alla luce di un
+      // lampione. Senza, il mesher può solo dire «qui c'è un modello» e non
+      // quanto è alto né quanto è largo.
+      altezza: d.altezza, mezza: d.mezza,
     }, CATEGORIA_OFFICINA);
   }
 }
