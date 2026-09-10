@@ -41,6 +41,8 @@ import { raggioDaSchermo } from './partita/raggio.js';
 import { impacchetta, spacchetta, contaModifiche } from './partita/salvataggio.js';
 import { rigaDi } from './partita/catalogo.js';
 import { SimAcqua } from './world/acqua.js';
+import { livelloAcqua } from './world/blocks.js';
+import { FORME_VUOTE as FORME_MODELLO } from './world/forme.js';
 
 const params = new URLSearchParams(location.search);
 const opz = {
@@ -442,10 +444,21 @@ function posa() {
   // sospeso a mezz'aria sopra il lago invece di entrarci.
   const [x, y, z] = bersaglio.acqua ? bersaglio.cella : bersaglio.prima;
   if (!riempibile(mondo, x, y, z)) return;
+  // ⚠ IL WATERLOGGING: una cosa che NON riempie la cella (un albero, un
+  // lampione, un fungo) posata nell'acqua la TIENE; un blocco pieno la caccia,
+  // come in Minecraft. Prima l'acqua se ne andava comunque, e restava un buco
+  // asciutto in mezzo al lago attorno all'albero appena piantato.
+  const eraAcqua = mondo.tipo(x, y, z);
+  const tieneAcqua = eraAcqua && defDi(eraAcqua).acqua && FORME_MODELLO.has(defDi(tipo).forma);
+  const livelloPrima = tieneAcqua ? (livelloAcqua(eraAcqua) || 0) : null;
   // non addosso a chi cammina
   const p = passeggero;
   if (x + 1 > p.x - 0.3 && x < p.x + 0.3 && z + 1 > p.z - 0.3 && z < p.z + 0.3 && y + 1 > p.y && y < p.y + 0.9) return;
   cambiaBlocco(x, y, z, tipo);
+  // ⚠ DOPO `cambiaBlocco`, non prima: `metti` scrive il tipo nuovo e la cella
+  // bagnata è un dato che sta ACCANTO al tipo, non dentro. Prima verrebbe
+  // spazzata via dal `metti` stesso.
+  if (tieneAcqua) mondo.bagna(x, y, z, livelloPrima);
 }
 function rompiMirato() { if (!bersaglio) return; const [x, y, z] = bersaglio.cella; cambiaBlocco(x, y, z, null); }
 // mouse: sinistro tenuto = scava, destro = posa; dito: tocco = posa, col piccone acceso = scava
