@@ -29,6 +29,27 @@ import { prospettiva, guarda, moltiplica, pianiFrustum, scatolaNelFrustum, ortog
  * fare novanta, per un guadagno che l'occhio non distingue: il grosso del
  * lavoro lo fa la lettura BILINEARE delle altezze, non la fittezza.
  */
+/**
+ * Quanti BLOCCHI si accetta che l'ombra salti fra un rifacimento e l'altro.
+ *
+ * ⚠ È LA MANOPOLA VERA DELLE OMBRE A SCATTI, e sta in blocchi apposta: una
+ * soglia in GRADI vuol dire cose diversissime a sole alto e a sole basso (vedi
+ * il conto in `_aggiornaMappa`), e la versione in gradi è esattamente il difetto
+ * che il committente ha visto. Otto centesimi di blocco sono ~2,5 texel della
+ * mappa: sotto quello che si distingue su un bordo netto.
+ */
+const TOLLERANZA_OMBRA = 0.08;
+/** L'altezza di riferimento: un lampione. È la cosa alta più comune che fa ombra. */
+const ALTEZZA_TIPICA = 4;
+/**
+ * E quanto spesso al massimo si rifà per il SOLE. ⚠ A sole radente la soglia in
+ * blocchi chiederebbe un rifacimento ogni ottantesimo di secondo: qui si mette
+ * il tetto. Misurato su questa macchina: un rifacimento costa 0,2 ms di CPU,
+ * quindi otto al secondo sono 1,6 ms al secondo — e su una GPU debole si alza
+ * questo numero, non la tolleranza (che è quello che si VEDE).
+ */
+const MIN_MS_SOLE = 120;
+
 const SUPER_OMBRE = 2;
 
 const VS = `#version 300 es
@@ -951,6 +972,12 @@ export class Resa {
     this._riflessione = new Float32Array(16);
     this._voti = new Map();
     this.vpCorrente = null;     // il VP della passata in corso (specchio o vista): i modelli lo leggono
+    // ⚠ E I PIANI DELLA STESSA PASSATA, che prima non usciva nessuno: i chunk si
+    // cullavano al frustum e i MODELLI no, in nessuna passata. Con mille tipi di
+    // arredo erano mille chiamate di disegno a schermo, mille nello specchio e
+    // mille in ognuna delle due mappe d'ombra — anche per quelli dietro le
+    // spalle. I piani ci sono già calcolati: mancava solo passarli.
+    this.pianiCorrente = null;
     // ⚠ LA FINESTRA DELLE ALTEZZE: nel mondo in streaming la mappa per l'horizon
     // mapping non può coprire tutto — è una texture quadrata che SEGUE chi
     // cammina (`apriFinestraAltezze`, `seguiAltezze`), e ogni chunk ci scrive la
@@ -1415,15 +1442,41 @@ void main() {
       const su = Math.abs(v[1]) > 0.95 ? [0, 0, 1] : [0, 1, 0];
       moltiplica(ortografica(m.raggioDin, 10, 230), guarda(occhio, c, su), m.vpDin);
     }
-    // ⚠ UN GRADO, NON UN QUARTO, E NON PIÙ DI UNA VOLTA OGNI MEZZO SECONDO: il
-    // ciclo del giorno gira di 0,6° al secondo, quindi a un quarto di grado la
-    // mappa si rifaceva DUE VOLTE E MEZZA AL SECONDO — un ridisegno di tutti i
-    // chunk su 2048², cioè un singhiozzo ogni 0,4 s. A un grado l'ombra di una
-    // cosa alta tre blocchi si sposta di cinque centesimi di blocco: non si vede.
+    // ⚠ LA SOGLIA NON È IN GRADI, È IN BLOCCHI DI OMBRA — e prima era in gradi,
+    // con una giustificazione SBAGLIATA scritta qui sopra: «a un grado l'ombra di
+    // una cosa alta tre blocchi si sposta di cinque centesimi di blocco». Falso.
+    // La lunghezza di un'ombra è `h / tan(α)`, quindi si sposta di `h / sin²(α)`
+    // per radiante: a sole alto è poco, a sole basso è tantissimo. Misurato:
+    //
+    //     sole      ombra di un albero (h 3)   di un lampione (h 4)
+    //      14°           0,89 blocchi/grado        1,19 blocchi/grado
+    //      30°           0,21                      0,28
+    //      45°           0,10                      0,14
+    //
+    // Cinque centesimi è vero solo a NOVANTA gradi, dove il sole non arriva mai
+    // (il tetto è 48°). Al pavimento dei 14° un grado sposta l'ombra di un
+    // lampione di UN BLOCCO INTERO, di colpo, ogni secondo e mezzo — ed è il
+    // difetto che il committente ha visto: «trovo tremendo il ciclo giorno
+    // notte, le ombre vanno a scatti minuto dopo minuto».
+    //
+    // ⚠ E NON COSTAVA QUELLO CHE DICEVA. L'altra metà della giustificazione era
+    // «un singhiozzo ogni 0,4 s»: misurato cronometrando i rifacimenti veri su
+    // questa macchina, **0,2 ms** l'uno. Il tetto stava proteggendo da una spesa
+    // che non c'era, al prezzo del difetto che si vede.
+    //
+    // Quindi la soglia si ricava all'indietro da quanto si accetta che l'ombra
+    // salti, e si stringe da sola quando il sole si abbassa.
+    const alt = Math.max(0.12, -s.verso[1]);                       // il seno dell'altezza del sole
+    const passo = TOLLERANZA_OMBRA * alt * alt / ALTEZZA_TIPICA;   // radianti
     const d = s.verso[0] * m.sole[0] + s.verso[1] * m.sole[1] + s.verso[2] * m.sole[2];
-    if (d < 0.99985) m.soleMosso = true;   // un grado
+    if (d < Math.cos(passo)) m.soleMosso = true;
     const vuole = m.sporca || m.soleMosso || (modelli && modelli.mappaSporca);
-    const rifai = ricentra || (vuole && adesso - (m.ultimo || 0) >= 500);
+    // ⚠ DUE TETTI DIVERSI, perché sono due cause diverse. Il SOLE si muove piano
+    // e prevedibile: lì il tetto serve solo a non esagerare a sole basso. I
+    // CHUNK arrivano a raffica dallo streaming, e rifare la mappa a ognuno
+    // mangiava il fotogramma: quello resta a mezzo secondo.
+    const atteso = m.soleMosso && !m.sporca ? MIN_MS_SOLE : 500;
+    const rifai = ricentra || (vuole && adesso - (m.ultimo || 0) >= atteso);
     if (rifai) {
       m.sole = s.verso.slice(); m.soleMosso = false; m.ultimo = adesso;
       const v = s.verso, c = m.centro;
@@ -1539,7 +1592,7 @@ void main() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     this._disegnaCielo(this.vp, camera.occhio);
     this.taglio = -1e9;
-    this.vpCorrente = this.vp;
+    this.vpCorrente = this.vp; this.pianiCorrente = this.piani;
     const [disegni, tri] = this._solidi(this.vp, this.piani, camera.occhio, false);
     // ── l'erba dei chunk visti: opaca, a due facce, stesso frustum ────────────
     let disegniErba = 0, triErba = 0;
@@ -1666,7 +1719,7 @@ void main() {
     this._disegnaCielo(this.vpSpecchio, occhio);
     gl.cullFace(gl.FRONT);
     this.taglio = pelo - 0.05;
-    this.vpCorrente = this.vpSpecchio;
+    this.vpCorrente = this.vpSpecchio; this.pianiCorrente = this.pianiSpecchio;
     const [d, t] = this._solidi(this.vpSpecchio, this.pianiSpecchio, occhio, true);
     st.disegniSpecchio = d; st.triangoliSpecchio = t;
     if (modelli) {
