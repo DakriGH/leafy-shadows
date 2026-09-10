@@ -38,6 +38,7 @@ import { generaChunkVetrina, QUOTA as QUOTA_VETRINA } from './partita/vetrina.js
 import { generaChunkOmega } from './partita/omega.js';
 import { registraOmega } from './partita/omega-catalogo.js';
 import { BancoOmega } from './partita/banco-omega.js';
+import { Ritmo, voto } from './partita/ritmo.js';
 import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene, registroMeteo, registroStile } from './partita/registri.js';
 import { Meteo } from './partita/meteo.js';
 import { raggioDaSchermo } from './partita/raggio.js';
@@ -763,6 +764,12 @@ if (opz.vetrina) { resa.cieloNero = true; resa.nebbia.da = 400; resa.nebbia.a = 
 
 // ── il giro ──────────────────────────────────────────────────────────────────
 const tempi = [], jsMs = [], storiaFps = [];
+// ⚠ IL RITMO GIRA SEMPRE, non solo dentro l'omega test: è quello che dice PERCHÉ
+// una macchina si sente male, e senza di lui un rapporto dice «30 fps» e non
+// distingue trenta fotogrammi regolari (giocabile) da trenta con un singhiozzo
+// ogni due secondi (insopportabile). Dal Chromebook è arrivato p50 33 e p99 100:
+// il p99 è TRE VOLTE il p50, ed è esattamente la firma del secondo caso.
+const ritmo = new Ritmo();
 let ultimo = performance.now(), fotogrammi = 0, ultimaStampa = 0;
 function giro(adesso) {
   const dt = Math.min(0.1, (adesso - ultimo) / 1000); ultimo = adesso;
@@ -841,8 +848,21 @@ function giro(adesso) {
   // vede — è esattamente il punto: si misura il costo, non l'immagine.
   if (arDoppia) { resa.disegna(cam, 0, modelli); modelli.disegna(resa, cam); resa.disegnaAcqua(); }
   const js = performance.now() - tj;
-  tempi.push(dt * 1000); if (tempi.length > 240) tempi.shift();
-  jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
+  // ⚠ UN FOTOGRAMMA NON POSITIVO NON È UN FOTOGRAMMA, e senza questa riga UNO
+  // SOLO avvelena TUTTO. Dal rapporto del Chromebook (10/09/2026): la storia
+  // degli fps era `0, -1, -2, … -36`. Numeri NEGATIVI, mentre il numero grande
+  // a schermo diceva un onestissimo 30. La media di `tempi` era negativa perché
+  // ci era entrato un `dt` di circa −14,6 secondi, e ci restava per 240
+  // fotogrammi: rifacendo il conto, la sequenza esce IDENTICA (−0 al primo,
+  // −9 dopo cento, −25 dopo duecento, −36 dopo duecentotrentanove).
+  // ⚠ E LA COSA GRAVE NON È IL GRAFICO STORTO: è che il p50, il p99 e gli fps
+  // vengono tutti da lì. Uno strumento che mente è peggio di uno che manca —
+  // sta già scritto in CLAUDE.md a proposito di `ombreMs`, ed è ricapitato.
+  // ⚠ La guardia sta al PUNTO D'INGRESSO e non dove si legge, perché i lettori
+  // sono cinque e l'ingresso è uno. (`partita/ritmo.js` ce l'ha dalla nascita.)
+  if (dt > 0 && dt < 10) { tempi.push(dt * 1000); if (tempi.length > 240) tempi.shift(); }
+  ritmo.campiona(dt * 1000);
+  if (js >= 0 && js < 10000) { jsMs.push(js); if (jsMs.length > 240) jsMs.shift(); }
   fotogrammi++;
   if (banco) passoBanco(dt * 1000);
   if (passoOfficina) passoOfficina();
@@ -952,10 +972,16 @@ const diagnostica = new Diagnostica(() => ({
   ombreLampade: false, antialias: true,
   fps: q(tempi, 0.5) ? 1000 / q(tempi, 0.5) : null, p50: q(tempi, 0.5), p99: q(tempi, 0.99),
   disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, triangoli: resa.statistiche.triangoli + modelli.statistiche.triangoli + resa.statistiche.triangoliAcqua + resa.statistiche.triangoliErba + resa.statistiche.triangoliSpecchio, ombreMs: 0,
-  storiaFps, storiaLivelli: [],
+  storiaFps, storiaLivelli: [], ritmo: ritmo.misura(), voto: voto(ritmo.misura()),
   scheda: nomeScheda(gl), software: /swiftshader|llvmpipe/i.test(nomeScheda(gl)),
   chunk: resa.statistiche.chunkTotali, blocchi: mondo.contaBlocchi, luci: 0, decorazioni: entita.conta, erba: resa.statistiche.triangoliErba, ora: `${Math.floor(giorno.ora * 24)}h`, giorno: 0,
-  worldgenMs: tCostruzione, meshMs: tCostruzione,
+  // ⚠ DUE NUMERI DIVERSI, e prima erano lo stesso scritto due volte: il
+  // rapporto mostrava «worldgen 19139 · mesh 19139» e sembrava una misura,
+  // mentre era una variabile sola sotto due nomi. Adesso la generazione del
+  // mondo e la costruzione delle mesh si contano a parte, ed è la sola cosa che
+  // può dire da che parte guardare quando l'avvio dura venti secondi.
+  worldgenMs: streaming.statistiche.generaMs, meshMs: streaming.statistiche.costruisciMs,
+  avvioMs: tCostruzione,
 }), () => { resa.disegna(camera(), 0, modelli); modelli.disegna(resa, camera()); resa.disegnaAcqua(); return Promise.resolve(tela.toDataURL('image/webp', 0.6)); });
 
 
