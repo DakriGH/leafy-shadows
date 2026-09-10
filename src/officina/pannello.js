@@ -37,6 +37,16 @@ const CSS = `
 #officina.incassato [data-fa=chiudi], #officina.incassato .off-vivi { display: none; }
 #officina header { display: flex; align-items: center; gap: 6px; padding: 7px 8px 6px; border-bottom: 1px solid var(--riga); }
 #officina header .off-vivi { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* ⚠ LA BARRETTA COL NOME DEL RIQUADRO, che è quello che fa sembrare un editor
+   un editor: in una shell a più pannelli, senza il nome in cima non si capisce
+   dove si è. Maiuscoletto spaziato — è il vestito di tutti gli editor, e qui
+   costa due righe. */
+#officina .off-etichetta { display: none; font-size: 10.5px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; opacity: .66; white-space: nowrap; }
+#officina.con-etichetta .off-etichetta { display: block; }
+#officina.senza-schede nav { display: none; }
+#officina.incassato { --carta: transparent; }
+#officina.incassato .off-corpo { background: transparent; }
 #officina header .off-vivi b { font-size: 14px; }
 #officina header .off-spazio { flex: 1; }
 #officina header button { font: inherit; color: var(--inch); background: var(--tenue); border: 1px solid var(--riga);
@@ -72,13 +82,22 @@ const CSS = `
 `;
 
 export class Pannello {
-  constructor({ registri, bus, vivi, radice = document.body, titolo = 'Officina', contenitore = null, scuro = false }) {
+  /**
+   * `etichetta` è il nome del RIQUADRO (Gerarchia, Ispettore, Assets…), che è
+   * quello che un editor scrive sulla barretta in cima a ogni pannello.
+   * `azioni` porta annulla/ripeti: si tengono su UN riquadro solo, se no la
+   * stessa coppia di frecce compare quattro volte e sembrano quattro storie
+   * diverse — mentre il bus è uno.
+   */
+  constructor({ registri, bus, vivi, radice = document.body, titolo = 'Officina', contenitore = null, scuro = false, etichetta = null, azioni = true }) {
     this.registri = registri;
     this.bus = bus;
     this._vivi = vivi || (() => '');
     this.attivo = registri[0] && registri[0].chiave;
     this._el = {};
     this.incassato = !!contenitore;
+    this._etichetta = etichetta;
+    this._azioni = azioni;
     this._costruisci(contenitore || radice, titolo, scuro);
     this._orologio = setInterval(() => this.aggiorna(), 500);
     bus.osserva(() => this.aggiorna(true));
@@ -102,6 +121,7 @@ export class Pannello {
       <button class="off-tasto" type="button" aria-label="apri ${titolo}">⚙ ${titolo}</button>
       <div class="off-corpo" role="dialog" aria-label="${titolo}">
         <header>
+          <div class="off-etichetta"></div>
           <div class="off-vivi">…</div>
           <span class="off-spazio"></span>
           <button type="button" data-fa="annulla" title="annulla">↶</button>
@@ -115,6 +135,13 @@ export class Pannello {
     radice.appendChild(r);
     this._el.tasto = r.querySelector('.off-tasto');
     this._el.vivi = r.querySelector('.off-vivi');
+    this._el.etichetta = r.querySelector('.off-etichetta');
+    if (this._etichetta) { this._el.etichetta.textContent = this._etichetta; r.classList.add('con-etichetta'); }
+    if (!this._azioni) { r.querySelector('[data-fa=annulla]').hidden = true; r.querySelector('[data-fa=ripeti]').hidden = true; }
+    // ⚠ NIENTE SCHEDE SE C'È UN REGISTRO SOLO: una fila di schede con un
+    // bottone dentro non è navigazione, è una riga di rumore. In un riquadro
+    // «Gerarchia» che contiene solo la gerarchia, il nome sta già in cima.
+    if (this.registri.length < 2) r.classList.add('senza-schede');
     this._el.nav = r.querySelector('nav');
     this._el.campi = r.querySelector('.off-campi');
     this._el.esito = r.querySelector('.off-esito');
