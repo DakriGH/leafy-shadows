@@ -13,18 +13,40 @@
            background: rgba(255,255,255,.72); padding: 6px 9px; border-radius: 6px; white-space: pre-wrap; pointer-events: none; max-width: 62vw; }
   #stato[hidden] { display: none; }
   #fps { font-size: 11px; padding: 3px 7px; opacity: .8; }
-  /* l'Officina: una colonna scura a destra della tela, fuori dal gioco */
-  body.con-officina { display: flex; flex-direction: row; }
-  body.con-officina #tela { width: calc(100% - 400px); }
-  #dock { display: none; }
-  body.con-officina #dock { display: block; width: 400px; height: 100%; background: #151c18; color: #dfe8e2; overflow: auto; position: relative; }
-  #chiudiDock { position: absolute; right: 8px; top: 6px; z-index: 50; background: transparent; color: #dfe8e2; border: 1px solid rgba(223,232,226,.3); border-radius: 6px; font: 12px ui-monospace, monospace; padding: 2px 8px; }
+  /* ── L'OFFICINA: LA SHELL DELL'EDITOR ──────────────────────────────────────
+     ⚠ DUE COLONNE, NON UNA, ed è una richiesta esplicita del committente:
+     «voglio comunque una GUI dell'officina come Unity, quindi sinistra e destra
+     inspector tutto completo con assets». La colonna sola con dieci schede non
+     era un editor ma un CASSETTO: per guardare un oggetto mentre si sfogliano
+     gli assets servivano due schede aperte insieme, che è precisamente quello
+     che una scheda non sa fare.
+     A sinistra la GERARCHIA sopra e gli ASSETS sotto; a destra l'ISPETTORE
+     sopra e le IMPOSTAZIONI (le manopole di sempre) sotto; in mezzo il gioco,
+     che resta la cosa più grande dello schermo — perché è quello che si guarda. */
+  :root { --dock-sx: 268px; --dock-dx: 330px; }
+  /* ⚠ LA RIGA VA DICHIARATA. Senza `grid-template-rows`, la griglia si fa una
+     riga ALTA QUANTO IL CONTENUTO e il `height: 100%` della tela si misura su
+     quella: il gioco finiva in una striscia in cima con mezzo schermo azzurro
+     sotto. Non è un difetto che si legge nel CSS — si vede e basta. */
+  body.con-officina { display: grid; height: 100%; grid-template-columns: var(--dock-sx) 1fr var(--dock-dx); grid-template-rows: minmax(0, 1fr); }
+  body.con-officina #tela { width: 100%; height: 100%; grid-column: 2; grid-row: 1; min-width: 0; }
+  #dockSx, #dockDx { display: none; }
+  body.con-officina #dockSx, body.con-officina #dockDx {
+    display: grid; height: 100%; min-height: 0; background: #151c18; color: #dfe8e2; position: relative;
+    grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr); }
+  body.con-officina #dockSx { grid-column: 1; grid-row: 1; border-right: 1px solid rgba(223,232,226,.14); }
+  body.con-officina #dockDx { grid-column: 3; grid-row: 1; border-left: 1px solid rgba(223,232,226,.14); }
+  /* ogni riquadro scorre per conto suo: se no il pannello lungo trascina l'altro */
+  .riquadro { min-height: 0; overflow: auto; }
+  #dockSx .riquadro + .riquadro, #dockDx .riquadro + .riquadro { border-top: 1px solid rgba(223,232,226,.14); }
+  #chiudiDock { position: absolute; right: 6px; top: 5px; z-index: 50; background: transparent; color: #dfe8e2; border: 1px solid rgba(223,232,226,.3); border-radius: 6px; font: 12px ui-monospace, monospace; padding: 1px 7px; }
   /* ⚠ NIENTE INTERFACCIA DEL GIOCO SOPRA L'OFFICINA: a lato si spostano gli elementi fissi di destra, a foglio si nascondono */
-  body.con-officina #fps, body.con-officina #azioni, body.con-officina #versione { right: 408px; }
-  body.con-officina #comandi .btn { right: 418px; }
-  body.con-officina #diagPanel { right: 408px; }
-  body.con-officina #barra { left: calc((100vw - 400px) / 2); max-width: calc(100vw - 420px); }
-  body.con-officina #mira { left: calc((100vw - 400px) / 2); }
+  body.con-officina #fps, body.con-officina #azioni, body.con-officina #versione { right: calc(var(--dock-dx) + 8px); }
+  body.con-officina #comandi .btn { right: calc(var(--dock-dx) + 18px); }
+  body.con-officina #diagPanel { right: calc(var(--dock-dx) + 8px); }
+  body.con-officina #barra { left: calc(var(--dock-sx) + (100vw - var(--dock-sx) - var(--dock-dx)) / 2); max-width: calc(100vw - var(--dock-sx) - var(--dock-dx) - 20px); }
+  body.con-officina #mira { left: calc(var(--dock-sx) + (100vw - var(--dock-sx) - var(--dock-dx)) / 2); }
+  body.con-officina #azione { left: calc(var(--dock-sx) + (100vw - var(--dock-sx) - var(--dock-dx)) / 2); }
   body.con-officina .off-tasto { display: none; }
   #mira { position: fixed; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; z-index: 10; pointer-events: none;
           border: 2px solid rgba(255,255,255,.9); border-radius: 50%; box-shadow: 0 0 0 1px rgba(13,42,26,.5); display: none; }
@@ -33,10 +55,18 @@
             color: #fff; background: rgba(13,42,26,.55); padding: 4px 10px; border-radius: 6px; white-space: nowrap; }
   #azione:empty { display: none; }
   /* su uno schermo stretto l'Officina è un foglio dal basso, la tela resta intera */
-  @media (max-width: 900px) {
+  /* ⚠ SU UNO SCHERMO STRETTO LE DUE COLONNE NON CI STANNO, e schiacciarle
+     sarebbe peggio che non averle: diventano un foglio solo dal basso, con i
+     quattro riquadri impilati e scorrevoli. La shell dell'editor è roba da
+     scrivania — sul telefono si gioca. */
+  @media (max-width: 1100px) {
     body.con-officina { display: block; }
     body.con-officina #tela { width: 100%; }
-    body.con-officina #dock { position: fixed; left: 0; right: 0; bottom: 0; width: auto; height: 58vh; z-index: 30; border-top: 1px solid rgba(223,232,226,.2); }
+    body.con-officina #dockSx, body.con-officina #dockDx {
+      position: fixed; left: 0; right: 0; width: auto; height: 30vh; z-index: 30; grid-template-rows: 1fr 1fr;
+      border-top: 1px solid rgba(223,232,226,.2); }
+    body.con-officina #dockSx { bottom: 30vh; }
+    body.con-officina #dockDx { bottom: 0; }
     body.con-officina #fps, body.con-officina #azioni { right: 8px; }
     body.con-officina #barra, body.con-officina #mira, body.con-officina #azione { left: 50%; max-width: 96vw; }
     body.con-officina #barra, body.con-officina #azione, body.con-officina #comandi, body.con-officina #modoGui, body.con-officina #diag,
@@ -73,7 +103,19 @@
     <button id="apriOfficina" title="Officina (apre e chiude)">🛠</button>
   </div>
   <div id="barra"></div>
-  <div id="dock"><button id="chiudiDock" title="Chiudi l'Officina">✕</button></div>
+  <!-- ⚠ QUATTRO RIQUADRI, come una shell da editor: a sinistra cosa c'è nel
+       mondo e cosa si può metterci, a destra cosa si è preso e come è tarata la
+       resa. Il gioco sta in mezzo ed è la cosa più grande, perché è quella che
+       si guarda mentre si lavora. -->
+  <div id="dockSx">
+    <div class="riquadro" id="rqGerarchia"></div>
+    <div class="riquadro" id="rqAssets"></div>
+  </div>
+  <div id="dockDx">
+    <button id="chiudiDock" title="Chiudi l'Officina">✕</button>
+    <div class="riquadro" id="rqIspettore"></div>
+    <div class="riquadro" id="rqImpostazioni"></div>
+  </div>
   <pre id="guasto"></pre>
   <script type="module">
     const guasto = (e) => {
@@ -83,9 +125,9 @@
     };
     window.addEventListener('error', (ev) => guasto(ev.error || ev.message));
     window.addEventListener('unhandledrejection', (ev) => guasto(ev.reason));
-    import('./partita.js?v=3cbf118.d7f6447f').catch(guasto);
+    import('./partita.js?v=2db0565.b232b988').catch(guasto);
   </script>
-  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">10/09, 02:22 · 3cbf118</div>
-  <script>(function(){try{fetch('./versione.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text()}).then(function(v){v=v.trim();if(v&&v!=='3cbf118.d7f6447f'&&sessionStorage.getItem('leafy-ricaricata')!==v){sessionStorage.setItem('leafy-ricaricata',v);var u=new URL(location.href);u.searchParams.set('v',v);location.replace(u.href)}}).catch(function(){})}catch(e){}})()</script>
+  <div id="versione" style="position:fixed;right:8px;bottom:26px;z-index:10;font:11px ui-monospace,monospace;color:rgba(13,42,26,.55);pointer-events:none">10/09, 02:34 · 2db0565</div>
+  <script>(function(){try{fetch('./versione.txt?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.text()}).then(function(v){v=v.trim();if(v&&v!=='2db0565.b232b988'&&sessionStorage.getItem('leafy-ricaricata')!==v){sessionStorage.setItem('leafy-ricaricata',v);var u=new URL(location.href);u.searchParams.set('v',v);location.replace(u.href)}}).catch(function(){})}catch(e){}})()</script>
 </body>
 </html>
