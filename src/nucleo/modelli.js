@@ -6,6 +6,7 @@
 // no» a gradino, l'ombra del colore del cielo, horizon mapping per l'ombra del
 // sole, nebbia. La luce cotta della cella (F2) arriverà per istanza.
 import { compila } from './gl.js';
+import { pianiFrustum, scatolaNelFrustum } from './matrici.js';
 
 /** Legge un .bin del nucleo: 'LNM1', uint32 triangoli, 16 byte per vertice, poi 4 byte di colore per vertice. */
 export function leggiModello(buf) {
@@ -376,8 +377,9 @@ export class Modelli {
     this.dinamici = new Set(['omino', 'cubo']);
     this.mappaSporca = true;
     this.sagoma = 'omino';   // il tipo che si vede in sagoma attraverso i blocchi (null = nessuno)
-    this.tipi = new Map();   // nome → { vao, vbo, ibo, vertici, istanze: Float32Array, n }
-    this.statistiche = { disegni: 0, triangoli: 0, istanze: 0 };
+    this.tipi = new Map();   // nome → { vao, vbo, ibo, vertici, istanze: Float32Array, n, scatola }
+    this._pianiOmbra = new Float32Array(24);
+    this.statistiche = { disegni: 0, triangoli: 0, istanze: 0, saltati: 0 };
   }
 
   /** Registra un tipo di modello (dati da `leggiModello`). */
@@ -401,12 +403,37 @@ export class Modelli {
     return t;
   }
 
-  /** Le istanze di un tipo: [x, y, z, scala, …]. Si ricarica al prossimo disegno. */
+  /**
+   * Le istanze di un tipo: [x, y, z, scala, …]. Si ricarica al prossimo disegno.
+   *
+   * ⚠ E SI CALCOLA LA SCATOLA CHE LE CONTIENE TUTTE, qui e non al disegno: qui
+   * si fa UNA VOLTA quando le istanze cambiano, là si farebbe a ogni passata di
+   * ogni fotogramma. È quello che permette di saltare un tipo intero senza
+   * guardarlo (`disegna`), ed è il modo di rendere possibili mille arredi
+   * diversi: quello che costa è il TIPO, non l'istanza.
+   * ⚠ La scatola si allarga del raggio e dell'altezza del MODELLO, moltiplicati
+   * per la scala dell'istanza: senza, un albero al bordo dello schermo sparirebbe
+   * quando il suo centro esce dal frustum ma la chioma è ancora dentro.
+   */
   istanze(nome, lista, perIstanza = 4) {
     const t = this.tipi.get(nome); if (!t) return;
     t.istanze = allungaIstanze(lista, perIstanza);
     t.n = t.istanze.length / 8; t.sporco = true;
     if (!this.dinamici.has(nome)) this.mappaSporca = true;
+    const a = t.istanze;
+    if (t.n === 0) { t.scatola = null; return; }
+    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    const r = t.raggio || 1, h = t.maxY || 2;
+    for (let i = 0; i < t.n; i++) {
+      const q = i * 8, sc = a[q + 3] || 1, rr = r * sc, hh = h * sc;
+      if (a[q] - rr < minX) minX = a[q] - rr;
+      if (a[q] + rr > maxX) maxX = a[q] + rr;
+      if (a[q + 2] - rr < minZ) minZ = a[q + 2] - rr;
+      if (a[q + 2] + rr > maxZ) maxZ = a[q + 2] + rr;
+      if (a[q + 1] < minY) minY = a[q + 1];
+      if (a[q + 1] + hh > maxY) maxY = a[q + 1] + hh;
+    }
+    t.scatola = [minX, minY, minZ, maxX, maxY, maxZ];
   }
 
   /** La passata d'ombra: i tipi che si muovono (`dinamici` vero) o quelli fermi. Torna [disegni, triangoli]. */
@@ -414,9 +441,15 @@ export class Modelli {
     const gl = this.gl;
     gl.useProgram(this.programmaOmbra);
     gl.uniformMatrix4fv(this.uoVP, false, vp);
+    // ⚠ ANCHE QUI, e qui conta il doppio: le mappe d'ombra sono DUE (la ferma e
+    // quella di chi si muove), quindi un tipo non cullato si paga due volte in
+    // più, oltre allo schermo e allo specchio. I piani si ricavano dal VP della
+    // luce, che è proprio quello con cui si sta disegnando.
+    pianiFrustum(vp, this._pianiOmbra);
     let disegni = 0, tri = 0;
     for (const [nome, t] of this.tipi) {
       if (t.n === 0 || this.dinamici.has(nome) !== dinamici) continue;
+      if (t.scatola && !scatolaNelFrustum(this._pianiOmbra, t.scatola[0], t.scatola[1], t.scatola[2], t.scatola[3], t.scatola[4], t.scatola[5])) continue;
       gl.bindVertexArray(t.vao);
       if (t.sporco) { gl.bindBuffer(gl.ARRAY_BUFFER, t.ibo); gl.bufferData(gl.ARRAY_BUFFER, t.istanze, gl.DYNAMIC_DRAW); t.sporco = false; }
       gl.drawArraysInstanced(gl.TRIANGLES, 0, t.vertici, t.n);
@@ -447,10 +480,21 @@ export class Modelli {
     gl.uniform1f(u.uOmbra, resa.ombra && resa.altezze ? 1 : 0);
     if (resa.altezze) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, resa.ombre.tex); gl.uniform1i(u.uOmbre, 0); gl.uniform2f(u.uOmbreScala, resa.ombre.scala, resa.ombre.offset); gl.uniform4f(u.uAltRett, resa.altRett[0], resa.altRett[1], resa.altRett[2], resa.altRett[3]); }
     resa.legaMappa(u);
-    let disegni = 0, tri = 0, ist = 0;
+    let disegni = 0, tri = 0, ist = 0, saltati = 0;
     gl.uniform1f(u.uSagoma, 0);
+    // ⚠ SI CULLA PER TIPO, e prima non si cullava AFFATTO: ogni tipo di modello
+    // veniva disegnato in OGNI passata, anche quello dietro le spalle. Con mille
+    // arredi diversi (l'omega test) sono mille chiamate a schermo, mille nello
+    // specchio e mille in ognuna delle due mappe d'ombra — quattromila per
+    // fotogramma, la maggior parte per roba che non si vede. I chunk si
+    // cullavano da sempre; i modelli no, e nessuno se n'era accorto perché
+    // finché i tipi erano dieci non si vedeva.
+    // ⚠ E la scatola è già pronta (la calcola `istanze` quando cambiano): qui è
+    // un test contro sei piani, cioè niente.
+    const piani = resa.pianiCorrente;
     for (const [nome, t] of this.tipi) {
       if (t.n === 0) continue;
+      if (piani && t.scatola && !scatolaNelFrustum(piani, t.scatola[0], t.scatola[1], t.scatola[2], t.scatola[3], t.scatola[4], t.scatola[5])) { saltati++; continue; }
       // ⚠ IL GIOCATORE NON SI BUCA: il buco serve a vederlo, non a cancellarlo
       gl.uniform4f(u.uBuco, buco[0], buco[1], buco[2], nome === 'omino' ? 0 : buco[3]);
       gl.bindVertexArray(t.vao);
@@ -471,6 +515,6 @@ export class Modelli {
       disegni++;
     }
     gl.bindVertexArray(null);
-    this.statistiche.disegni = disegni; this.statistiche.triangoli = tri; this.statistiche.istanze = ist;
+    this.statistiche.disegni = disegni; this.statistiche.triangoli = tri; this.statistiche.istanze = ist; this.statistiche.saltati = saltati;
   }
 }
