@@ -30,7 +30,7 @@ import { Diagnostica } from './ui/diagnostica.js';
 import { Streaming } from './partita/streaming.js';
 import { Sguardo } from './partita/sguardo.js';
 import { Corpi } from './partita/corpi.js';
-import { RegistroModelli } from './partita/registro-modelli.js';
+import { Entita } from './partita/entita.js';
 import { creaLavoro } from './nucleo/lavoro.js';
 import { ARREDI, registraArredi, gatto, TAVOLOZZE } from './partita/arredi.js';
 import { generaChunkZoo, QUOTA as QUOTA_ZOO } from './partita/zoo.js';
@@ -88,8 +88,8 @@ registraDecorazioni();
 // spegnere un lampione lo trasformava in un cubo viola.
 if (!BLOCCHI.lampioneSpento) registraBlocco('lampioneSpento', { ...defDi('lampione'), nome: 'Lampione spento', modello: 'lampioneSpento', luce: undefined, notte: false });
 const mondo = new Mondo();
-const registro = new RegistroModelli({ varia: opz.varia });
-mondo.onEvento = (e) => registro.evento(e);
+const entita = new Entita({ varia: opz.varia });
+mondo.onEvento = (e) => entita.evento(e);
 const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
 const genera = opz.vetrina ? generaChunkVetrina : opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
 const streaming = new Streaming(mondo, resa, genera, { erba: opz.erba, raggioResa: opz.raggio, lavoro });
@@ -138,18 +138,18 @@ async function caricaModello(nome) {
       for (let i = 0; i < modello.vertici; i++) if (b[i * 20 + 15] !== 1) { b[i * 20 + 16] = 0x2a; b[i * 20 + 17] = 0x2f; b[i * 20 + 18] = 0x4d; }
     }
     modelli.registra(nome, modello);
-    registro.sporchi.add(nome);
+    entita.sporchi.add(nome);
     if (nome === 'lampione') {
       // ⚠ IL LAMPIONE SPENTO: stessa geometria, il vetro non emette ed è grigio
       const b = new Uint8Array(modello.byte); for (let i = 0; i < modello.vertici; i++) if (b[i * 20 + 15] === 1) { b[i * 20 + 15] = 0; b[i * 20 + 16] = 0x19; b[i * 20 + 17] = 0x19; b[i * 20 + 18] = 0x31; }   // il vetro spento: #191931 (concept di giorno)
-      modelli.registra('lampioneSpento', { ...modello, byte: b }); modelliCaricati.add('lampioneSpento'); registro.sporchi.add('lampioneSpento');
+      modelli.registra('lampioneSpento', { ...modello, byte: b }); modelliCaricati.add('lampioneSpento'); entita.sporchi.add('lampioneSpento');
     }
   } catch (e) { console.warn(`modello ${nome}: ${e.message}`); }
 }
 function aggiornaModelli() {
-  for (const [nome, lista] of registro.cambiate()) {
-    if (!modelli.tipi.has(nome)) { caricaModello(nome); registro.sporchi.add(nome); continue; }
-    // ⚠ OTTO FLOAT: il registro adesso dice anche scala e giro (partita/catalogo.js).
+  for (const [nome, lista] of entita.cambiate()) {
+    if (!modelli.tipi.has(nome)) { caricaModello(nome); entita.sporchi.add(nome); continue; }
+    // ⚠ OTTO FLOAT: le entità dicono anche scala, tinta e giro (partita/entita.js).
     modelli.istanze(nome, lista, 8);
     // ⚠ OGNI LAMPIONE HA IL SUO ALONE: due cerchi concentrici piatti attorno
     // alla lanterna (a +2,35), come le «fake point light» di Unity — è lo
@@ -323,15 +323,17 @@ const _scatole = [];
 function scatoleDaMirare(occhio) {
   _scatole.length = 0;
   const lim = 200 * 200;
-  for (const [nome, celle] of registro.tipi) {
+  for (const nome of entita.tipiVivi()) {
     if (nome === 'omino' || nome === 'cubo') continue;
     const d = DECORAZIONI[nome] || (nome === 'lampioneSpento' ? DECORAZIONI.lampione : null);
     const altezza = d ? d.altezza : 1, mezza = d ? d.mezza : 0.5;
-    for (const [x, y, z] of celle.values()) {
+    // ⚠ SI SCORRE SENZA ALLOCARE: gira a ogni fotogramma, e un oggetto per
+    // entità per fotogramma è il collo il giorno che le entità sono novemila.
+    entita.ognunaDi(nome, (x, y, z) => {
       const dx = x - occhio.x, dz = z - occhio.z;
-      if (dx * dx + dz * dz > lim) continue;
+      if (dx * dx + dz * dz > lim) return;
       _scatole.push({ min: { x: x - mezza, y, z: z - mezza }, max: { x: x + mezza, y: y + altezza, z: z + mezza }, dato: { cella: [Math.floor(x), y, Math.floor(z)] } });
-    }
+    });
   }
   return _scatole;
 }
@@ -455,10 +457,9 @@ const giorno = { ora: opz.ora ?? 0.35, auto: opz.ora === null, durata: 600 };
 // ⚠ I LAMPIONI ACCESI PIÙ VICINI AL GATTO (otto): le pozze per pixel della resa
 const _lampade = [];
 function lampadeVicine() {
-  const celle = registro.tipi.get('lampione');
   const p = passeggero;
   _lampade.length = 0;
-  if (celle) for (const [x, y, z] of celle.values()) { const d = (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z); if (d < 60 * 60) _lampade.push([d, x, y, z]); }
+  entita.ognunaDi('lampione', (x, y, z) => { const d = (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z); if (d < 60 * 60) _lampade.push([d, x, y, z]); });
   _lampade.sort((a, b) => a[0] - b[0]);
   const n = Math.min(8, _lampade.length);
   for (let i = 0; i < n; i++) { const l = _lampade[i]; resa.lampade[i * 4] = l[1]; resa.lampade[i * 4 + 1] = l[2]; resa.lampade[i * 4 + 2] = l[3]; resa.lampade[i * 4 + 3] = 4.6; }
@@ -651,8 +652,8 @@ const diagnostica = new Diagnostica(() => ({
   disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, triangoli: resa.statistiche.triangoli + modelli.statistiche.triangoli + resa.statistiche.triangoliAcqua + resa.statistiche.triangoliErba + resa.statistiche.triangoliSpecchio, ombreMs: 0,
   storiaFps, storiaLivelli: [],
   scheda: nomeScheda(gl), software: /swiftshader|llvmpipe/i.test(nomeScheda(gl)),
-  chunk: resa.statistiche.chunkTotali, blocchi: mondo.contaBlocchi, luci: 0, decorazioni: registro.istanze, erba: resa.statistiche.triangoliErba, ora: `${Math.floor(giorno.ora * 24)}h`, giorno: 0,
+  chunk: resa.statistiche.chunkTotali, blocchi: mondo.contaBlocchi, luci: 0, decorazioni: entita.conta, erba: resa.statistiche.triangoliErba, ora: `${Math.floor(giorno.ora * 24)}h`, giorno: 0,
   worldgenMs: tCostruzione, meshMs: tCostruzione,
 }), () => { resa.disegna(camera(), 0, modelli); modelli.disegna(resa, camera()); resa.disegnaAcqua(); return Promise.resolve(tela.toDataURL('image/webp', 0.6)); });
 
-globalThis.PARTITA = { resa, modelli, mondo, passeggero, sguardo, corpi, streaming, registro, opz, lanciaCubi, intento, zoom: () => distanzaTerza, mirato: () => bersaglio, statistiche: () => ({ fps: 1000 / (q(tempi, 0.5) || 1), p50: q(tempi, 0.5), p99: q(tempi, 0.99), js: q(jsMs, 0.5), ...resa.statistiche, modelli: { ...modelli.statistiche }, streaming: { ...streaming.statistiche }, corpi: { ...corpi.statistiche }, fotogrammi }), diagnostica };
+globalThis.PARTITA = { resa, modelli, mondo, passeggero, sguardo, corpi, streaming, entita, opz, lanciaCubi, intento, zoom: () => distanzaTerza, mirato: () => bersaglio, statistiche: () => ({ fps: 1000 / (q(tempi, 0.5) || 1), p50: q(tempi, 0.5), p99: q(tempi, 0.99), js: q(jsMs, 0.5), ...resa.statistiche, modelli: { ...modelli.statistiche }, streaming: { ...streaming.statistiche }, corpi: { ...corpi.statistiche }, fotogrammi }), diagnostica };

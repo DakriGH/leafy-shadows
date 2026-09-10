@@ -39,14 +39,29 @@
  * mondo a blocchi seguono gli assi. Per quelli il giro è a QUARTI, che è come
  * li poserebbe una persona.
  */
+// ⚠ COSA VARIA E COSA NO LO DECIDE IL COMMITTENTE, NON QUESTO FILE. Il
+// meccanismo (giro e scala per istanza) è pronto e provato; le righe qui sotto
+// sono il VERDETTO, e finché non cambia si guarda e non si tocca. Verdetto del
+// 10/09/2026, sugli scatti affiancati: gli alberi NO — «per ora lasciali a
+// parte»; il ciuffo SÌ. `test/catalogo.test.mjs` lo mette per iscritto, così
+// chi lo cambia di nascosto trova una prova rossa che glielo dice.
 export const CATALOGO = {
   albero: {
     nome: 'Albero', modello: 'albero',
-    giro: 'libero', scala: [0.88, 1.16], proiettaOmbra: true, classe: 'fermo', ingombro: [1, 5, 1],
+    // ⚠ FERMO PER VOLERE DEL COMMITTENTE. Il meccanismo funziona (era
+    // `giro: 'libero'`, scala 0,88-1,16, e a schermo si vedeva): è la
+    // decisione visiva a essere «non adesso». Per riprenderla in mano bastano
+    // queste due voci, e il confronto si rifà con `?varia=no`.
+    giro: 'no', scala: 1, proiettaOmbra: true, classe: 'fermo', ingombro: [1, 5, 1],
   },
   lampione: {
     nome: 'Lampione', modello: 'lampione',
-    giro: 'quarti', scala: 1, proiettaOmbra: true, classe: 'fermo', ingombro: [1, 4, 1],
+    // ⚠ FERMO ANCHE LUI: il giro a quarti non è mai stato sottoposto a
+    // giudizio, e su un lampione sarebbe quasi invisibile (la testa è una
+    // piramide a base quadrata) — cioè un cambiamento che nessuno ha chiesto
+    // in cambio di niente. `'quarti'` resta il modo giusto per gli oggetti
+    // COSTRUITI quando si deciderà di girarli.
+    giro: 'no', scala: 1, proiettaOmbra: true, classe: 'fermo', ingombro: [1, 4, 1],
     // ⚠ L'ALONE È UNA PROPRIETÀ DEL LAMPIONE, e prima stava scritta in
     // `partita.js` dentro un `if` sul nome. I due cerchi concentrici in aria
     // attorno alla lanterna sono lo STILE (le «fake point light» di Unity) e
@@ -56,14 +71,25 @@ export const CATALOGO = {
   },
   lampioneSpento: {
     nome: 'Lampione spento', modello: 'lampioneSpento',
-    giro: 'quarti', scala: 1, proiettaOmbra: true, classe: 'fermo', ingombro: [1, 4, 1],
+    // ⚠ DEVE AVERE LA STESSA POSA DEL LAMPIONE ACCESO, sempre: sono lo stesso
+    // oggetto in due stati, e uno che scatta girandosi quando lo spegni è un
+    // difetto che si vede subito. (L'impronta non guarda il tipo, quindi
+    // basta che le due righe dicano la stessa cosa.)
+    giro: 'no', scala: 1, proiettaOmbra: true, classe: 'fermo', ingombro: [1, 4, 1],
   },
   panchina: {
     nome: 'Panchina', modello: 'panchina',
-    giro: 'quarti', scala: 1, proiettaOmbra: true, classe: 'fermo', ingombro: [2, 1, 1],
+    giro: 'no', scala: 1, proiettaOmbra: true, classe: 'fermo', ingombro: [2, 1, 1],
   },
   ciuffo: {
     nome: 'Ciuffo', modello: 'ciuffo',
+    // ⚠ APPROVATO («mi piace che siano casuali, ha senso»), MA NON ANCORA IN
+    // GIOCO — e la distinzione conta, se no la prossima volta si ricasca:
+    // i ciuffi che si vedono a schermo NON sono questo modello. Sono fili
+    // d'erba cotti dentro il mesh del chunk (`nucleo/erba.js`), che variano
+    // già per hash e non costano un disegno. `modelli/nucleo/ciuffo.bin`
+    // esiste ma nel mondo non lo posa nessuno: questa riga è il verdetto
+    // pronto per il giorno che lo si poserà.
     giro: 'libero', scala: [0.82, 1.24], proiettaOmbra: false, classe: 'fermo', ingombro: [1, 1, 1],
   },
 };
