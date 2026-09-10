@@ -18,7 +18,6 @@
 import { CHUNK } from '../world/world.js';
 import { defDi } from '../world/blocks.js';
 import { FORME_VUOTE } from '../world/forme.js';
-import { DECORAZIONI } from '../world/decorazioni.js';
 
 export const CADUTA_LAMPADA = 2;
 export const MARGINE = 6;                 // celle oltre il chunk, in pianta
@@ -60,10 +59,15 @@ export function cuociLuce(mondo, kc, yMin, yMax) {
       // ⚠ sopra la fascia calcolata ci può essere altro: si guarda fino a ALTO
       if (!coperta && y === yMax) { for (let yy = yMax + 1; yy < ALTO && yy < yMax + 40; yy++) if (ferma(mondo.tipo(x, yy, z))) { coperta = true; break; } }
       if (!coperta) cielo[i] = 15;
+      // ⚠ UNA REGOLA SOLA: se la def dichiara una luce, quella cella è una
+      // sorgente. Prima si cercava in DECORAZIONI, e quindi i BLOCCHI-LAMPADA
+      // (lucciola, cristallo, lanterna, e tutti quelli registrati a caldo) non
+      // cuocevano un solo livello di luce: accendevano la pozza per pixel e
+      // basta, cioè sembravano lampade e non lo erano. `quota` alza la sorgente
+      // dove la lampada sta in cima a un palo (il lampione: 2,6).
       if (t) {
         const d = defDi(t);
-        const dec = d.forma === 'modello' && DECORAZIONI[t];
-        if (dec && dec.luce) sorgenti.push([x, y + Math.round(dec.luce.quota ?? 1), z]);
+        if (d.luce) sorgenti.push([x, y + Math.round(d.luce.quota ?? 0), z]);
       }
     }
   }

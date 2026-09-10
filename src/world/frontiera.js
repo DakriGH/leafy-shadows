@@ -30,7 +30,18 @@ export class Frontiera {
    * @param genera   (mondo, cx, cz) → [[x, h, z, tipo], …] le decorazioni da posare
    * @param opzioni  { margineGenera: blocchi oltre la resa (32), margineTieni: oltre la resa (96) }
    */
-  constructor(mondo, genera, { margineGenera = 2 * CHUNK, margineTieni = 6 * CHUNK } = {}) {
+  constructor(mondo, genera, { margineGenera = 2 * CHUNK, margineTieni = 6 * CHUNK, onGenerato = null } = {}) {
+    // ⚠ `onGenerato(kc)` È IL RIMEDIO A «durante la generazione le luci non si
+    // sono aggiornate se avevano ostacoli». Un chunk appena nato cambia due cose
+    // ai VICINI: la luce cotta arriva a sei celle oltre il confine (una lampada
+    // vicina al bordo illumina di là) e la sua terra fa OMBRA a quella luce. Un
+    // vicino già costruito resta con la luce di quando quel chunk non c'era, e
+    // non se ne accorge nessuno: non c'è nessun errore, c'è solo una zona
+    // illuminata male. Normalmente non capita — la frontiera genera trentadue
+    // celle più in là della resa, quindi i vicini nascono prima — ma correndo (o
+    // volando) la generazione resta indietro e un chunk entra in resa prima dei
+    // suoi vicini. È il «ogni tanto capita» del committente.
+    this.onGenerato = onGenerato;
     this.mondo = mondo;
     this.genera = genera;
     this.margineGenera = margineGenera;
@@ -104,6 +115,7 @@ export class Frontiera {
     }
     this.mondo.applicaModifiche(kc);
     this.statistiche.generati++;
+    if (this.onGenerato) this.onGenerato(kc, cx, cz);
   }
 
   _scaricaChunk(kc) {
