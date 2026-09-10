@@ -35,6 +35,7 @@ import { creaLavoro } from './nucleo/lavoro.js';
 import { ARREDI, registraArredi, gatto, TAVOLOZZE } from './partita/arredi.js';
 import { generaChunkZoo, QUOTA as QUOTA_ZOO } from './partita/zoo.js';
 import { generaChunkVetrina, QUOTA as QUOTA_VETRINA } from './partita/vetrina.js';
+import { generaChunkOmega } from './partita/omega.js';
 import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene, registroMeteo, registroStile } from './partita/registri.js';
 import { Meteo } from './partita/meteo.js';
 import { raggioDaSchermo } from './partita/raggio.js';
@@ -57,10 +58,18 @@ const opz = {
   specchio: params.get('specchio') === 'no' ? 0 : Math.max(0.2, Math.min(1, +(params.get('specchio') ?? 0.5) || 0.5)),
   dprMax: +(params.get('dpr') || 1.5),
   ora: params.has('ora') ? +params.get('ora') : null,
-  corpi: +(params.get('corpi') || 0),
+  // ⚠ NELL'OMEGA I CORPI CI SONO DI SUO: «mesh dinamiche in view» è una delle
+  // parole del mandato, e un banco di tortura che va provato ricordandosi di
+  // aggiungere un parametro è un banco che si prova sbagliato.
+  corpi: +(params.get('corpi') || (params.has('omega') ? 120 : 0)),
   terza: params.has('terza'),
   zoo: params.has('zoo'),            // la scena di prova (partita/zoo.js) al posto dell'open world
   vetrina: params.has('vetrina'),    // la concept art nel nero (partita/vetrina.js): solo palette e luce
+  // ⚠ L'OMEGA TEST (partita/omega.js): il banco di tortura, infinito. Non è lo
+  // zoo — quello isola un difetto per volta su 64×64; questo li mette tutti
+  // insieme e non finisce mai, perché è la DISTANZA che si vuole provare.
+  // Da usare con ?raggio=160 e il 🩺.
+  omega: params.has('omega'),
   // ⚠ `?varia=no` INCHIODA GIRO E SCALA come prima del catalogo. Serve al
   // confronto fianco a fianco: un cambiamento visivo si giudica vedendo la
   // STESSA scena con e senza, non a memoria.
@@ -94,7 +103,7 @@ const mondo = new Mondo();
 const entita = new Entita({ varia: opz.varia });
 mondo.onEvento = (e) => entita.evento(e);
 const lavoro = params.get('worker') === 'no' ? null : creaLavoro();
-const genera = opz.vetrina ? generaChunkVetrina : opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
+const genera = opz.vetrina ? generaChunkVetrina : opz.omega ? generaChunkOmega : opz.zoo ? generaChunkZoo : (m, cx, cz) => generaChunkOpenWorld(m, cx, cz, opz.seme);
 const streaming = new Streaming(mondo, resa, genera, { erba: opz.erba, raggioResa: opz.raggio, lavoro });
 // ⚠ L'ACQUA VIVA (`world/acqua.js`), che fino a oggi NON GIRAVA: quel modulo
 // importava un `config.js` che qui non esiste ed era rimasto indietro dalla
@@ -114,7 +123,7 @@ resa.apriFinestraAltezze(0.5, 0.5, 512);
 // ⚠ IL SALVATAGGIO SI RIMETTE PRIMA DI GENERARE: sono le modifiche del
 // giocatore (partita/salvataggio.js), e la frontiera le riapplica a ogni
 // chunk che nasce. `?nuovo` riparte da zero.
-const CHIAVE_SALVATAGGIO = opz.vetrina ? 'leafy-vetrina' : opz.zoo ? 'leafy-zoo' : `leafy-partita-${opz.seme}`;
+const CHIAVE_SALVATAGGIO = opz.vetrina ? 'leafy-vetrina' : opz.omega ? 'leafy-omega' : opz.zoo ? 'leafy-zoo' : `leafy-partita-${opz.seme}`;
 let salvate = 0;
 try { if (params.has('nuovo')) localStorage.removeItem(CHIAVE_SALVATAGGIO); else salvate = spacchetta(mondo, localStorage.getItem(CHIAVE_SALVATAGGIO)); } catch { salvate = 0; }
 let salvaFra = 0;   // ms: si salva un secondo dopo l'ultima modifica, non a ogni blocco
@@ -554,7 +563,8 @@ function lampadeVicine() {
 const _gall = [];
 /** Oltre questa distanza la schiuma di contatto non si vede; negli ultimi metri sfuma. */
 const RAGGIO_SCHIUMA = 48, SFUMA_SCHIUMA = 10;
-function galleggiantiVicini(nuota) {
+let schiumaGatto = 0;   // 0..1: quanto è "bagnato" il gatto, per la schiuma. Sale subito, scende piano.
+function galleggiantiVicini(nuota, dt) {
   const p = passeggero;
   _gall.length = 0;
   // ⚠ IL GATTO NON È UN CERCHIO: è più lungo che largo, e adesso la schiuma
@@ -567,7 +577,14 @@ function galleggiantiVicini(nuota) {
   // e la sua schiuma lo inseguiva a scatti di sessanta. Due posizioni per la
   // stessa cosa nello stesso fotogramma.
   const [px, , pz] = posizioneDisegnata();
-  if (nuota) _gall.push([0, px, pz, 0.30, 0.40]);
+  // ⚠ LA SCHIUMA DEL GATTO NON È UN INTERRUTTORE, ed è la cura di «quando il
+  // player continua a saltare la schiuma flickera». `nuotando` è sì/no e
+  // saltando lampeggia sessanta volte al secondo: la schiuma spariva e tornava
+  // a ogni balzo. Adesso è una QUANTITÀ che sale subito e scende in un terzo di
+  // secondo — e non è solo un rimedio al lampeggio, è quello che fa l'acqua
+  // vera: la schiuma resta un momento dove sei stato.
+  schiumaGatto = nuota ? 1 : Math.max(0, schiumaGatto - dt / 0.33);
+  if (schiumaGatto > 0.02) _gall.push([0, px, pz, 0.30 * schiumaGatto, 0.40 * schiumaGatto]);
   for (const c of corpi.lista) {
     if (!c.inAcqua) continue;
     const d2 = (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z);
@@ -578,7 +595,10 @@ function galleggiantiVicini(nuota) {
     // otto più vicini) faceva sparire il suo anello di scatto — «flickererà
     // tantissimo», e infatti.
     const k = Math.min(1, (RAGGIO_SCHIUMA - Math.sqrt(d2)) / SFUMA_SCHIUMA);
-    const mezzo = c.lato * 0.45 * k;
+    // ⚠ E ANCHE PER I CORPI la misura segue QUANTO SONO SOMMERSI, non un sì/no:
+    // un cubo che dondola sul pelo entra ed esce, e con un interruttore il suo
+    // anello lampeggerebbe come faceva quello del gatto.
+    const mezzo = c.lato * 0.45 * k * Math.min(1, (c.sommerso ?? 1) * 3);
     _gall.push([d2, c.x, c.z, mezzo, mezzo]);
   }
   _gall.sort((a, b) => a[0] - b[0]);
@@ -610,7 +630,7 @@ function sole(dt) {
   restoAcqua += dt;
   if (restoAcqua >= PASSO_ACQUA) { restoAcqua = Math.min(restoAcqua - PASSO_ACQUA, PASSO_ACQUA); simAcqua.tick(); }
   lampadeVicine();
-  galleggiantiVicini(nuotando);
+  galleggiantiVicini(nuotando, dt);
   // ⚠ A MEZZOGIORNO IL SOLE È BIANCO: al sole pieno si vede la palette ESATTA
   // (vivace, come le concept); il caldo entra solo col sole basso.
   const caldo = Math.min(1, Math.max(0, (alt - 0.24) / 0.4));
