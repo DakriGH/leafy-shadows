@@ -46,10 +46,33 @@ test('e la guardia sta al PUNTO D\'INGRESSO, dove il tempo entra', () => {
   // e l'ingresso è uno. Una guardia per lettore è quattro occasioni di
   // dimenticarsene, e la dimenticanza non dà nessun errore.
   const p = leggi('../src/partita.js');
-  assert.match(p, /if \(dt > 0 && dt < 10\) \{ tempi\.push/,
-    'in partita.js `tempi` accetta di nuovo un dt non positivo');
+  assert.match(p, /if \(grezzo > 0 && grezzo < 10000\) \{ tempi\.push/,
+    'in partita.js `tempi` accetta di nuovo un tempo non positivo');
   assert.match(p, /if \(js >= 0 && js < 10000\) \{ jsMs\.push/,
     'in partita.js `jsMs` accetta di nuovo un tempo assurdo');
+});
+
+test('⚠ e IL TETTO DELLA FISICA NON È IL TETTO DELLA MISURA', () => {
+  // ⚠ IL DIFETTO, dal Chromebook (omega test, 10/09/2026): **p50 100,0 e p99
+  // 100,0 su tutti e sette i gradini**, identici al decimo. Non era una macchina
+  // stranamente regolare: `dt` ha un tetto di 0,1 s perché un fotogramma da
+  // mezz'ora (una scheda tornata in primo piano) teleporterebbe il gatto dentro
+  // una montagna — e quel tetto finiva anche nella MISURA. Ogni fotogramma più
+  // lento di cento millisecondi veniva registrato come cento esatti.
+  // ⚠ Quindi il banco diceva «il carico pieno costa 1,00x» — «tutto gratis» — su
+  // una macchina che faceva dieci fotogrammi al secondo. E non si vedeva da qui:
+  // sopra i dieci fps il tetto non si tocca MAI. Il banco era cieco proprio
+  // sulle macchine per cui esiste.
+  const p = leggi('../src/partita.js');
+  assert.match(p, /const grezzo = adesso - ultimo;/, 'il tempo vero del fotogramma non si misura più');
+  assert.match(p, /const dt = Math\.min\(0\.1, grezzo \/ 1000\)/, 'la fisica ha perso il suo tetto');
+  // e chi misura riceve `grezzo`, mai `dt`
+  for (const [chi, re] of [
+    ['il ritmo', /ritmo\.campiona\(grezzo\)/],
+    ['il banco omega', /passoBanco\(grezzo\)/],
+  ]) assert.match(p, re, `${chi} riceve di nuovo il tempo TAGLIATO invece di quello vero`);
+  assert.equal(/campiona\(dt \* 1000\)|passoBanco\(dt \* 1000\)|tempi\.push\(dt \* 1000\)/.test(p), false,
+    'da qualche parte si misura ancora il `dt` col tetto della fisica');
 });
 
 test('e `Ritmo` la aveva dalla nascita: i tempi assurdi non entrano', () => {
