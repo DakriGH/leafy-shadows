@@ -36,6 +36,8 @@ import { ARREDI, registraArredi, gatto, TAVOLOZZE } from './partita/arredi.js';
 import { generaChunkZoo, QUOTA as QUOTA_ZOO } from './partita/zoo.js';
 import { generaChunkVetrina, QUOTA as QUOTA_VETRINA } from './partita/vetrina.js';
 import { generaChunkOmega } from './partita/omega.js';
+import { registraOmega } from './partita/omega-catalogo.js';
+import { BancoOmega } from './partita/banco-omega.js';
 import { registroResa, registroGiornoPartita, registroCorpi, registroStreaming, registroGiocatore, registroScene, registroMeteo, registroStile } from './partita/registri.js';
 import { Meteo } from './partita/meteo.js';
 import { raggioDaSchermo } from './partita/raggio.js';
@@ -99,6 +101,13 @@ registraDecorazioni();
 // lampione non c'era ancora si copiava il «blocco perduto» (rosa, solido), e
 // spegnere un lampione lo trasformava in un cubo viola.
 if (!BLOCCHI.lampioneSpento) registraBlocco('lampioneSpento', { ...defDi('lampione'), nome: 'Lampione spento', modello: 'lampioneSpento', luce: undefined, notte: false });
+// ⚠ L'ABOMINIO SI REGISTRA PRIMA CHE IL MONDO NASCA. `partita/omega.js` pesca i
+// tipi dalla tabella VIVA dei blocchi (`tipiDaColonna()`): registrarli dopo
+// vorrebbe dire generare i primi chunk con la tavolozza di casa e i successivi
+// con l'abominio — cioè un banco che misura due mondi diversi e non lo dice.
+// ⚠ E costa quasi niente: sono righe di tabella e funzioni PIGRE (le mesh degli
+// arredi si costruiscono quando qualcuno le chiede, non adesso).
+const omegaReg = opz.omega ? registraOmega({ blocchi: 2000, arredi: 1024 }) : null;
 const mondo = new Mondo();
 const entita = new Entita({ varia: opz.varia });
 mondo.onEvento = (e) => entita.evento(e);
@@ -825,10 +834,17 @@ function giro(adesso) {
   } else azioneEl.textContent = azioneCorrente()[1];
   resa.disegnaAcqua();
   bagliori.disegna(resa, cam);   // l'alone delle lanterne: due cerchi concentrici, dopo tutto
+  // ⚠ LA PROVA AR È UNA SECONDA RESA VERA, non un fattore moltiplicativo. In AR
+  // il fotogramma porta l'immagine della camera E la scena dentro lo stesso
+  // budget: l'unico modo onesto di provarlo senza avere ancora l'AR è disegnare
+  // la scena DUE VOLTE. La seconda passata viene coperta dalla prima e non si
+  // vede — è esattamente il punto: si misura il costo, non l'immagine.
+  if (arDoppia) { resa.disegna(cam, 0, modelli); modelli.disegna(resa, cam); resa.disegnaAcqua(); }
   const js = performance.now() - tj;
   tempi.push(dt * 1000); if (tempi.length > 240) tempi.shift();
   jsMs.push(js); if (jsMs.length > 240) jsMs.shift();
   fotogrammi++;
+  if (banco) passoBanco(dt * 1000);
   if (passoOfficina) passoOfficina();
   if (salvaFra > 0) { salvaFra -= dt * 1000; if (salvaFra <= 0) salva(); }
   if (adesso - ultimaStampa > 500) { ultimaStampa = adesso; stampa(); }
@@ -941,5 +957,110 @@ const diagnostica = new Diagnostica(() => ({
   chunk: resa.statistiche.chunkTotali, blocchi: mondo.contaBlocchi, luci: 0, decorazioni: entita.conta, erba: resa.statistiche.triangoliErba, ora: `${Math.floor(giorno.ora * 24)}h`, giorno: 0,
   worldgenMs: tCostruzione, meshMs: tCostruzione,
 }), () => { resa.disegna(camera(), 0, modelli); modelli.disegna(resa, camera()); resa.disegnaAcqua(); return Promise.resolve(tela.toDataURL('image/webp', 0.6)); });
+
+
+// ── ⚡ L'OMEGA TEST ───────────────────────────────────────────────────────────
+//
+// ⚠ LO SCIAME NON PASSA DAL MONDO, e non è una scorciatoia: è l'unico modo di
+// misurare un gradino alla volta. Mettere gli arredi come BLOCCHI vorrebbe dire
+// rigenerare e ri-meshare il mondo a ogni gradino — cioè misurare la
+// ricostruzione invece del carico, e aspettare venti secondi fra una misura e
+// l'altra. Le istanze si caricano e si tolgono in un fotogramma, quindi il
+// gradino misura esattamente quello che dice: N MESH DIVERSE = N DISEGNI.
+let arDoppia = false;
+let banco = null, tastoOmega = null;
+const _sciame = new Map();     // nome → Float32Array delle istanze, riusato
+let _sciameN = 0;
+
+/**
+ * Accende N arredi UNICI attorno al gatto: N tipi diversi, uno accanto all'altro.
+ * ⚠ UNO PER TIPO NON BASTEREBBE A NIENTE: quello che costa è il TIPO (un VAO, un
+ * VBO, un `drawArraysInstanced`), non l'istanza. Se ne mettono quattro per tipo
+ * per vederli, ma il numero che conta resta N.
+ */
+function sciameOmega(n) {
+  if (!omegaReg) return;
+  const lato = Math.ceil(Math.sqrt(Math.max(1, n)));
+  const cx = Math.round(passeggero.x), cz = Math.round(passeggero.z);
+  for (let i = 0; i < omegaReg.arredi.length; i++) {
+    const nome = omegaReg.arredi[i];
+    if (i >= n) { if (_sciame.has(nome)) { modelli.istanze(nome, VUOTO, 8); _sciame.delete(nome); } continue; }
+    // ⚠ LE MESH SI COSTRUISCONO PIGRE, alla prima volta che servono: mille mesh
+    // all'avvio sono un secondo di pagina ferma prima ancora di misurare, e la
+    // metà alta del banco spesso non si raggiunge nemmeno.
+    if (!modelli.tipi.has(nome)) modelli.registra(nome, omegaReg.arrediDef.get(nome).costruisci());
+    const gx = cx - lato / 2 + (i % lato), gz = cz - lato / 2 + Math.floor(i / lato);
+    let a = _sciame.get(nome);
+    if (!a) { a = new Float32Array(4 * 8); _sciame.set(nome, a); }
+    for (let k = 0; k < 4; k++) {
+      const dx = (k & 1) * 0.45, dz = (k >> 1) * 0.45;
+      const q = k * 8;
+      a[q] = gx + dx; a[q + 1] = quotaSuolo(Math.floor(gx + dx), Math.floor(gz + dz)); a[q + 2] = gz + dz;
+      a[q + 3] = 1; a[q + 4] = 1; a[q + 5] = 1; a[q + 6] = 1; a[q + 7] = (i * 0.7 + k) % 6.28;
+    }
+    modelli.istanze(nome, a, 8);
+  }
+  _sciameN = n;
+}
+const VUOTO = new Float32Array(0);
+/** La cima solida della colonna, per posare lo sciame sul terreno e non in aria. */
+function quotaSuolo(x, z) {
+  for (let y = 60; y > -8; y--) if (mondo.pieno(x, y, z)) return y + 1;
+  return 8;
+}
+
+/** Applica un gradino del banco. */
+function applicaCarico(c) {
+  if (!c) return;
+  resa.lampadeAccese = c.pozze !== false;
+  arDoppia = !!c.ar;
+  if (c.arredi !== _sciameN) sciameOmega(c.arredi | 0);
+  const voluti = c.corpi | 0;
+  if (voluti > corpi.statistiche.corpi) {
+    for (let i = corpi.statistiche.corpi; i < voluti; i++) {
+      corpi.aggiungi({ x: passeggero.x + (Math.random() - 0.5) * 24, y: passeggero.y + 8 + Math.random() * 14, z: passeggero.z + (Math.random() - 0.5) * 24,
+        lato: 0.3 + Math.random() * 0.35, colore: TINTE[i % TINTE.length], giro: Math.random() * Math.PI });
+    }
+  }
+}
+
+/** Un fotogramma del banco. */
+function passoBanco(ms) {
+  const st = resa.statistiche, sm = modelli.statistiche;
+  const r = banco.passo(ms, {
+    disegni: st.disegni + sm.disegni + st.disegniAcqua + st.disegniErba + st.disegniSpecchio,
+    triangoli: st.triangoli + sm.triangoli + st.triangoliAcqua + st.triangoliErba + st.triangoliSpecchio,
+    istanze: sm.istanze || 0,
+    chunk: st.chunkVisti,
+  });
+  if (r.cambiato) applicaCarico(r.carico);
+  if (tastoOmega) tastoOmega.aggiorna();
+  if (banco.fase === 'finito') banco = null;
+}
+
+// ⚠ IL TASTO STA SOTTO 🩺 E FINISCE DENTRO 🩺: il banco produce numeri, e i numeri
+// devono tornare indietro. Da una partita normale porta nel mondo dell'omega
+// (`?omega&banco`) e lì parte da solo: montare l'abominio dentro una partita in
+// corso vorrebbe dire misurare mezz'ora di terreno normale con duemila blocchi
+// appiccicati sopra, cioè un'altra cosa.
+import('./ui/omega.js').then(({ TastoOmega }) => {
+  tastoOmega = new TastoOmega({
+    inBanco: opz.omega,
+    vaiAlBanco: () => { location.search = '?omega&banco&raggio=' + opz.raggio; },
+    avvia: () => { banco = new BancoOmega(); applicaCarico(banco.avvia()); return banco; },
+    ferma: () => { if (banco) banco.ferma(); banco = null; applicaCarico({ pozze: true, arredi: 0, corpi: 0, ar: false }); },
+    manda: (testo) => { diagnostica.apri(); const n = document.getElementById('diagNota'); if (n) n.value = testo.slice(0, 200); navigator.clipboard?.writeText(testo); },
+  });
+  if (opz.omega && params.has('banco')) {
+    // ⚠ NON SUBITO: si aspetta che lo streaming abbia finito di popolare il
+    // mondo, se no il primo gradino misura la costruzione dei chunk e dice che
+    // questa macchina non regge un mondo che regge benissimo.
+    const attendi = () => {
+      if (streaming.statistiche.inCoda > 0) return setTimeout(attendi, 400);
+      banco = new BancoOmega(); applicaCarico(banco.avvia()); tastoOmega.banco = banco; tastoOmega.apri();
+    };
+    setTimeout(attendi, 1500);
+  }
+}).catch((e) => console.warn('omega test:', e.message));
 
 globalThis.PARTITA = { resa, modelli, mondo, passeggero, sguardo, corpi, streaming, entita, simAcqua, opz, lanciaCubi, intento, zoom: () => distanzaTerza, mirato: () => bersaglio, statistiche: () => ({ fps: 1000 / (q(tempi, 0.5) || 1), p50: q(tempi, 0.5), p99: q(tempi, 0.99), js: q(jsMs, 0.5), ...resa.statistiche, modelli: { ...modelli.statistiche }, streaming: { ...streaming.statistiche }, corpi: { ...corpi.statistiche }, fotogrammi }), diagnostica };

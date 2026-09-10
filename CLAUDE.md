@@ -2135,3 +2135,99 @@ sono già cascato, con quattro misure di pixel di fila che tornavano zero. Si
 ridisegna in un bersaglio apposta (`rig.scatto`), che funziona in tutti e due i
 casi, a 600 px e in webp: da un telefono con dpr 3 una figura a piena risoluzione
 sono megabyte, e un rapporto che non parte è peggio di un rapporto senza figura.
+
+
+### ⚠ L'OMEGA TEST (10/09/2026): il tasto ⚡ sotto 🩺, e cerca il GINOCCHIO
+
+Il committente: «migliaia di blocchi unici con texture uniche, migliaia di
+furniture con texture e materiali unici, luci colorate… così testiamo a fondo il
+framerate vero di sforzo su ogni dispositivo. Raggiungere il massimo degli fps e
+**framepacing** sarà fondamentale su ogni dispositivo anche quelli più scarsi, in
+vista dell'AR: render della camera + render in gioco in contemporanea + fisica +
+luci + multiplayer». E: «voglio proprio un tasto nuovo sotto Diagnosi».
+
+- **`partita/omega-catalogo.js`** — l'abominio. Duemila blocchi e mille arredi
+  generati, tutti diversi e tutti deterministici. ⚠ «TEXTURE UNICA» QUI VUOL DIRE
+  TAVOLOZZA UNICA, e non è una scorciatoia: nel nucleo non esistono texture, il
+  colore è cotto nel vertice — è la ragione per cui non si vede un pixel da
+  nessuna parte. Un banco che caricasse mille PNG misurerebbe un motore che non
+  è questo.
+- ⚠ **IL GIRO DELLE TINTE È AUREO**, non lineare: con un passo lineare mille
+  blocchi cadono uno accanto all'altro sul cerchio dei colori e a schermo si
+  vede UN blocco solo. E **saturazione e valore restano alti** (0,62 e 0,66):
+  misurato, con quelli liberi due dei primi VENTI blocchi cadevano a 23 di
+  distanza RGB su 441 — due tinte lontane ma tutt'e due slavate finiscono vicine
+  in RGB. Tenendoli alti la minima sale a 32 e la tipica da 158 a 220.
+- ⚠ **E `tintaRGB` TAGLIA s E v A UNO**: chi chiama fa `s * 1.08` per scurire la
+  faccia di sotto, e sopra uno `p = v*(1-s)` diventa NEGATIVO — il canale esce
+  negativo e l'OR bit a bit dà un numero che non è un colore. Trovato da una
+  prova, non guardando.
+- **`partita/ritmo.js`** — il framepacing. ⚠ **LA MEDIA NON È IL RITMO**: una
+  macchina può fare sessanta fotogrammi al secondo e singhiozzare quattro volte
+  al secondo. Si misurano `scarto` (la MEDIA di |dt[i]−dt[i−1]|), i
+  `singhiozzi` (oltre il doppio del p50, soglia RELATIVA), la `liscezza` e il
+  `passo`.
+  ⚠ **LA MEDIA, NON LA MEDIANA, e ci sono cascato scrivendolo**: la mediana di
+  una serie che singhiozza una volta ogni venti fotogrammi vale ZERO — diciannove
+  scarti su venti sono nulli. Cioè proprio il difetto che si cerca era invisibile
+  alla misura che doveva trovarlo. `test/ritmo.test.mjs` lo prende con due serie
+  di uguale MEDIA e ritmo diverso.
+  ⚠ E **il voto NON è una media dei due**: sono due condizioni da soddisfare
+  entrambe e comanda la peggiore. Un motore a 120 fps che singhiozza dieci volte
+  al secondo non è «buono a metà».
+- **`partita/banco-omega.js`** — i gradini. ⚠ **NON ACCENDE TUTTO INSIEME**: un
+  banco che mette a schermo l'abominio intero risponde a una domanda inutile
+  («regge tutto?», quasi sempre no). La domanda utile è DOVE SI ROMPE, e per
+  averla si sale un gradino alla volta cambiando **UNA COSA SOLA** (c'è una prova
+  che lo pretende sulla tabella).
+  ⚠ **IL MONDO OMEGA C'È IN TUTTI I GRADINI**: duemila tipi di blocco stanno
+  nella MESH del loro chunk, e cambiarli vorrebbe dire ri-meshare in mezzo alla
+  misura. Sono il fondo costante — ed è la prima cosa che il banco dimostra:
+  mille tipi diversi NON costano un disegno in più.
+  ⚠ **LO SCIAME DEGLI ARREDI NON PASSA DAL MONDO** ma da `modelli.istanze`: si
+  accende e si spegne in un fotogramma. Quello che costa è il TIPO (un VAO, un
+  VBO, un `drawArraysInstanced`), non l'istanza.
+  ⚠ **LA PROVA AR È UNA SECONDA RESA VERA**, non un fattore: la scena disegnata
+  due volte per fotogramma. È l'unico modo onesto di misurare il budget dell'AR
+  prima di avere l'AR.
+  ⚠ **E «L'ULTIMO GRADINO BUONO» È QUELLO PRIMA DELLA ROTTURA**, non l'ultimo con
+  un voto alto: i voti NON sono monotoni, e la prima misura vera lo ha mostrato
+  subito (vedi la tabella qui sotto).
+- **`ui/omega.js`** — la pillola `⚡ omega test` sotto `🩺 diagnosi`, e finisce
+  dentro il 🩺. È la QUARTA volta che il progetto paga la stessa lezione (`K`,
+  `A`, la console): sul telefono non si digita, e un banco che si avvia
+  scrivendo `?omega` non si avvia mai.
+
+**LA PRIMA MISURA VERA** (RTX 4060, 800×667, 144 Hz, raggio 96):
+
+| gradino | fps | p50 | p99 | scarto | disegni | voto |
+|---|---|---|---|---|---|---|
+| il mondo omega (2000 tipi) | 144 | 6,9 | 7,1 | 0,08 | 206 | 98 |
+| + pozze colorate | 144 | 6,9 | 7,1 | 0,08 | 197 | 98 |
+| + 64 arredi unici | 144 | 6,9 | 7,1 | 0,09 | 325 | 98 |
+| + 256 arredi unici | 144 | 6,9 | 7,1 | 0,08 | **709** | 98 |
+| + 1024 arredi unici | 121 | 7,0 | **14,0** | **2,67** | **2245** | **16** |
+| + 400 corpi | 116 | 7,0 | 14,0 | 3,23 | 2245 | 8 |
+| + prova AR (doppia resa) | 71 | 13,9 | 20,9 | 2,01 | 2245 | 71 |
+
+**Il ginocchio è fra 256 e 1024 tipi unici**, cioè fra ~700 e ~2200 disegni. E la
+riga che vale più di tutte: a 1024 il **p50 resta 7,0** e il p99 raddoppia — la
+macchina perde un vsync sì e uno no, quindi *in media* fa ancora 121 fps ma il
+ritmo è un'alternanza 7/14. Guardando solo gli fps sembra il gradino migliore
+dopo il riposo; guardando lo scarto è il peggiore di tutti. **È esattamente il
+difetto che il committente chiede di misurare, e senza il framepacing sarebbe
+invisibile.**
+
+⚠ **La doppia resa dell'AR costa 1,99×**, misurato, e il rapporto si porta su
+un'altra macchina mentre «costa 7 ms» no.
+⚠ **E i rapporti col riposo sono PAVIMENTI quando il riposo è agganciato al
+vsync**: «il carico pieno costa 1,01× il mondo nudo» non vuol dire «gratis»,
+vuol dire «tutt'e due stanno sotto il tetto dei 144 Hz e non si sa di quanto».
+Il verdetto lo dice da sé.
+
+⚠ **E IL COLLETTORE DELLA DIAGNOSTICA NON HA MAI FUNZIONATO SU WINDOWS**: la
+radice si ricavava da `new URL('..', import.meta.url).pathname`, che lì vale
+`/C:/Users/…` con lo slash davanti e i %20 al posto degli spazi — e `resolve` ci
+anteponeva la radice del disco. Moriva con un ENOENT su un percorso col disco due
+volte. Adesso `fileURLToPath`. Su Linux e macOS il campo coincide col percorso, e
+per questo il difetto è rimasto invisibile.
