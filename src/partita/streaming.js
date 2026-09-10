@@ -21,6 +21,14 @@ import { costruisciChunkNucleo } from '../nucleo/mesher-nucleo.js';
 
 const MARGINE_LUCE = 6;
 
+/**
+ * Quanti millisecondi si spendono a costruire PRIMA di mostrare il primo
+ * fotogramma. ⚠ Non zero: il quadrato sotto i piedi deve esistere, se no si
+ * cade nel vuoto e si vede il mondo comparire da sotto. Non tanti: ogni
+ * millisecondo qui è pagina ferma, e su una macchina lenta si moltiplica.
+ */
+export const BUDGET_AVVIO = 250;
+
 export class Streaming {
   /**
    * @param mondo    il mondo
@@ -57,20 +65,39 @@ export class Streaming {
     this._ordine = [];
   }
 
-  /** L'avvio: genera e costruisce tutto quello che serve intorno, senza budget. */
   /**
-   * L'avvio: genera e costruisce tutto quello che serve intorno, senza budget.
-   * ⚠ E MISURA LE DUE FASI SEPARATE. Erano un numero solo scritto sotto due nomi
-   * («worldgenMs» e «meshMs», identici in ogni rapporto): sembrava di sapere
-   * dove andasse il tempo dell'avvio, e invece non lo diceva nessuno. Dal
-   * Chromebook sono arrivati diciannove secondi, e senza la divisione non si
-   * poteva nemmeno cominciare a capire da che parte guardare.
+   * L'avvio: genera quello che serve intorno e costruisce SOLO IL VICINO.
+   *
+   * ⚠ MISURA LE DUE FASI SEPARATE, e prima erano un numero solo scritto sotto
+   * due nomi («worldgenMs» e «meshMs», identici in ogni rapporto): sembrava di
+   * sapere dove andasse il tempo dell'avvio, e non lo diceva nessuno. Dal
+   * Chromebook sono arrivati DICIANNOVE SECONDI di pagina ferma, e senza la
+   * divisione non si poteva nemmeno cominciare a capire da che parte guardare.
+   * Misurato appena divisi (questa macchina, raggio 96, 154 chunk):
+   * **generazione 142 ms, costruzione 1767 ms** — il 92 % è la costruzione.
+   *
+   * ⚠ E LA COSTRUZIONE AVEVA BUDGET INFINITO: `aggiorna(x, z, Infinity)`
+   * costruiva TUTTI E CENTOCINQUANTAQUATTRO i chunk prima di mostrare un
+   * fotogramma. Su questa macchina 1,8 s, sul Chromebook una decina di volte
+   * tanto. La cura è la STESSA già scritta in CLAUDE.md per il mesher vecchio
+   * («l'avvio: sei secondi di schermo fermo, poi uno e mezzo») e mai arrivata
+   * qui: si costruisce il vicino e il resto entra da solo, un po' per
+   * fotogramma, mentre il gioco già risponde.
+   *
+   * ⚠ IL PREZZO È CHE IL MONDO SI VEDE POPOLARE, e vale la pena: uno schermo
+   * fermo si legge come un gioco rotto, un mondo che si riempie si legge come un
+   * mondo che carica.
+   *
+   * ⚠ E IL BUDGET È IN MILLISECONDI, non in numero di chunk: una macchina lenta
+   * ne costruisce meno nello stesso tempo, che è esattamente quello che deve
+   * fare. Un conteggio fisso darebbe a tutti la stessa attesa MOLTIPLICATA per
+   * quanto sono lenti — cioè punirebbe proprio chi ha già poco.
    */
   avvio(x, z) {
     const t0 = performance.now();
     this.frontiera.assicura(x, z, { resa: this.raggioResa }, { subito: true });
     const t1 = performance.now();
-    this.aggiorna(x, z, Infinity);
+    this.aggiorna(x, z, BUDGET_AVVIO);
     this.statistiche.generaMs = t1 - t0;
     this.statistiche.costruisciMs = performance.now() - t1;
   }
