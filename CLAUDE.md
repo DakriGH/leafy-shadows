@@ -2008,8 +2008,8 @@ domanda), e uno scatto è un **istante** — non dice che il gradino di qualità
 sceso tre volte in un minuto, che è esattamente il genere di cosa che spiega un
 difetto.
 
-Nel gioco: **🩺** sul bordo sinistro. Si scrive cosa si stava facendo, si mette la
-password una volta per dispositivo, e va. Due strade, provate in quest'ordine:
+Nel gioco: **🩺** sul bordo sinistro. Si scrive cosa si stava facendo (facoltativo)
+e si preme Manda. **Non c'è niente da digitare**: vedi qui sotto. Due strade, provate in quest'ordine:
 
 | | dove finisce | quanto dura | quando |
 |---|---|---|---|
@@ -2017,55 +2017,77 @@ password una volta per dispositivo, e va. Due strade, provate in quest'ordine:
 | **cloud** | un messaggio su ntfy.sh | 12 h (3 h con lo scatto) | da qualunque parte del mondo |
 
 ```bash
-npm run diagnostica   # serve il gioco E raccoglie (sostituisce serve.py)
-npm run leggi         # tira giù i rapporti arrivati dal cloud
+npm run diagnostica        # serve il gioco E raccoglie (sostituisce serve.py)
+npm run leggi              # tira giù i rapporti arrivati dal cloud
+npm run leggi -- --segui   # e resta in ascolto, mentre si prova
 ```
 
-### L'indirizzo si ricava dalla password
+### ⚠ L'INDIRIZZO NON SI DIGITA PIÙ (10/09/2026): rifatto, e il vecchio è morto
 
-⚠ **E questa è la riga che rende la cosa sensata.** Su ntfy un «argomento» è
-pubblico: chi ne conosce il nome può leggerlo e scriverci. Se il nome stesse
-scritto nella pagina, chiunque apra il sorgente leggerebbe le nostre
-diagnostiche — e la password lì accanto non proteggerebbe niente. Ricavandolo da
-`sha256('leafy-shadows/' + password)`, nel sorgente **non c'è nulla**: l'indirizzo
-esiste solo nella testa di chi ha la password. 96 bit, non si indovina.
+Il committente: «la pages l'abbiamo noi, sistemiamo il sistema in modo che ti
+arrivi tutto; distruggi e pulisci il vecchio sistema se preferisci farlo nuovo e
+comodo».
 
-⚠ **E la password non lascia mai il dispositivo**: serve a *calcolare* l'indirizzo,
-non viene spedita. A ntfy arriva solo il rapporto, su un argomento dal nome
-insignificante.
+**Com'era.** L'argomento su ntfy si ricavava dalla PASSWORD digitata nel gioco,
+così nel sorgente non c'era scritto niente: l'indirizzo esisteva solo nella testa
+di chi la sapeva. Sulla carta è la cosa giusta, e c'erano anche le prove che
+confrontavano tre implementazioni di SHA-256 perché i due lati calcolassero lo
+stesso identico nome.
 
-⚠ **Il difetto più subdolo di tutta la faccenda** è che i due lati calcolino
-indirizzi diversi: il gioco direbbe «mandato ✔» (vero), il lettore «nessun
-rapporto» (vero), e i rapporti finirebbero in un angolo di internet dove non
-guarda nessuno. Nessun errore, nessun avviso. `test/canale.test.mjs` confronta le
-due implementazioni — `crypto.subtle` nel gioco, `node:crypto` nel lettore.
+⚠ **E HA FATTO ESATTAMENTE IL DANNO CHE DOVEVA EVITARE, col Chromebook.** La
+password si digita una volta per dispositivo e finisce nel `localStorage`. Se su
+un coso ne è finita una diversa — un refuso, la maiuscola della tastiera, una
+prova di mesi fa — i rapporti da lì vanno su un ALTRO argomento, e **nessuno può
+accorgersene**: il gioco dice «mandato ✔» (vero) e il lettore «nessun rapporto»
+(vero). Il rischio era persino scritto qui, in questo file, come «il difetto più
+subdolo di tutta la faccenda». Si è avverato.
+⚠ E per ripararlo bisognava sapere quale password ci fosse su quel dispositivo,
+cioè indovinare.
 
-### `crypto.subtle` non c'è sempre — e questa è la trappola vera
+**Com'è adesso.** Un argomento FISSO in `src/ui/canale.js`, e niente altro:
+niente password, niente `localStorage`, niente SHA-256 (`ui/sha256.js` è stato
+CANCELLATO), niente gettone del collettore, niente lucchetto sui tentativi, niente
+`diagnostica.chiave`. Nel gioco il 🩺 è un tocco; `npm run leggi` non vuole
+argomenti, e `npm run leggi -- --segui` resta in ascolto mentre si prova.
 
-⚠ I browser espongono `crypto.subtle` **solo nei contesti sicuri**: https, oppure
-localhost. Un telefono che apre il gioco su `http://192.168.1.31:8144/` — cioè il
-modo normale di provarlo in casa — lo trova **undefined**. Senza impronta non c'è
-indirizzo: il bottone sarebbe morto proprio sul dispositivo per cui esiste, e
-l'errore usciva come «niente rete», che manda a cercare dalla parte sbagliata.
+⚠ **IL PREZZO, DETTO UNA VOLTA E POI BASTA**: l'argomento è in chiaro nel
+sorgente, e su ntfy.sh un argomento è PUBBLICO — chi legge quel file può leggere
+i nostri rapporti e scriverci dentro. È una scelta, non una dimenticanza. Quello
+che ci passa è roba tecnica (scheda video, fotogrammi, uno scatto del gioco), e
+c'è una prova che pretende che non ci finisca altro. **Se un giorno ci dovesse
+passare qualcosa che vale di più, questo canale non è il posto**: ci vuole un
+endpoint nostro, non un servizio di messaggi pubblico.
 
-⚠ E **il ripiego deve dare lo stesso identico numero**, non uno diverso ma
-altrettanto buono: se il telefono calcolasse un nome e il lettore un altro, i
-rapporti finirebbero dove non guarda nessuno, senza nessun errore. Quindi
-`ui/sha256.js` — SHA-256 scritta a mano, ~40 righe — confrontata bit per bit con
-`node:crypto` su **tutte** le lunghezze da 0 a 130 byte, perché i confini del
-riempimento (55/56, 119/120) sono dove un'implementazione sbagliata dà
-un'impronta plausibile e falsa.
+⚠ **E CONTRO IL RUMORE C'È LA FIRMA, non un segreto**: chi legge scarta tutto
+quello che non è un rapporto nostro. Non protegge dalla lettura — niente lo fa,
+su un argomento pubblico — protegge dal fatto che uno scherzo riempia l'elenco e
+nasconda il rapporto vero.
+
+⚠ **E L'ARGOMENTO ESISTE IN UN POSTO SOLO**: il lettore lo IMPORTA da
+`src/ui/canale.js`, non lo ricopia. Due copie dello stesso nome sono il difetto
+di prima con un altro vestito — se divergono nessuno dei due lati sbaglia e non
+arriva niente. `test/canale.test.mjs` lo presidia, e presidia anche che non
+ritorni un campo password (guardando il CODICE, non il testo: i commenti la
+parola «password» la dicono apposta, perché raccontano il difetto).
+
+⚠ **E L'OMEGA TEST VIAGGIA NEGLI ALLEGATI, non nella nota**: la nota è tagliata
+a 400 caratteri — ed è giusto, è una riga scritta a mano — mentre l'esito del
+banco sono otto righe di numeri. Infilarcelo dentro voleva dire mandare il primo
+quinto della tabella e credere di aver mandato tutto. `npm run leggi` lo stampa
+per intero, perché cercarlo dentro un JSON da sessanta kilobyte è il modo sicuro
+di non guardarlo mai.
+
 
 ### Il bottone si deve VEDERE
 
 ⚠ Committente: «sul cellulare non vedo il tasto per la diagnosi e dove mettere
 poi la password». Erano due tondini da 34 px, semitrasparenti, sul bordo sinistro,
 sopra una scena piena di verde. Un'icona da sola chiede di indovinare cosa fa;
-una parola no. Adesso sono due **pillole con la scritta** — `📱 a dito` e
-`🩺 diagnosi` — il campo della password ha un bordo scuro e il pannello dice a
-cosa serve («non è un lucchetto: è l'indirizzo dove finisce il rapporto»). E il
-pannello dei numeri, che è la cosa che si guarda quando qualcosa non va, finisce
-con la riga che dice dov'è il bottone.
+una parola no. Adesso sono **pillole con la scritta** — `📱 a dito`, `🩺 diagnosi`
+e `⚡ omega test` — e il pannello dei numeri, che è la cosa che si guarda quando
+qualcosa non va, finisce con la riga che dice dov'è il bottone.
+⚠ E la password che quella frase citava **non esiste più** (vedi qui sopra): era
+proprio lei il pezzo che si è rotto.
 
 ### Il numero dei disegni è una MEDIA, e c'è voluto per arrivarci
 
@@ -2090,38 +2112,22 @@ megabyte, scaricato intero). Un rapporto con lo scatto sta sui 60 KB → allegat
 
 ### Il collettore in casa può finire su internet
 
-⚠ Serviva la **cartella del progetto**: aperto al mondo, un `GET
-/diagnostica.chiave` avrebbe consegnato la password. Adesso c'è un elenco di
-divieti (tutto ciò che comincia per punto, la chiave, i rapporti già arrivati, i
-log) **più** una lista di estensioni permesse, e il controllo si fa sul percorso
-*sciolto* — `/./x`, `/a/../x` e `/x` sono lo stesso file scritto in tre modi.
-Verificato con `curl`: 404 su tutti e quattro i modi di chiedere la chiave.
+⚠ Serviva la **cartella del progetto**: aperto al mondo, un `GET /.git/config`
+consegnerebbe il resto. Non è un difetto che si nota — il file arriva e nessuno
+se ne accorge. C'è un elenco di divieti (tutto ciò che comincia per punto, i
+rapporti già arrivati, i log) **più** una lista di estensioni permesse, e il
+controllo si fa sul percorso *sciolto*: `/./x`, `/a/../x` e `/x` sono lo stesso
+file scritto in tre modi.
 
-⚠ E un **lucchetto sui tentativi**: otto sbagliati ogni dieci minuti per
-indirizzo. È la protezione vera per una password corta su un indirizzo pubblico.
-La chiave giusta passa *comunque* e riapre il contatore — al contrario, chi
-sbaglia otto volte a digitare su un telefono resterebbe chiuso fuori proprio
-quando finalmente la azzecca, e alla forza bruta non toglierebbe un tentativo.
-
+⚠ **E il gettone e il lucchetto sui tentativi SONO STATI TOLTI** (10/09/2026):
+servivano a una cosa sola — che un rapporto arrivasse solo da noi — e costavano
+una password da digitare su ogni dispositivo, che è precisamente il pezzo che si
+è rotto. Questo server è uno strumento di sviluppo su una rete di casa: chi ci
+arriva può già leggere il sorgente del gioco.
 Il rapporto lo costruisce `ui/rapporto.js`, che è una **funzione pura provata in
 Node**: un rapporto di diagnostica è esattamente la cosa che non ci si accorge di
 aver rotto — se un giorno smette di metterci gli fps, il sintomo è che i rapporti
 arrivano e *sembrano a posto*.
-
-⚠ **Il gettone sta in `diagnostica.chiave`, e lo decide il committente** — se il
-file non c'è se ne genera uno casuale, se c'è vale quello scritto dentro. La
-scelta è sua e la ragione è buona: una chiave che si ricorda si digita su cinque
-dispositivi diversi senza sbagliare, una da trentadue cifre esadecimali no. Il
-prezzo — detto una volta e poi basta — è che quel file è in chiaro (0600 e fuori
-dal repo, ma in chiaro) e la stessa stringa finisce nel `localStorage` di ogni
-dispositivo autorizzato. Va bene per decidere chi manda un rapporto su una rete
-privata; non va bene per niente che valga di più.
-
-⚠ **Il confronto si fa dopo un `trim`, di qua e di là**: una chiave si digita a
-mano su un telefono, e le tastiere mobili ci attaccano volentieri uno spazio in
-coda o una maiuscola all'inizio. Il campo ha `autocapitalize="none"`,
-`autocorrect="off"`, `spellcheck="false"` — un rifiuto per uno spazio invisibile
-è il genere di cosa che fa dare la colpa al codice sbagliato.
 
 ⚠ **E nel rapporto non c'è niente di personale**: scheda video, fotogrammi,
 triangoli, errori. `ui/rapporto.js` è il posto dove fermarsi a pensarci se un

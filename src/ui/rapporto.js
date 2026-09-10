@@ -87,6 +87,15 @@ export function costruisciRapporto(l = {}) {
     // ⚠ LO SCATTO È FACOLTATIVO e sta in fondo: è il campo grosso, e se il
     // rapporto va letto in un terminale conviene che i numeri vengano prima.
     scatto: l.scatto || null,
+    // ⚠ LA FIRMA NON È UN SEGRETO E NON PROTEGGE NIENTE: l'argomento su ntfy è
+    // pubblico (vedi «ui/canale.js»), quindi chiunque potrebbe scriverci. Serve
+    // a chi LEGGE per scartare quello che non è un rapporto nostro — cioè a
+    // impedire che uno scherzo riempia l'elenco e nasconda il rapporto vero.
+    firma: 'leafy-shadows/1',
+    // ⚠ E QUELLO CHE SI PORTA DIETRO: l'omega test produce una tabella che nella
+    // «nota» non ci starebbe (400 caratteri, ed è giusto: è una riga scritta a
+    // mano). Sta qui, intera, come sezione sua.
+    allegati: l.allegati && typeof l.allegati === 'object' ? l.allegati : null,
   };
 }
 
