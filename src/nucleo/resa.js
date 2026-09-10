@@ -362,7 +362,15 @@ float terraLi(highp vec2 q, float cima) {
   // (la silhouette per il sole) un albero con la punta nell'acqua faceva
   // tredici colonne di riva finta attorno a se': «creano tantissima schiuma in
   // acqua anche se vedi solo la punta o solo il tronco».
-  return texture(uAltezze, uv).g * 255.0 > cima - 0.5 ? 1.0 : 0.0;
+  // ⚠ E QUI LA LETTURA È LINEARE (il sampler dell'unità 2, vedi disegnaAcqua),
+  // quindi l'altezza fra due colonne è interpolata invece che a scalini. Con la
+  // lettura secca ogni assaggio dava 0 o 1 di scatto sul bordo del texel, e il
+  // bordo della schiuma — per quanto netto lo si tagliasse — era fatto di
+  // segmenti allineati alla griglia: quadrati. Con l'altezza interpolata e uno
+  // smoothstep stretto l'assaggio è continuo, e il taglio netto che viene dopo
+  // cade su una curva vera. Netto NON vuol dire a quadretti.
+  float h = texture(uAltezze, uv).g * 255.0;
+  return smoothstep(cima - 0.85, cima - 0.15, h);
 }
 float riva(highp vec3 pos, float onda) {
   // ⚠ SENZA MARGINE: il pelo sta SEMPRE un po' SOTTO la cima della sua cella
@@ -697,6 +705,24 @@ export class Resa {
     this.mare = 0.25;   // il meteo: 0 specchio, 1 mosso (partita/meteo.js lo muove)
     this.chunks = new Map();
     this.altezze = null;
+    // ⚠ LO STESSO TEXEL LETTO IN DUE MODI, e serve a togliere i quadrati.
+    //
+    // Il committente: «no pixel, NON devo vedere pixel da nessuna parte o
+    // quadrati». La mappa delle altezze è NEAREST per forza — l'ombra della
+    // lampada ci cammina sopra cella per cella e filtrarla farebbe una rampa
+    // d'ombra sul blocco accanto (è scritto in `impostaAltezze`). Ma la
+    // SCHIUMA non cammina: le serve un campo continuo, e con la lettura secca
+    // il bordo, per quanto lo si tagli netto, resta fatto di segmenti allineati
+    // alla griglia dei texel — cioè quadrati.
+    //
+    // Un oggetto SAMPLER di WebGL2 stacca il filtro dalla texture: la stessa
+    // mappa si legge NEAREST sull'unità dei solidi e LINEARE su quella
+    // dell'acqua, nello stesso fotogramma, senza copie e senza costo.
+    this.campionatoreLiscio = gl.createSampler();
+    gl.samplerParameteri(this.campionatoreLiscio, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.samplerParameteri(this.campionatoreLiscio, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.samplerParameteri(this.campionatoreLiscio, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.samplerParameteri(this.campionatoreLiscio, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.statistiche = { disegni: 0, triangoli: 0, chunkVisti: 0, chunkTotali: 0, disegniAcqua: 0, triangoliAcqua: 0, disegniErba: 0, triangoliErba: 0, disegniSpecchio: 0, triangoliSpecchio: 0, pelo: null };
     this._visibili = [];
     this._visibiliErba = [];
@@ -1465,6 +1491,9 @@ void main() { colore = vec4(texture(uTex, vUv).rgb, 1.0); }`);
     // la mappa delle altezze (unità 2): dice dov'è la riva, per la schiuma
     if (this.altezze && this.altRett) {
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.altezze); gl.uniform1i(u.uAltezze, 2);
+      // ⚠ SOLO QUI IL FILTRO È LINEARE: la schiuma vuole un campo continuo, i
+      // solidi (unità 3) la stessa mappa a NEAREST per camminarci sopra.
+      gl.bindSampler(2, this.campionatoreLiscio);
       gl.uniform4f(u.uAltRett, this.altRett[0], this.altRett[1], this.altRett[2], this.altRett[3]);
     } else gl.uniform4f(u.uAltRett, 0, 0, 0, 0);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -1478,6 +1507,11 @@ void main() { colore = vec4(texture(uTex, vUv).rgb, 1.0); }`);
     }
     gl.bindVertexArray(null);
     gl.depthMask(true); gl.enable(gl.CULL_FACE); gl.disable(gl.BLEND);
+    // ⚠ IL SAMPLER SI SLEGA SEMPRE: resta attaccato all'UNITÀ, non al programma,
+    // e chiunque usi l'unità 2 dopo si troverebbe il filtro lineare addosso
+    // senza averlo chiesto. È il genere di stato che si dimentica e poi si paga
+    // in un difetto lontano.
+    gl.bindSampler(2, null);
     gl.activeTexture(gl.TEXTURE0);
     this.statistiche.disegniAcqua = disegni; this.statistiche.triangoliAcqua = tri;
     // il banco: lo specchio nudo in basso a sinistra, per vedere cosa legge l'acqua
