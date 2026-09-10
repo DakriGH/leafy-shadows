@@ -161,7 +161,13 @@ float ombraLampada(highp vec3 pos, highp vec3 L) {
     if (prossimo.x < prossimo.y) { cella.x += verso.x; prossimo.x += quanto.x; }
     else { cella.y += verso.y; prossimo.y += quanto.y; }
     highp float y = pos.y + (L.y - pos.y) * (t / lungo);
-    float h = texture(uAltezze, (cella + 0.5 - uAltRett.xy) * uAltRett.zw).r * 255.0;
+    // ⚠ IL CANALE G: il solido VERO. Col canale R (la silhouette, chioma
+    // compresa) un albero metteva davanti alla lampada un disco di colonne
+    // alte quattro — cioè un ostacolo squadrato, e l'ombra che ne usciva era
+    // «un'ombra quadrata delle luci». Un albero adesso non fa ombra alla
+    // lampada: è meno sbagliato di una che non somiglia a lui, e la sua ombra
+    // vera dal sole ce l'ha già dalla mappa d'ombra (che è per forma).
+    float h = texture(uAltezze, (cella + 0.5 - uAltRett.xy) * uAltRett.zw).g * 255.0;
     if (h > y + 0.05 && h > pos.y + 0.6) return 0.0;
   }
   return 1.0;
@@ -324,9 +330,15 @@ uniform vec3 uNebbiaCol;
 uniform float uTempo;
 uniform sampler2D uSpecchio;     // la scena specchiata, a mezza risoluzione
 uniform vec3 uSchermo;           // 1/larghezza, 1/altezza, forza dello specchio (0 = spento)
-// ⚠ CHI GALLEGGIA: [x, y, z, raggio] per otto, i corpi in acqua e il gatto che
-// nuota. Attorno a ognuno un anello di schiuma, come chiedeva il committente
-// («buttare oggetti dentro che fanno la schiuma e galleggiano»).
+// ⚠ CHI GALLEGGIA: **[x, z, mezzoX, mezzoZ]** per otto — l'IMPRONTA, non un
+// raggio. Era [x, y, z, raggio], e la y non la leggeva nessuno: un centro e un
+// raggio sono un cerchio, e con un cerchio qualunque mesh entri in acqua fa
+// sempre lo stesso segno. Le due mezze misure lasciano alla schiuma la forma
+// della cosa che la fa.
+// ⚠ E LE MISURE SI RESTRINGONO A ZERO quando il galleggiante esce dalla
+// finestra (partita.js): «flickererà tantissimo» — e sarebbe successo, perché
+// gli otto più vicini cambiano di continuo e un galleggiante che esce dalla
+// lista spariva di colpo. Rimpicciolendosi, se ne va senza che si veda.
 uniform highp vec4 uGalleggianti[8];
 uniform int uNGalleggianti;
 uniform sampler2D uAltezze;      // la cima solida di ogni colonna (+1) / 255: dice dov'è la riva
@@ -346,31 +358,103 @@ out vec4 colore;
 float terraLi(highp vec2 q, float cima) {
   highp vec2 uv = (q - uAltRett.xy) * uAltRett.zw;
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-  return texture(uAltezze, uv).r * 255.0 > cima - 0.5 ? 1.0 : 0.0;
+  // ⚠ IL CANALE G: il solido VERO, senza la chioma degli alberi. Col canale R
+  // (la silhouette per il sole) un albero con la punta nell'acqua faceva
+  // tredici colonne di riva finta attorno a se': «creano tantissima schiuma in
+  // acqua anche se vedi solo la punta o solo il tronco».
+  return texture(uAltezze, uv).g * 255.0 > cima - 0.5 ? 1.0 : 0.0;
 }
 float riva(highp vec3 pos, float onda) {
-  float r = 0.78 + onda;
   // ⚠ SENZA MARGINE: il pelo sta SEMPRE un po' SOTTO la cima della sua cella
   // (peloDi toglie almeno 1/16, l'onda al massimo 0,055), quindi floor(y) è la
   // base della cella d'acqua. Un +0,1 «di sicurezza» la faceva saltare alla
   // cella di sopra e la riva non contava mai: schiuma zero.
   float cima = floor(pos.y) + 1.0;
+  // ⚠ SI FA LA MEDIA DI SEDICI ASSAGGI, NON IL MASSIMO DI SEI. La mappa delle
+  // altezze ha un texel per colonna: con un test sì/no il bordo della schiuma
+  // cade sul bordo del TEXEL, cioè fa una scaletta di blocchi interi — «al
+  // bordo è seghettata, orribile». È parente stretto del difetto già pagato
+  // con l'ombra della lampada («seghettata quadrata»), e la cura è la stessa
+  // in spirito: smettere di leggere una griglia come se fosse un contorno.
+  // Mediando sedici assaggi il valore diventa CONTINUO (diciassette
+  // gradazioni) e il bordo si taglia dove si vuole con uno smoothstep, invece
+  // di ereditare la griglia; le direzioni ruotano con l'onda, così il taglio
+  // non è mai lo stesso due volte e non si legge come un cerchio di compasso.
+  // ⚠ E I RAGGI SONO PIÙ CORTI di prima (era 0,78 fisso): «un pochino troppo
+  // spessa». Adesso la fascia sta attorno a mezzo blocco.
   float s = 0.0;
-  for (int i = 0; i < 6; i++) {
-    float a = float(i) * 1.0472;   // sessanta gradi
-    s = max(s, terraLi(pos.xz + vec2(cos(a), sin(a)) * r, cima));
+  for (int i = 0; i < 8; i++) {
+    float a = float(i) * 0.7854 + onda * 0.6;   // quarantacinque gradi, e ruotano
+    vec2 dir = vec2(cos(a), sin(a));
+    s += terraLi(pos.xz + dir * (0.35 + onda * 0.5), cima);
+    s += terraLi(pos.xz + dir * (0.75 + onda * 0.8), cima);
   }
-  return s;
+  return s * 0.0625;
 }
-// L'anello attorno a chi galleggia: una ghirlanda, non un disco.
-float anello(float d, float r, float onda) {
-  float x = d + onda;
-  return smoothstep(r * 1.8, r * 1.25, x) * smoothstep(r * 0.7, r * 1.05, x);
+/**
+ * ⚠ IL CAMPO È CONTINUO, IL TAGLIO NO — e la distinzione è tutta qui.
+ *
+ * Il committente: «la schiuma non è netta come quella che volevo, senza
+ * sfumature fuori stile». Ha ragione, ed è la regola della casa scritta dal
+ * primo giorno: **l'ombra è un gradino, non una rampa**. Una schiuma sfumata è
+ * il rendering di qualcun altro.
+ *
+ * Ma «netta» e «non seghettata» non sono in contraddizione, e crederlo è
+ * l'errore: la scaletta veniva dal CAMPO (sedici assaggi sì/no su una griglia
+ * di un texel per colonna), non dal taglio. Un campo continuo tagliato con un
+ * gradino dà un bordo NETTO che segue il contorno vero della riva; un campo a
+ * gradini, comunque lo si tagli, dà una scaletta di blocchi. Quindi: media per
+ * il campo, gradino per il bordo.
+ *
+ * ⚠ E DUE BANDE, non una — come le pozze dei lampioni e come l'ombra a tre
+ * bande: una risacca piena attaccata alla riva e una più magra fuori. Una
+ * banda sola si legge come un contorno disegnato col pennarello.
+ * Il mezzo texel di smoothstep e' solo antialiasing, come nella mappa d'ombra
+ * (smoothstep 0.3 - 0.7): a occhio e' un gradino.
+ *
+ * ⚠ E NIENTE BACKTICK IN QUESTO COMMENTO: sta dentro un template literal di
+ * JavaScript, quindi un backtick lo CHIUDE e il file non si carica proprio.
+ * Ci sono appena ricascato scrivendo questa nota. C'e' un test apposta
+ * (test/glsl-backtick.test.mjs) e serve.
+ */
+float aGradini(float v, float soglia) {
+  return smoothstep(soglia - 0.03, soglia + 0.03, v);
+}
+/**
+ * L'anello attorno a chi galleggia — e SEGUE L'IMPRONTA, non un cerchio.
+ *
+ * ⚠ «Non rappresenta per niente la forma dell'oggetto a seconda della mesh che
+ * entra dinamicamente»: giusto, e la causa stava nei dati, non qui. Gli otto
+ * galleggianti portavano un centro e UN RAGGIO — cioè un cerchio, e qualunque
+ * cosa entrasse in acqua faceva sempre un cerchio. Adesso portano le due
+ * mezze misure dell'impronta, e questa è la distanza da un rettangolo
+ * arrotondato: un cubo fa una schiuma squadrata, il gatto una ovale allungata
+ * come lui.
+ */
+float anelloForma(highp vec2 p, highp vec2 centro, highp vec2 mezzo, float onda) {
+  highp vec2 q = abs(p - centro) - mezzo;
+  float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+  float x = d + onda * 0.5;
+  // ⚠ DUE ANELLI NETTI, non una ghirlanda sfumata: dentro pieno, fuori magro,
+  // e in mezzo un gradino. Il mezzo texel è antialiasing, non una rampa.
+  float dentro = smoothstep(0.16, 0.13, x) * smoothstep(-0.16, -0.13, x);
+  float fuori = smoothstep(0.30, 0.27, x) * smoothstep(-0.20, -0.17, x);
+  return max(dentro, fuori * 0.55);
 }
 void main() {
   vec3 vista = normalize(uCam - vPos);
-  // la normale del pelo ondeggia appena: basta per il brillio, non per deformare
-  vec3 n = vPelo > 0.5 ? normalize(vec3(0.06 * sin(uTempo * 1.7 + vPos.x * 2.3), 1.0, 0.06 * cos(uTempo * 1.1 + vPos.z * 1.9))) : vec3(0.0, 1.0, 0.0);
+  float lontano = distance(uCam, vPos);
+  // ⚠ LA NORMALE VIENE DALLE SOLE ONDE LUNGHE, ed è una lezione già pagata sul
+  // lato Babylon (CLAUDE.md: «le increspature fini facevano un riflesso
+  // "casuale" e brillii a coriandoli guardando il sole») che qui non era mai
+  // arrivata. Le frequenze erano 2,3 e 1,9 sul mondo, cioè un motivo che si
+  // RIPETE OGNI 2,7 BLOCCHI: guardando il lago verso il sole si vedeva la
+  // stessa piega tornare a intervalli regolari — il «tiling tutto ripetuto»
+  // del committente. Adesso 0,24 e 0,22: periodo ventisei blocchi, che a
+  // schermo non torna mai due volte.
+  float o1 = sin(uTempo * 0.50 + vPos.x * 0.24 + vPos.z * 0.10);
+  float o2 = cos(uTempo * 0.37 - vPos.x * 0.09 + vPos.z * 0.22);
+  vec3 n = vPelo > 0.5 ? normalize(vec3(0.055 * o1, 1.0, 0.055 * o2)) : vec3(0.0, 1.0, 0.0);
   // profondità → violaceo e opaco (scala 0,12 per blocco, corpo come la ricetta)
   float k = clamp(vProf * 0.12, 0.0, 1.0);
   vec3 viola = pow(vec3(0.38, 0.30, 0.62), vec3(2.2));
@@ -385,7 +469,16 @@ void main() {
   // ⚠ LO SPECCHIO SI LEGGE A SCHERMO: la passata specchiata usa la stessa
   // proiezione, quindi il riflesso di questo pixel sta in questo pixel. Le
   // onde lo spostano di un soffio (n.xz), che è quanto basta a farlo vivere.
-  vec2 uv = clamp(gl_FragCoord.xy * uSchermo.xy + n.xz * 0.16 * vPelo, 0.002, 0.998);
+  // ⚠ E LA DEFORMAZIONE CALA CON LA DISTANZA. Era 0,16 dello SCHERMO, fissa:
+  // sedici per cento della larghezza dello schermo, uguale a due metri e a
+  // ottanta. Da vicino è troppa; da lontano, dove quei ventisei blocchi di
+  // periodo stanno in pochi pixel, diventa un tremolio ad altissima frequenza
+  // — la «distorsione strana». Legandola alla distanza lo spostamento resta
+  // costante nel MONDO invece che sullo schermo, ed è quello che vuole
+  // l'occhio. Il tetto è il 3 % (CLAUDE.md dice 3-10 %: qui il riflesso è già
+  // a mezza risoluzione, e oltre si vede sfocare).
+  float sfumaOnda = 8.0 / (8.0 + lontano);
+  vec2 uv = clamp(gl_FragCoord.xy * uSchermo.xy + n.xz * 0.03 * sfumaOnda * vPelo, 0.002, 0.998);
   vec3 riflesso = mix(cielo, pow(texture(uSpecchio, uv).rgb, vec3(2.2)), uSchermo.z);
   // ⚠ IL CIELO CAPOVOLTO SOLO RADENTE quando non c'è specchio: a 45° il fresnel
   // cubico vale il 2%. Con lo specchio il riflesso c'è sempre un po' (22%) e
@@ -399,16 +492,37 @@ void main() {
   // chi galleggia. Solo sul pelo, e sopra a tutto il resto (anche al riflesso):
   // è il segno che l'acqua tocca qualcosa, e in Leafy è quello che dà vita.
   float onda = 0.13 * sin(uTempo * 1.5 + vPos.x * 1.9 + vPos.z * 1.1) + 0.08 * sin(uTempo * 2.3 - vPos.x * 1.3 + vPos.z * 2.7);
-  float schiuma = riva(vPos, onda);
+  // ⚠ DUE BANDE NETTE alla riva: piena attaccata a terra, magra un passo fuori.
+  // ⚠ LE SOGLIE SONO CONTATE, non a occhio. A distanza d da una riva dritta la
+  // quota di assaggi che cadono a terra vale acos(d/r)/pi per anello: con
+  // raggi 0,35 e 0,75 viene circa 0,47 a filo di riva, 0,36 a un quinto di
+  // blocco, 0,16 a due quinti, 0 oltre. Quindi 0,40 taglia la risacca piena
+  // (un decimo di blocco) e 0,14 quella magra (mezzo blocco): due bande nette,
+  // larghe in tutto poco meno di mezzo blocco.
+  float campo = riva(vPos, onda);
+  float sRiva = max(aGradini(campo, 0.40), aGradini(campo, 0.14) * 0.5);
+  float sTocco = 0.0;
   for (int i = 0; i < 8; i++) {
     if (i >= uNGalleggianti) break;
-    highp vec2 g = uGalleggianti[i].xz; float r = uGalleggianti[i].w;
-    schiuma = max(schiuma, anello(length(vPos.xz - g), r, onda * 0.8));
+    highp vec4 g = uGalleggianti[i];
+    sTocco = max(sTocco, anelloForma(vPos.xz, g.xy, g.zw, onda));
   }
-  schiuma *= vPelo * 0.85;
-  vec3 bianco = pow(vec3(0.93, 0.97, 0.99), vec3(2.2));
-  acqua = mix(acqua, bianco * mix(uCieloCol * 0.9, uSoleCol, sole * 0.85), schiuma);
-  alfa = mix(alfa, 0.97, schiuma);
+  // ⚠ DUE SCHIUME DIVERSE, e il committente l'ha chiesto: «la schiuma di
+  // diverso tipo e materiale». Non sono la stessa cosa e non devono sembrarlo:
+  // quella della RIVA è una risacca — bassa, un filo sabbiosa, ferma dov'è;
+  // quella del CONTATTO è agitata — più bianca, più stretta, e si muove con
+  // chi la fa. Dipingerle con lo stesso bianco le faceva leggere come un
+  // difetto solo, ed è il motivo per cui una sola parola («orribile») copriva
+  // due cose lontane.
+  sRiva *= vPelo * 0.72;      // 0,85 prima: «un pochino troppo spessa»
+  sTocco *= vPelo * 0.92;
+  vec3 luceSchiuma = mix(uCieloCol * 0.9, uSoleCol, sole * 0.85);
+  vec3 biancoRiva = pow(vec3(0.90, 0.93, 0.91), vec3(2.2));
+  vec3 biancoTocco = pow(vec3(0.97, 0.99, 1.0), vec3(2.2));
+  acqua = mix(acqua, biancoRiva * luceSchiuma, sRiva);
+  acqua = mix(acqua, biancoTocco * luceSchiuma, sTocco);
+  alfa = mix(alfa, 0.93, sRiva);
+  alfa = mix(alfa, 0.98, sTocco);
   vec3 c = pow(mix(acqua, cielo, vNebbia), vec3(1.0 / 2.2));
   colore = vec4(c, mix(alfa, 1.0, vNebbia));
 }`;
@@ -601,7 +715,7 @@ export class Resa {
     // cammina (`apriFinestraAltezze`, `seguiAltezze`), e ogni chunk ci scrive la
     // sua tegola 16×16 quando entra o cambia. Nel banco resta la mappa intera.
     this.finestra = null;
-    this._tegolaVuota = new Uint8Array(256);
+    this._tegolaVuota = new Uint8Array(512);
     this.taglio = -1e9;         // la quota sotto cui la passata in corso non disegna
     this.buco = [0, 0, 0, 0];   // il buco di visuale (xyz, raggio; 0 = spento: di fabbrica il gatto si vede in SAGOMA attraverso i blocchi, vedi modelli.js)
     // ⚠ LA MAPPA DELLE OMBRE: per ogni colonna della mappa delle altezze, la
@@ -708,9 +822,21 @@ export class Resa {
     c.y0 = dati.y0 || 0;
     c.chunk = [c.x0, c.y0, c.z0];
     // la tegola delle altezze (quota di mondo + 1, come mappaAltezze), per la finestra
+    // ⚠ DUE CANALI: R la silhouette (chioma compresa) per l'ombra del SOLE, G
+    // il solido vero per la SCHIUMA e per l'ombra delle LAMPADE. Erano lo
+    // stesso numero, e il disco della chioma che serve al sole diventava riva
+    // finta e ostacolo squadrato — «gli alberi lasciano un'ombra quadrata delle
+    // luci e creano tantissima schiuma in acqua». Due canali nello stesso texel
+    // costano una lettura sola: la differenza è che adesso dicono due cose.
     if (dati.altezze) {
-      if (!c.tegola) c.tegola = new Uint8Array(256);
-      for (let lx = 0; lx < 16; lx++) for (let lz = 0; lz < 16; lz++) { const a = dati.altezze[lx * 16 + lz]; c.tegola[lz * 16 + lx] = a < 0 ? 0 : Math.max(0, Math.min(255, a + 1)); }
+      if (!c.tegola) c.tegola = new Uint8Array(512);
+      const sol = dati.solide || dati.altezze;
+      for (let lx = 0; lx < 16; lx++) for (let lz = 0; lz < 16; lz++) {
+        const j = (lz * 16 + lx) * 2;
+        const a = dati.altezze[lx * 16 + lz], s = sol[lx * 16 + lz];
+        c.tegola[j] = a < 0 ? 0 : Math.max(0, Math.min(255, a + 1));
+        c.tegola[j + 1] = s < 0 ? 0 : Math.max(0, Math.min(255, s + 1));
+      }
       if (this.finestra) this._scriviTegola(c);
     }
   }
@@ -722,7 +848,7 @@ export class Resa {
   apriFinestraAltezze(x, z, lato = 512) {
     const gl = this.gl;
     if (!this.altezze) this.altezze = gl.createTexture();
-    this.finestra = { lato, x0: 0, z0: 0, vuota: new Uint8Array(lato * lato), spostamenti: 0 };
+    this.finestra = { lato, x0: 0, z0: 0, vuota: new Uint8Array(lato * lato * 2), spostamenti: 0 };   // ⚠ due canali per texel
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -742,7 +868,7 @@ export class Resa {
     if (this.ombre.w !== f.lato) this._preparaOmbre(f.lato, f.lato); else this.ombre.sporco = [0, 0, f.lato, f.lato];
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, f.lato, f.lato, 0, gl.RED, gl.UNSIGNED_BYTE, f.vuota);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, f.lato, f.lato, 0, gl.RG, gl.UNSIGNED_BYTE, f.vuota);
     for (const c of this.chunks.values()) if (c.tegola) this._scriviTegola(c);
     f.spostamenti++;
     return true;
@@ -754,7 +880,7 @@ export class Resa {
     if (px < 0 || pz < 0 || px + 16 > f.lato || pz + 16 > f.lato) return;
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, px, pz, 16, 16, gl.RED, gl.UNSIGNED_BYTE, vuota ? this._tegolaVuota : c.tegola);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, px, pz, 16, 16, gl.RG, gl.UNSIGNED_BYTE, vuota ? this._tegolaVuota : c.tegola);
     this._sporcaOmbre(px, pz, 16, 16);
   }
 
@@ -1060,12 +1186,19 @@ void main() {
   }
 
   /** La mappa delle altezze per l'ombra del sole: un byte per colonna. */
-  impostaAltezze(byte, x0, z0, larghezza, profondita) {
+  impostaAltezze(byte, x0, z0, larghezza, profondita, solide = null) {
     const gl = this.gl;
     if (!this.altezze) this.altezze = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.altezze);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, larghezza, profondita, 0, gl.RED, gl.UNSIGNED_BYTE, byte);
+    // ⚠ DUE CANALI anche qui (R silhouette per il sole, G solido per schiuma e
+    // lampade): il banco passa un byte per colonna, e senza il secondo canale
+    // leggerebbe spazzatura dove il gioco legge il solido. Se il chiamante non
+    // ha la mappa dei solidi, si ricopia la prima — il banco non ha laghi con
+    // alberi dentro, e meglio uguale a prima che diverso a caso.
+    const due = new Uint8Array(larghezza * profondita * 2);
+    for (let i = 0; i < larghezza * profondita; i++) { due[i * 2] = byte[i]; due[i * 2 + 1] = solide ? solide[i] : byte[i]; }
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, larghezza, profondita, 0, gl.RG, gl.UNSIGNED_BYTE, due);
     // ⚠ NEAREST, non lineare: filtrata, ogni gradino faceva una rampa d'ombra sul blocco accanto
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
