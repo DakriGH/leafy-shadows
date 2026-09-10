@@ -154,6 +154,22 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   // ostacolo squadrato davanti a ogni lampione. Quindi `solide` porta solo i
   // blocchi che esistono davvero.
   const solide = new Int16Array(CHUNK * CHUNK).fill(-1);
+  // ⚠ LE IMPRONTE — la terza mappa, e chiude due difetti insieme: «attorno a
+  // modelli complessi come alberi non c'è schiuma» e «l'ombra delle furniture
+  // complesse rispetto alla luce dei lampioni mi sembra non avvenire».
+  //
+  // Un albero non è terreno (se lo fosse, tornerebbe la riva finta e l'ostacolo
+  // squadrato) ma NON è nemmeno niente: sta nell'acqua e la increspa, e ferma
+  // la luce di una lampada. Gli serve una mappa sua, dove ogni colonna dice
+  // quanto è alto l'oggetto che ci sta.
+  //
+  // ⚠ E QUESTA È LA RISPOSTA A «va ottimizzato meglio per migliaia di oggetti»:
+  // gli otto galleggianti sono un vettore di uniform, cioè un tetto di otto e
+  // un ciclo per pixel. Una MAPPA non ha tetto — mille alberi costano come uno,
+  // perché il fragment fa comunque una lettura sola. I corpi che si muovono
+  // restano negli uniform (cambiano ogni fotogramma); tutto ciò che sta fermo
+  // entra qui, e sta fermo il 99 % delle cose.
+  const impronte = new Int16Array(CHUNK * CHUNK).fill(-1);
   let minY = 255, maxY = 0;
   // la fascia verticale del chunk, per cuocere la luce solo dove serve
   let yLo = Infinity, yHi = -Infinity;
@@ -181,6 +197,17 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
         if (lx < 0 || lx >= CHUNK || lz < 0 || lz >= CHUNK) continue;
         const i = lx * CHUNK + lz, h = y + (r2 === 0 ? 4 : r2 <= 2 ? 3 : 2);
         if (h > altezze[i]) altezze[i] = h;
+      }
+    }
+    // ⚠ PRIMA DELL'USCITA: un modello è una «forma vuota» per la geometria (non
+    // disegna facce), ma la sua impronta va segnata lo stesso — è tutto il
+    // punto. Metterlo dopo il `return` qui sotto è l'errore facile.
+    if (def.forma === 'modello') {
+      const lx = x - ox, lz = z - oz;
+      if (lx >= 0 && lx < CHUNK && lz >= 0 && lz < CHUNK) {
+        const i = lx * CHUNK + lz;
+        const cima = y + Math.max(1, Math.round(def.altezza || 1));
+        if (cima > impronte[i]) impronte[i] = cima;
       }
     }
     if (FORME_VUOTE.has(def.forma)) return;          // piante, lastre, modelli: F3
@@ -268,7 +295,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   });
   if (minY > maxY) { minY = 0; maxY = 0; }
   const d = c.dati();
-  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, solide, acqua: { ...ca.dati(), pelo: peloMax === -Infinity ? null : peloMax }, erba: ce.dati() };
+  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, solide, impronte, acqua: { ...ca.dati(), pelo: peloMax === -Infinity ? null : peloMax }, erba: ce.dati() };
 }
 
 function scurisci(c, k) {

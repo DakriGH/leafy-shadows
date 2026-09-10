@@ -528,7 +528,14 @@ function galleggiantiVicini(nuota) {
   // ⚠ IL GATTO NON È UN CERCHIO: è più lungo che largo, e adesso la schiuma
   // può dirlo. Le misure vengono dal modello degli arredi (corpo a pera,
   // ~0,62 di larghezza, un po' più profondo).
-  if (nuota) _gall.push([0, p.x, p.z, 0.30, 0.40]);
+  // ⚠ LA POSIZIONE DISEGNATA, non quella della fisica. Il committente: «quando
+  // sposto il player la schiuma si muove con te, ma lo fa a scatti». La fisica
+  // avanza a passo fisso (60 Hz) e il gatto si DISEGNA interpolato fra un passo
+  // e l'altro: prendendo la posizione grezza, il gatto scorreva liscio a 144 Hz
+  // e la sua schiuma lo inseguiva a scatti di sessanta. Due posizioni per la
+  // stessa cosa nello stesso fotogramma.
+  const [px, , pz] = posizioneDisegnata();
+  if (nuota) _gall.push([0, px, pz, 0.30, 0.40]);
   for (const c of corpi.lista) {
     if (!c.inAcqua) continue;
     const d2 = (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z);

@@ -21,6 +21,14 @@ Aperti dal **10/09/2026**.
 | 6 | **L'OMEGA TEST** | ⏳ **il prossimo** |
 | + | Le cose in acqua rimbalzano (detto il 10/09) | ✅ fatto |
 | + | «Niente pixel né quadrati» (detto il 10/09) | ✅ sulla schiuma; da ripassare altrove |
+| 7 | Il brillio del sole: «mega blob brutto», lo si vuole piccolo e denso | ✅ da guardare |
+| 8 | La schiuma segue il player **a scatti** | ✅ fatto |
+| 9 | La schiuma **appare quando ti avvicini**, e va retta da migliaia di oggetti | ✅ fatto (mappa delle impronte) |
+| 10 | Niente schiuma attorno ad alberi e furniture | ✅ fatto |
+| 11 | Le furniture non fanno ombra alla luce dei lampioni | ✅ fatto (il tronco, a cilindro) |
+| 12 | **Waterlogging**: le cose posate in acqua devono TENERE l'acqua | ⏳ |
+| 13 | **L'acqua non scorre**: una fonte piena accanto a una cella vuota deve riempirla, come Minecraft | ⏳ |
+| 14 | **L'acqua che scala fino ai bordi**, con i livelli smooth | ⏳ |
 
 ⚠ **«✅ da guardare» non vuol dire chiuso.** Le voci 1 e 2 sono cambiamenti
 visivi, e il verdetto è del committente su scatti affiancati: finché non li
@@ -122,6 +130,32 @@ sul mondo normale il telefono resta incollato al vsync e il numero non dice il
 margine.
 
 ---
+
+## 12-14. L'ACQUA VIVA: waterlogging, scorrimento, livelli
+
+> «Manca anche il waterloggare le cose e l'acqua non si aggiorna in modo
+> dinamico come su Minecraft, quindi fonti piene vicine a vuoto lo riempiono
+> con fonte piene, e poi la funzionalità dell'acqua che scala fino ai bordi
+> smooth»
+
+Tre cose distinte, in ordine di quanto scavano:
+
+1. **Waterlogging** — una cosa posata in acqua deve **tenere** l'acqua, non
+   sostituirla. ⚠ Oggi il mondo tiene **un tipo per cella**: waterlogging vuol
+   dire un secondo dato (l'acqua) accanto al primo, e quindi tocca `world/`,
+   il mesher, il salvataggio. Non è una riga. ⚠ E vale solo per le cose che
+   non riempiono la cella (modelli, piante): un blocco pieno l'acqua la caccia,
+   come in Minecraft.
+2. **Lo scorrimento** — una fonte piena accanto a una cella vuota la riempie,
+   con i livelli che calano allontanandosi. La rappresentazione **c'è già**
+   (`acqua~n`, `livelloAcqua`, `world/pelo.js`): manca la SIMULAZIONE, e va
+   fatta a passo fisso e per chunk, se no con un mondo in streaming si paga
+   ovunque invece che dove serve.
+3. **I bordi smooth** — il pelo che scala verso il bordo. Anche qui il vertex
+   shader **abbassa già** il pelo per livello: manca che i livelli ci siano.
+
+⚠ **Il 2 e il 3 sono lo stesso lavoro** visto da due lati: se lo scorrimento
+produce i livelli giusti, i bordi vengono da sé.
 
 ## L'ordine, e perché
 
