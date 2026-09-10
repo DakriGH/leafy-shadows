@@ -113,6 +113,28 @@ export function azione(tipoInMano, bersaglioInterattivo, distruggi = false, ciSo
 export const NOME_AZIONE = { interagisci: 'accendi', posa: 'posa', rompi: 'rompi',
                              pianta: 'pianta', rasa: 'rasa', tocca: 'tocca' };
 
+/**
+ * UNA CELLA SI RIEMPIE se è vuota **o se c'è solo acqua**.
+ *
+ * ⚠ `mondo.pieno()` NON basta, ed è costato un difetto che il committente ha
+ * riassunto in tre parole: «cosa che non riesco a fare» — mettere un oggetto
+ * nell'acqua. L'acqua occupa la cella come un blocco qualunque, quindi
+ * `pieno()` diceva di sì e la posa veniva rifiutata: non c'era nessun modo di
+ * costruire dentro un lago, né di metterci una cosa a galleggiare.
+ *
+ * ⚠ E NON ERA L'UNICA GUARDIA: sopra l'acqua il verbo era sempre «nuota fin
+ * lì» e `posa()` rifiutava di suo se il bersaglio era acqua. Tre controlli
+ * messi in tre momenti diversi, ognuno ragionevole preso da solo — ed è il
+ * genere di difetto che non si trova leggendo una funzione, perché nessuna
+ * delle tre è sbagliata da sé.
+ */
+export function riempibile(mondo, x, y, z) {
+  const t = mondo.tipo(x, y, z);
+  if (t === null || t === undefined) return true;
+  const d = defDi(t);
+  return !!(d && d.acqua);
+}
+
 /** 0xRRGGBB → [r, g, b] in 0..1. */
 export function daEsadecimale(n) {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
@@ -176,7 +198,7 @@ export class Cantiere {
    */
   posa(x, y, z, tipo = this.tipoScelto) {
     if (!tipo || ATTREZZI[tipo]) return false;   // ⚠ né con la mano vuota né con un attrezzo
-    if (this.mondo.pieno(x, y, z)) return false;
+    if (!riempibile(this.mondo, x, y, z)) return false;
     this.mondo.metti(x, y, z, tipo);
     const def = defDi(tipo);
     if (this.luci && def.luce) {
