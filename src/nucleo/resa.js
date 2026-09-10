@@ -324,9 +324,15 @@ uniform vec3 uNebbiaCol;
 uniform float uTempo;
 uniform sampler2D uSpecchio;     // la scena specchiata, a mezza risoluzione
 uniform vec3 uSchermo;           // 1/larghezza, 1/altezza, forza dello specchio (0 = spento)
-// ⚠ CHI GALLEGGIA: [x, y, z, raggio] per otto, i corpi in acqua e il gatto che
-// nuota. Attorno a ognuno un anello di schiuma, come chiedeva il committente
-// («buttare oggetti dentro che fanno la schiuma e galleggiano»).
+// ⚠ CHI GALLEGGIA: **[x, z, mezzoX, mezzoZ]** per otto — l'IMPRONTA, non un
+// raggio. Era [x, y, z, raggio], e la y non la leggeva nessuno: un centro e un
+// raggio sono un cerchio, e con un cerchio qualunque mesh entri in acqua fa
+// sempre lo stesso segno. Le due mezze misure lasciano alla schiuma la forma
+// della cosa che la fa.
+// ⚠ E LE MISURE SI RESTRINGONO A ZERO quando il galleggiante esce dalla
+// finestra (partita.js): «flickererà tantissimo» — e sarebbe successo, perché
+// gli otto più vicini cambiano di continuo e un galleggiante che esce dalla
+// lista spariva di colpo. Rimpicciolendosi, se ne va senza che si veda.
 uniform highp vec4 uGalleggianti[8];
 uniform int uNGalleggianti;
 uniform sampler2D uAltezze;      // la cima solida di ogni colonna (+1) / 255: dice dov'è la riva
@@ -349,28 +355,64 @@ float terraLi(highp vec2 q, float cima) {
   return texture(uAltezze, uv).r * 255.0 > cima - 0.5 ? 1.0 : 0.0;
 }
 float riva(highp vec3 pos, float onda) {
-  float r = 0.78 + onda;
   // ⚠ SENZA MARGINE: il pelo sta SEMPRE un po' SOTTO la cima della sua cella
   // (peloDi toglie almeno 1/16, l'onda al massimo 0,055), quindi floor(y) è la
   // base della cella d'acqua. Un +0,1 «di sicurezza» la faceva saltare alla
   // cella di sopra e la riva non contava mai: schiuma zero.
   float cima = floor(pos.y) + 1.0;
+  // ⚠ SI FA LA MEDIA DI SEDICI ASSAGGI, NON IL MASSIMO DI SEI. La mappa delle
+  // altezze ha un texel per colonna: con un test sì/no il bordo della schiuma
+  // cade sul bordo del TEXEL, cioè fa una scaletta di blocchi interi — «al
+  // bordo è seghettata, orribile». È parente stretto del difetto già pagato
+  // con l'ombra della lampada («seghettata quadrata»), e la cura è la stessa
+  // in spirito: smettere di leggere una griglia come se fosse un contorno.
+  // Mediando sedici assaggi il valore diventa CONTINUO (diciassette
+  // gradazioni) e il bordo si taglia dove si vuole con uno smoothstep, invece
+  // di ereditare la griglia; le direzioni ruotano con l'onda, così il taglio
+  // non è mai lo stesso due volte e non si legge come un cerchio di compasso.
+  // ⚠ E I RAGGI SONO PIÙ CORTI di prima (era 0,78 fisso): «un pochino troppo
+  // spessa». Adesso la fascia sta attorno a mezzo blocco.
   float s = 0.0;
-  for (int i = 0; i < 6; i++) {
-    float a = float(i) * 1.0472;   // sessanta gradi
-    s = max(s, terraLi(pos.xz + vec2(cos(a), sin(a)) * r, cima));
+  for (int i = 0; i < 8; i++) {
+    float a = float(i) * 0.7854 + onda * 0.6;   // quarantacinque gradi, e ruotano
+    vec2 dir = vec2(cos(a), sin(a));
+    s += terraLi(pos.xz + dir * (0.30 + onda * 0.5), cima);
+    s += terraLi(pos.xz + dir * (0.62 + onda * 0.8), cima);
   }
-  return s;
+  return smoothstep(0.10, 0.72, s * 0.0625);
 }
-// L'anello attorno a chi galleggia: una ghirlanda, non un disco.
-float anello(float d, float r, float onda) {
-  float x = d + onda;
-  return smoothstep(r * 1.8, r * 1.25, x) * smoothstep(r * 0.7, r * 1.05, x);
+/**
+ * L'anello attorno a chi galleggia — e SEGUE L'IMPRONTA, non un cerchio.
+ *
+ * ⚠ «Non rappresenta per niente la forma dell'oggetto a seconda della mesh che
+ * entra dinamicamente»: giusto, e la causa stava nei dati, non qui. Gli otto
+ * galleggianti portavano un centro e UN RAGGIO — cioè un cerchio, e qualunque
+ * cosa entrasse in acqua faceva sempre un cerchio. Adesso portano le due
+ * mezze misure dell'impronta, e questa è la distanza da un rettangolo
+ * arrotondato: un cubo fa una schiuma squadrata, il gatto una ovale allungata
+ * come lui.
+ */
+float anelloForma(highp vec2 p, highp vec2 centro, highp vec2 mezzo, float onda) {
+  highp vec2 q = abs(p - centro) - mezzo;
+  float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+  float x = d + onda * 0.5;
+  float sp = 0.26;                                  // quanto è larga la ghirlanda
+  return smoothstep(sp, 0.0, x) * smoothstep(-sp * 0.6, -sp * 0.15, x);
 }
 void main() {
   vec3 vista = normalize(uCam - vPos);
-  // la normale del pelo ondeggia appena: basta per il brillio, non per deformare
-  vec3 n = vPelo > 0.5 ? normalize(vec3(0.06 * sin(uTempo * 1.7 + vPos.x * 2.3), 1.0, 0.06 * cos(uTempo * 1.1 + vPos.z * 1.9))) : vec3(0.0, 1.0, 0.0);
+  float lontano = distance(uCam, vPos);
+  // ⚠ LA NORMALE VIENE DALLE SOLE ONDE LUNGHE, ed è una lezione già pagata sul
+  // lato Babylon (CLAUDE.md: «le increspature fini facevano un riflesso
+  // "casuale" e brillii a coriandoli guardando il sole») che qui non era mai
+  // arrivata. Le frequenze erano 2,3 e 1,9 sul mondo, cioè un motivo che si
+  // RIPETE OGNI 2,7 BLOCCHI: guardando il lago verso il sole si vedeva la
+  // stessa piega tornare a intervalli regolari — il «tiling tutto ripetuto»
+  // del committente. Adesso 0,24 e 0,22: periodo ventisei blocchi, che a
+  // schermo non torna mai due volte.
+  float o1 = sin(uTempo * 0.50 + vPos.x * 0.24 + vPos.z * 0.10);
+  float o2 = cos(uTempo * 0.37 - vPos.x * 0.09 + vPos.z * 0.22);
+  vec3 n = vPelo > 0.5 ? normalize(vec3(0.055 * o1, 1.0, 0.055 * o2)) : vec3(0.0, 1.0, 0.0);
   // profondità → violaceo e opaco (scala 0,12 per blocco, corpo come la ricetta)
   float k = clamp(vProf * 0.12, 0.0, 1.0);
   vec3 viola = pow(vec3(0.38, 0.30, 0.62), vec3(2.2));
@@ -385,7 +427,16 @@ void main() {
   // ⚠ LO SPECCHIO SI LEGGE A SCHERMO: la passata specchiata usa la stessa
   // proiezione, quindi il riflesso di questo pixel sta in questo pixel. Le
   // onde lo spostano di un soffio (n.xz), che è quanto basta a farlo vivere.
-  vec2 uv = clamp(gl_FragCoord.xy * uSchermo.xy + n.xz * 0.16 * vPelo, 0.002, 0.998);
+  // ⚠ E LA DEFORMAZIONE CALA CON LA DISTANZA. Era 0,16 dello SCHERMO, fissa:
+  // sedici per cento della larghezza dello schermo, uguale a due metri e a
+  // ottanta. Da vicino è troppa; da lontano, dove quei ventisei blocchi di
+  // periodo stanno in pochi pixel, diventa un tremolio ad altissima frequenza
+  // — la «distorsione strana». Legandola alla distanza lo spostamento resta
+  // costante nel MONDO invece che sullo schermo, ed è quello che vuole
+  // l'occhio. Il tetto è il 3 % (CLAUDE.md dice 3-10 %: qui il riflesso è già
+  // a mezza risoluzione, e oltre si vede sfocare).
+  float sfumaOnda = 8.0 / (8.0 + lontano);
+  vec2 uv = clamp(gl_FragCoord.xy * uSchermo.xy + n.xz * 0.03 * sfumaOnda * vPelo, 0.002, 0.998);
   vec3 riflesso = mix(cielo, pow(texture(uSpecchio, uv).rgb, vec3(2.2)), uSchermo.z);
   // ⚠ IL CIELO CAPOVOLTO SOLO RADENTE quando non c'è specchio: a 45° il fresnel
   // cubico vale il 2%. Con lo specchio il riflesso c'è sempre un po' (22%) e
@@ -399,16 +450,29 @@ void main() {
   // chi galleggia. Solo sul pelo, e sopra a tutto il resto (anche al riflesso):
   // è il segno che l'acqua tocca qualcosa, e in Leafy è quello che dà vita.
   float onda = 0.13 * sin(uTempo * 1.5 + vPos.x * 1.9 + vPos.z * 1.1) + 0.08 * sin(uTempo * 2.3 - vPos.x * 1.3 + vPos.z * 2.7);
-  float schiuma = riva(vPos, onda);
+  float sRiva = riva(vPos, onda);
+  float sTocco = 0.0;
   for (int i = 0; i < 8; i++) {
     if (i >= uNGalleggianti) break;
-    highp vec2 g = uGalleggianti[i].xz; float r = uGalleggianti[i].w;
-    schiuma = max(schiuma, anello(length(vPos.xz - g), r, onda * 0.8));
+    highp vec4 g = uGalleggianti[i];
+    sTocco = max(sTocco, anelloForma(vPos.xz, g.xy, g.zw, onda));
   }
-  schiuma *= vPelo * 0.85;
-  vec3 bianco = pow(vec3(0.93, 0.97, 0.99), vec3(2.2));
-  acqua = mix(acqua, bianco * mix(uCieloCol * 0.9, uSoleCol, sole * 0.85), schiuma);
-  alfa = mix(alfa, 0.97, schiuma);
+  // ⚠ DUE SCHIUME DIVERSE, e il committente l'ha chiesto: «la schiuma di
+  // diverso tipo e materiale». Non sono la stessa cosa e non devono sembrarlo:
+  // quella della RIVA è una risacca — bassa, un filo sabbiosa, ferma dov'è;
+  // quella del CONTATTO è agitata — più bianca, più stretta, e si muove con
+  // chi la fa. Dipingerle con lo stesso bianco le faceva leggere come un
+  // difetto solo, ed è il motivo per cui una sola parola («orribile») copriva
+  // due cose lontane.
+  sRiva *= vPelo * 0.72;      // 0,85 prima: «un pochino troppo spessa»
+  sTocco *= vPelo * 0.92;
+  vec3 luceSchiuma = mix(uCieloCol * 0.9, uSoleCol, sole * 0.85);
+  vec3 biancoRiva = pow(vec3(0.90, 0.93, 0.91), vec3(2.2));
+  vec3 biancoTocco = pow(vec3(0.97, 0.99, 1.0), vec3(2.2));
+  acqua = mix(acqua, biancoRiva * luceSchiuma, sRiva);
+  acqua = mix(acqua, biancoTocco * luceSchiuma, sTocco);
+  alfa = mix(alfa, 0.93, sRiva);
+  alfa = mix(alfa, 0.98, sTocco);
   vec3 c = pow(mix(acqua, cielo, vNebbia), vec3(1.0 / 2.2));
   colore = vec4(c, mix(alfa, 1.0, vNebbia));
 }`;

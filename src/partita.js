@@ -520,14 +520,27 @@ function lampadeVicine() {
 // ⚠ CHI GALLEGGIA, per la schiuma sul pelo dell'acqua (otto: i corpi in acqua
 // più vicini, e il gatto quando nuota). Stesso giro dei lampioni.
 const _gall = [];
+/** Oltre questa distanza la schiuma di contatto non si vede; negli ultimi metri sfuma. */
+const RAGGIO_SCHIUMA = 48, SFUMA_SCHIUMA = 10;
 function galleggiantiVicini(nuota) {
   const p = passeggero;
   _gall.length = 0;
-  if (nuota) _gall.push([0, p.x, p.y - 0.3, p.z, 0.62]);
+  // ⚠ IL GATTO NON È UN CERCHIO: è più lungo che largo, e adesso la schiuma
+  // può dirlo. Le misure vengono dal modello degli arredi (corpo a pera,
+  // ~0,62 di larghezza, un po' più profondo).
+  if (nuota) _gall.push([0, p.x, p.z, 0.30, 0.40]);
   for (const c of corpi.lista) {
     if (!c.inAcqua) continue;
-    const d = (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z);
-    if (d < 48 * 48) _gall.push([d, c.x, c.y, c.z, c.lato * 0.9]);
+    const d2 = (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z);
+    if (d2 >= RAGGIO_SCHIUMA * RAGGIO_SCHIUMA) continue;
+    // ⚠ LA DISSOLVENZA È NELLE MISURE, non in un'opacità a parte: rimpicciolire
+    // l'impronta fino a zero fa sparire l'anello *restringendolo*, che è come
+    // se ne va una cosa vera. Senza, un corpo che esce dalla finestra (o dagli
+    // otto più vicini) faceva sparire il suo anello di scatto — «flickererà
+    // tantissimo», e infatti.
+    const k = Math.min(1, (RAGGIO_SCHIUMA - Math.sqrt(d2)) / SFUMA_SCHIUMA);
+    const mezzo = c.lato * 0.45 * k;
+    _gall.push([d2, c.x, c.z, mezzo, mezzo]);
   }
   _gall.sort((a, b) => a[0] - b[0]);
   const n = Math.min(8, _gall.length);
