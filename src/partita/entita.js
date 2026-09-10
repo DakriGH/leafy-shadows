@@ -249,6 +249,19 @@ export class Entita {
     if (s !== undefined) this.togli(this._id[s]);
   }
 
+  /**
+   * L'id dell'entità nata dal blocco in questa cella, o `null`.
+   * ⚠ È IL PONTE FRA IL CLIC NEL MONDO E L'ISPETTORE: la mira torna una cella
+   * (`gioco/mira.js` mira le SCATOLE dei modelli e dà `dato.cella`), e da lì
+   * serve arrivare all'entità. Senza, selezionare guardando sarebbe impossibile
+   * e l'albero della scena resterebbe l'unico modo — cioè cercare a mano un
+   * albero fra trecentosettanta.
+   */
+  idInCella(x, y, z) {
+    const s = this._perCella.get(chiaveCella(x, y, z));
+    return s === undefined ? null : this._id[s];
+  }
+
   // ── la resa ────────────────────────────────────────────────────────────────
 
   /**

@@ -18,6 +18,19 @@
 export const TIPI = ['numero', 'interruttore', 'scelta', 'colore', 'testo', 'azione', 'lettura'];
 
 export function normalizzaRegistro(r) {
+  // ⚠ UNA VISTA NON HA CAMPI: si disegna da sé.
+  //
+  // È l'estensione che ha reso possibile l'Officina nuova senza buttare quella
+  // vecchia. Il committente: «non è per niente l'editor stile Unity, è solo una
+  // lista buggata e brutta e complicata con slider, manca proprio il concetto di
+  // oggetto metadati ispector scene». Il difetto però NON era il pannello — che
+  // ha già schede, annulla/ripeti, dock, tema scuro e legge sempre il valore
+  // vero — era che l'unica cosa esprimibile fosse una MANOPOLA GLOBALE. Un
+  // albero di scena e una griglia di icone non sono campi, e forzarli nello
+  // schema avrebbe storto tutti e due. Quindi un registro può, invece dei campi,
+  // portare un `disegna(box, pannello)`: eredita tutto il resto e disegna quello
+  // che vuole. Se torna un oggetto con `aggiorna()`, il pannello lo richiama.
+  if (r && r.chiave && typeof r.disegna === 'function') { r.campi = r.campi || []; return r; }
   if (!r || !r.chiave || !Array.isArray(r.campi)) throw new Error(`registro malformato: ${r && r.chiave}`);
   for (const c of r.campi) {
     if (!TIPI.includes(c.tipo)) throw new Error(`${r.chiave}.${c.chiave}: tipo sconosciuto «${c.tipo}»`);

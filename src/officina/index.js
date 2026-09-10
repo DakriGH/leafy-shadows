@@ -26,10 +26,19 @@ export function apriOfficina({ registri, campione, autore = 'officina', titolo =
   registri = registri.map(normalizzaRegistro);
   const perChiave = new Map(registri.map((r) => [r.chiave, new Map(r.campi.map((c) => [c.chiave, c]))]));
 
+  const perRegistro = new Map(registri.map((r) => [r.chiave, r]));
   const scrivi = (registro, campo, valore) => {
     const c = perChiave.get(registro) && perChiave.get(registro).get(campo);
-    if (!c || !c.scrivi) throw new Error(`campo non scrivibile: ${registro}.${campo}`);
-    c.scrivi(valore);
+    if (c && c.scrivi) { c.scrivi(valore); return; }
+    // ⚠ I CAMPI DINAMICI ESISTONO PER L'ISPETTORE, e senza di loro l'ispettore
+    // sarebbe l'unica parte dell'Officina senza annulla/ripeti. Le manopole di
+    // una vista sono note in anticipo; le proprietà di un'ENTITÀ no — la chiave
+    // è «<id>.giro», e l'id nasce quando qualcuno posa un albero. Un registro
+    // può quindi dichiarare `scriviDinamico(campo, valore)` e prendersi tutte le
+    // chiavi che lo schema non conosce, passando comunque dal bus dei comandi.
+    const r = perRegistro.get(registro);
+    if (r && typeof r.scriviDinamico === 'function') { r.scriviDinamico(campo, valore); return; }
+    throw new Error(`campo non scrivibile: ${registro}.${campo}`);
   };
   const bus = new BusComandi({ scrivi, autore });
   const campionatore = new Campionatore({ campione });

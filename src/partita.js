@@ -290,17 +290,51 @@ const barra = document.getElementById('barra');
 const azioneEl = document.getElementById('azione');
 let scelto = 1;
 const CASSETTA_PARTITA = [...CASSETTA, ...Object.keys(ARREDI)];
-const bottoni = CASSETTA_PARTITA.map((t, i) => {
+
+/** Il colore con cui si mostra un tipo (barra, albero della scena, creativa). */
+function coloreDiTipo(t) {
+  if (!t) return null;
+  try {
+    if (ATTREZZI[t]) return ATTREZZI[t].colore;
+    if (ARREDI[t]) return ARREDI[t].colore;
+    return paletteBlocco(tipoBase(t), 8).cima;
+  } catch { return null; }
+}
+function nomeDiTipo(t) {
+  if (!t) return 'mano';
+  if (ATTREZZI[t]) return ATTREZZI[t].nome;
+  if (ARREDI[t]) return ARREDI[t].nome;
+  const d = BLOCCHI[t]; return (d && d.nome) || t;
+}
+
+function creaBottone(t, i) {
   const b = document.createElement('button');
-  const def = t ? defDi(t) : null;
-  const nome = !t ? 'mano' : ATTREZZI[t] ? ATTREZZI[t].nome : (def && def.nome) || t;
-  let col = null;
-  if (t) { try { col = ATTREZZI[t] ? ATTREZZI[t].colore : ARREDI[t] ? ARREDI[t].colore : paletteBlocco(tipoBase(t), 8).cima; } catch { col = null; } }
-  b.innerHTML = `<span class="q" style="background:${col != null ? '#' + (col >>> 0).toString(16).padStart(6, '0') : 'transparent'}"></span>${nome}`;
+  const col = coloreDiTipo(t);
+  b.innerHTML = `<span class="q" style="background:${col != null ? '#' + (col >>> 0).toString(16).padStart(6, '0') : 'transparent'}"></span>${nomeDiTipo(t)}`;
   b.addEventListener('click', () => scegli(i));
   barra.appendChild(b);
   return b;
-});
+}
+const bottoni = CASSETTA_PARTITA.map(creaBottone);
+
+/**
+ * METTE IN MANO UN TIPO QUALUNQUE, anche se nella barra non c'era.
+ *
+ * ⚠ È QUELLO CHE MANCAVA ALLA BARRA, e il committente l'ha detto: «manca
+ * l'inventario creativo con TUTTI i blocchi e furniture». La barra era una
+ * LISTA FISSA: quello che non stava nelle sue caselle non si poteva avere in
+ * mano per nessuna strada, e non c'era nessun posto da cui prenderlo. Adesso
+ * la creativa dell'Officina chiama qui, e la cosa entra in fondo alla barra —
+ * come in una creativa vera, dove prendere una cosa vuol dire averla.
+ */
+function prendi(tipo) {
+  if (tipo === null || tipo === undefined) { scegli(0); return; }
+  const i = CASSETTA_PARTITA.indexOf(tipo);
+  if (i >= 0) { scegli(i); return; }
+  CASSETTA_PARTITA.push(tipo);
+  bottoni.push(creaBottone(tipo, CASSETTA_PARTITA.length - 1));
+  scegli(CASSETTA_PARTITA.length - 1);
+}
 function scegli(i) { scelto = ((i % CASSETTA_PARTITA.length) + CASSETTA_PARTITA.length) % CASSETTA_PARTITA.length; bottoni.forEach((b, k) => b.classList.toggle('scelto', k === scelto)); bottoni[scelto].scrollIntoView({ inline: 'center', block: 'nearest' }); }
 scegli(1);
 
@@ -389,6 +423,14 @@ function rompiMirato() { if (!bersaglio) return; const [x, y, z] = bersaglio.cel
 tela.addEventListener('contextmenu', (e) => e.preventDefault());
 ascoltaClic(tela, (e) => {
   if (sguardo.trascinato > 6) return;
+  // ⚠ CLICCARE UNA COSA LA SELEZIONA NELL'ISPETTORE, e senza questo l'albero
+  // della scena resterebbe l'unico modo di scegliere: cioè cercare a mano un
+  // albero fra trecentosettanta. Vale solo con l'Officina aperta, se no un clic
+  // nel gioco farebbe una cosa invisibile.
+  if (regScena && bersaglio && bersaglio.cella) {
+    const id = entita.idInCella(bersaglio.cella[0], bersaglio.cella[1], bersaglio.cella[2]);
+    if (id != null) { regScena.scegli(id); if (officina) officina.pannello.vaiA('scena'); }
+  }
   const [verbo] = azioneCorrente();
   // il destro (o il tocco senza piccone): posa, o accende/spegne, o tocca
   // ⚠ COME LEAFY: si clicca e il gatto ci va. Destro = vai lì sempre; sinistro/tocco
@@ -608,10 +650,30 @@ function stampa() {
 requestAnimationFrame(giro);
 
 // ── l'Officina: `?officina` o il tasto 🛠, caricata solo se la si chiede ────
-let officina = null, passoOfficina = null;
+let officina = null, passoOfficina = null, regScena = null;
 async function apriOfficinaPartita() {
   if (officina) { document.body.classList.toggle('con-officina'); return; }   // il 🛠 apre e chiude
   const { apriOfficina } = await import('./officina/index.js');
+  // ⚠ LE DUE SCHEDE NUOVE: la SCENA (albero + ispettore) e la CREATIVA. Non
+  // sono registri di manopole — si disegnano da sé (vedi `officina/schema.js`),
+  // ed è l'estensione che ha reso possibile rifare l'Officina senza buttare il
+  // pannello, che di suo funziona: schede, annulla/ripeti, dock, tema scuro.
+  const { registroScenaEntita } = await import('./officina/scena.js');
+  const { registroCreativa, voci } = await import('./officina/creativa.js');
+  const { CATEGORIE_BLOCCHI } = await import('./world/blocks.js');
+  const { CATALOGO } = await import('./partita/catalogo.js');
+  const esaDi = (t) => { const c = coloreDiTipo(t); return c == null ? '#888888' : '#' + (c >>> 0).toString(16).padStart(6, '0'); };
+  regScena = registroScenaEntita({
+    entita,
+    dove: () => ({ x: passeggero.x, y: passeggero.y, z: passeggero.z }),
+    coloreDi: esaDi, nomeDi: nomeDiTipo, rigaDi,
+    onVaiA: (e) => { if (!e) return; passeggero.x = e.x; passeggero.z = e.z; passeggero.y = e.y + 2.5; passeggero.vy = 0; meta = null; },
+  });
+  const regCreativa = registroCreativa({
+    elenco: voci({ categorie: CATEGORIE_BLOCCHI, blocchi: BLOCCHI, catalogo: CATALOGO, nomeArredo: nomeDiTipo }),
+    inMano: () => CASSETTA_PARTITA[scelto] ?? null,
+    onPrendi: prendi,
+  });
   const statoGiocatore = {
     get volo() { return volo; }, get terza() { return terza; }, impostaVolo,
     dove: () => `x ${passeggero.x.toFixed(1)} y ${passeggero.y.toFixed(1)} z ${passeggero.z.toFixed(1)}`,
@@ -627,7 +689,11 @@ async function apriOfficinaPartita() {
   statoGiocatore.buco = () => cam3.buco; statoGiocatore.impostaBuco = (v) => (cam3.buco = !!v);
   statoGiocatore.miraCentro = () => miraCentro; statoGiocatore.impostaMiraCentro = impostaMiraCentro;
   officina = apriOfficina({
-    registri: [registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, vetrina: opz.vetrina, seme: opz.seme })],
+    // ⚠ LA SCENA E LA CREATIVA VENGONO PRIME, e non è un vezzo d'ordine: sono
+    // quello che si apre per lavorare. Le manopole restano — sono la taratura
+    // della resa e vanno bene — ma non devono più essere la prima cosa e
+    // soprattutto non l'unica.
+    registri: [regScena, regCreativa, registroGiornoPartita(giorno), registroStile(resa), registroMeteo(meteo), registroResa(resa, bagliori), registroCorpi(corpi, lanciaCubi), registroStreaming(streaming), registroGiocatore(statoGiocatore), registroScene({ zoo: opz.zoo, vetrina: opz.vetrina, seme: opz.seme })],
     campione: () => ({ disegni: resa.statistiche.disegni + modelli.statistiche.disegni + resa.statistiche.disegniAcqua + resa.statistiche.disegniErba + resa.statistiche.disegniSpecchio, rtMs: null }),
     autore: 'partita', titolo: 'Officina · partita', apertoSubito: true, contenitore: dock, scuro: true,
     agganciaFrame: (fn) => (passoOfficina = fn),

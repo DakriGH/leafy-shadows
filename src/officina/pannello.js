@@ -145,9 +145,14 @@ export class Pannello {
   _disegnaScheda() {
     for (const b of this._el.nav.children) b.classList.toggle('acceso', b.dataset.chiave === this.attivo);
     const reg = this.registri.find((x) => x.chiave === this.attivo);
-    const box = this._el.campi; box.innerHTML = ''; this._controlli = [];
+    const box = this._el.campi; box.innerHTML = ''; this._controlli = []; this._vista = null;
     if (!reg) return;
     if (reg.nota) { const n = document.createElement('div'); n.className = 'off-nota'; n.textContent = reg.nota; box.appendChild(n); }
+    // ⚠ UNA VISTA SI DISEGNA DA SÉ (vedi schema.js): l'albero della scena e la
+    // creativa non sono campi. Torna un `aggiorna()` che il pannello richiama
+    // insieme agli altri — e che deve costare poco, perché gira ogni mezzo
+    // secondo.
+    if (typeof reg.disegna === 'function') { this._vista = reg.disegna(box, this) || null; return; }
     for (const campo of reg.campi) box.appendChild(this._controllo(reg, campo));
     this.aggiorna(true);
   }
@@ -225,5 +230,13 @@ export class Pannello {
       if (!c.mostra || c.tocco) continue;
       try { c.mostra(c.campo.leggi()); } catch (e) { if (c.el) c.el.title = String(e); }
     }
+    if (this._vista && this._vista.aggiorna) { try { this._vista.aggiorna(); } catch { /* una vista rotta non deve fermare il pannello */ } }
+  }
+
+  /** Porta in primo piano una scheda (l'ispettore lo usa quando si clicca nel mondo). */
+  vaiA(chiave) {
+    if (this.attivo === chiave) return;
+    this.attivo = chiave;
+    this._disegnaScheda();
   }
 }
