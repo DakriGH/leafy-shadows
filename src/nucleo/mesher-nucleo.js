@@ -143,6 +143,17 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   const ca = new CostruttoreNucleo(64);          // l'acqua
   let peloMax = -Infinity;                        // la quota del pelo più alto del chunk (il piano dello specchio)
   const altezze = new Int16Array(CHUNK * CHUNK).fill(-1);
+  // ⚠ DUE MAPPE, NON UNA, e la ragione è un difetto visto dal committente: «gli
+  // alberi lasciano un'ombra quadrata delle luci e creano tantissima schiuma in
+  // acqua anche se vedi solo la punta o solo il tronco». La mappa delle altezze
+  // la leggono in TRE, con tre significati diversi: il SOLE ci vuole la
+  // silhouette (chioma compresa, se no l'ombra dell'albero non c'è), la SCHIUMA ci
+  // vuole «di qui c'è terra ferma» e l'ombra delle LAMPADE ci vuole un ostacolo
+  // vero cella per cella. Con una mappa sola il disco della chioma diventava
+  // terra: tredici colonne di finta riva attorno a ogni albero nell'acqua, e un
+  // ostacolo squadrato davanti a ogni lampione. Quindi `solide` porta solo i
+  // blocchi che esistono davvero.
+  const solide = new Int16Array(CHUNK * CHUNK).fill(-1);
   let minY = 255, maxY = 0;
   // la fascia verticale del chunk, per cuocere la luce solo dove serve
   let yLo = Infinity, yHi = -Infinity;
@@ -178,6 +189,10 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
     if (ly < 0 || ly > 254) return;
     const i = (x - ox) * CHUNK + (z - oz);
     if (!acqua && y > altezze[i]) altezze[i] = y;   // (la chioma di un albero, se c'è, è già più alta)
+    // ⚠ E QUI SOLO CIÒ CHE FERMA DAVVERO: niente chiome, niente modelli, niente
+    // acqua. È la mappa che dice alla schiuma dov'è la riva e alla lampada
+    // dov'è l'ostacolo — e una chioma non è né una riva né un muro.
+    if (!acqua && opaco(tipo) && y > solide[i]) solide[i] = y;
 
     let pal = paletteBlocco(tipoBase(tipo), y);
     if (def.motivo) pal = tintaPalette(pal, def.motivo, def.motivoForza ?? 1, x, y, z);
@@ -253,7 +268,7 @@ export function costruisciChunkNucleo(mondo, kc, { erba = 2, luce = true } = {})
   });
   if (minY > maxY) { minY = 0; maxY = 0; }
   const d = c.dati();
-  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, acqua: { ...ca.dati(), pelo: peloMax === -Infinity ? null : peloMax }, erba: ce.dati() };
+  return { ...d, minY, maxY, y0: -SCARTO_Y, cx, cz, altezze, solide, acqua: { ...ca.dati(), pelo: peloMax === -Infinity ? null : peloMax }, erba: ce.dati() };
 }
 
 function scurisci(c, k) {

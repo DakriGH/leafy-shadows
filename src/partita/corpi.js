@@ -19,7 +19,7 @@
 // non entra nella fisica. Il giorno che servirà un carrello su una rampa, si
 // vedrà; non prima.
 
-import { defDi } from '../world/blocks.js';
+import { defDi, livelloAcqua } from '../world/blocks.js';
 export const PASSO = 1 / 60;
 const PASSI_MAX = 4;               // un fotogramma da 70 ms non fa più di 4 passi: non si teletrasporta e non si blocca
 const GRAVITA = 26;                // come il passeggero: il mondo è di cubi da un metro, la gravità vera è fiacca
@@ -29,6 +29,12 @@ const ATTRITO_ARIA = 0.995;
 const SOGLIA_SONNO = 0.06;         // sotto questa velocità, appoggiato, il corpo dorme
 const PASSI_PER_DORMIRE = 20;
 const SPINTA_VICINI = 0.5;         // quanto due corpi compenetrati si respingono, per passo
+/** ⚠ 2,4 volte la gravità A CORPO TUTTO SOMMERSO: l'equilibrio cade a 1/2,4,
+ *  cioè il corpo galleggia con il 42 % di sé sotto il pelo — che è quello che
+ *  fa un pezzo di legno. Alzarlo non lo fa galleggiare «di più»: lo fa
+ *  galleggiare più in ALTO, e sopra un certo punto salta fuori dall'acqua. */
+const SPINTA_ACQUA = 2.4;
+const ATTRITO_ACQUA = 0.90;        // per passo, a corpo tutto sommerso
 
 export class Corpi {
   /** @param mondo chi risponde a `solido(x, y, z)` */
@@ -80,6 +86,31 @@ export class Corpi {
     return false;
   }
 
+  /**
+   * Quanto del corpo sta sotto il pelo, da 0 a 1.
+   *
+   * ⚠ IL PELO NON È IL BORDO DELLA CELLA: `world/pelo.js` lo abbassa di
+   * (1 + 2·livello)/16, ed è la stessa formula che usa il vertex shader per
+   * disegnarlo. Se qui si usasse il bordo della cella, il corpo galleggerebbe
+   * un dito sopra l'acqua disegnata — poco, ma visibile e per sempre.
+   * ⚠ Le prove hanno un mondo finto senza `tipo`: senza acqua, zero.
+   */
+  _sommerso(c, m) {
+    const mondo = this.mondo;
+    if (!mondo.tipo) return 0;
+    const x = Math.floor(c.x), z = Math.floor(c.z);
+    const alto = Math.floor(c.y + m), basso = Math.floor(c.y - m) - 1;
+    for (let y = alto; y >= basso; y--) {
+      const t = mondo.tipo(x, y, z);
+      if (!t) continue;
+      const d = defDi(t);
+      if (!d || !d.acqua) continue;
+      const pelo = y + (15 - 2 * (livelloAcqua(t) || 0)) / 16;
+      return Math.max(0, Math.min(1, (pelo - (c.y - m)) / (2 * m)));
+    }
+    return 0;
+  }
+
   _passo() {
     const lista = this.lista;
     let svegli = 0;
@@ -88,12 +119,30 @@ export class Corpi {
       svegli++;
       const m = c.lato / 2;
       c.vy -= GRAVITA * PASSO;
-      // ⚠ IN ACQUA SI GALLEGGIA: spinta una volta e mezza la gravità e un po' d'attrito
-      const tw = this.mondo.tipo ? this.mondo.tipo(Math.floor(c.x), Math.floor(c.y), Math.floor(c.z)) : null;   // (le prove hanno un mondo finto senza tipo)
+      // ⚠ LA SPINTA È PROPORZIONALE A QUANTO IL CORPO È SOTTO, non un
+      // interruttore — ed è la cura del difetto che il committente ha visto:
+      // «le cose in acqua rimbalzano dopo un po' in modo glitchoso».
+      //
+      // Prima era sì/no sulla cella del CENTRO: dentro l'acqua la spinta valeva
+      // una volta e mezza la gravità (quindi mezza gravità VERSO L'ALTO,
+      // sempre), fuori valeva zero. Un corpo che arriva al pelo viene spinto su
+      // finché il centro esce, poi cade finché rientra, e ricomincia: non è un
+      // assestamento che finisce, è un CICLO che si mantiene da solo. Nessun
+      // attrito lo spegne, perché la forza cambia segno di scatto a ogni giro.
+      //
+      // Con la frazione sommersa c'è un punto di equilibrio vero: la spinta
+      // cresce affondando e cala emergendo, quindi il corpo si assesta dove le
+      // due si pareggiano — a 1/2,4 di sé sott'acqua — e ci resta.
+      const f = this._sommerso(c, m);
       // ⚠ `inAcqua` LO LEGGE ANCHE LA SCHIUMA (resa.galleggianti): chi galleggia
       // fa il suo anello sul pelo dell'acqua.
-      c.inAcqua = !!(tw && defDi(tw).acqua);
-      if (c.inAcqua) { c.vy += GRAVITA * 1.5 * PASSO; c.vx *= 0.96; c.vy *= 0.94; c.vz *= 0.96; }
+      c.inAcqua = f > 0.02;
+      if (c.inAcqua) {
+        c.vy += GRAVITA * SPINTA_ACQUA * f * PASSO;
+        // e l'attrito cresce con la parte sommersa: mezzo corpo fuori frena meno
+        const d = 1 - (1 - ATTRITO_ACQUA) * f;
+        c.vx *= d; c.vy *= d; c.vz *= d;
+      }
       // ⚠ UN ASSE PER VOLTA, e a SOTTOPASSI se la velocità è alta: a 26 blocchi
       // al secondo un passo da 1/60 è 0,43 blocchi, quasi un lato; con due
       // sottopassi non si attraversa mai un blocco senza vederlo.
@@ -124,7 +173,12 @@ export class Corpi {
       else { c.vx *= ATTRITO_ARIA; c.vz *= ATTRITO_ARIA; }
       // il sonno: fermo e appoggiato per un po'
       const v = Math.hypot(c.vx, c.vy, c.vz);
-      if (c.aTerra && v < SOGLIA_SONNO) { c.vx = c.vz = 0; if (++c.sonno >= PASSI_PER_DORMIRE) c.dorme = true; }
+      // ⚠ SI DORME ANCHE GALLEGGIANDO. Prima il sonno voleva `aTerra`, che in
+      // acqua è sempre falso: un corpo sul pelo restava sveglio PER SEMPRE a
+      // farsi i suoi microassestamenti — la seconda metà del «rimbalzano dopo
+      // un po'». Adesso chi sta fermo sul pelo si addormenta come chi sta fermo
+      // a terra, e si risveglia se qualcosa lo tocca (`_vicini`).
+      if ((c.aTerra || c.inAcqua) && v < SOGLIA_SONNO) { c.vx = c.vz = 0; if (c.inAcqua) c.vy = 0; if (++c.sonno >= PASSI_PER_DORMIRE) c.dorme = true; }
       else c.sonno = 0;
     }
     this._vicini();
