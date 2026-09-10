@@ -772,7 +772,22 @@ const tempi = [], jsMs = [], storiaFps = [];
 const ritmo = new Ritmo();
 let ultimo = performance.now(), fotogrammi = 0, ultimaStampa = 0;
 function giro(adesso) {
-  const dt = Math.min(0.1, (adesso - ultimo) / 1000); ultimo = adesso;
+  // ⚠ DUE NUMERI, E NON SONO LO STESSO NUMERO. `grezzo` è quanto è durato
+  // DAVVERO il fotogramma; `dt` è quanto se ne dà alla SIMULAZIONE, e ha un
+  // tetto perché un fotogramma da mezz'ora (una scheda tornata in primo piano)
+  // teleporterebbe il gatto dentro una montagna.
+  //
+  // ⚠ E IL TETTO DELLA FISICA ERA ANCHE IL TETTO DELLA MISURA. Dal Chromebook,
+  // omega test: p50 100,0 e p99 100,0 su TUTTI E SETTE i gradini, identici. Non
+  // era una macchina stranamente regolare: era `Math.min(0.1, …)`. Ogni
+  // fotogramma più lento di cento millisecondi veniva REGISTRATO come cento
+  // esatti, quindi il banco non poteva distinguere un gradino dall'altro e il
+  // verdetto diceva «il carico pieno costa 1,00x» — cioè «tutto gratis», su una
+  // macchina che faceva dieci fotogrammi al secondo.
+  // ⚠ Il banco misurava zero PROPRIO sulle macchine per cui esiste: sopra i
+  // dieci fotogrammi al secondo il tetto non si tocca mai, e qui non si vedeva.
+  const grezzo = adesso - ultimo;
+  const dt = Math.min(0.1, grezzo / 1000); ultimo = adesso;
   const tj = performance.now();
   ridimensiona();
   sole(dt);
@@ -860,11 +875,14 @@ function giro(adesso) {
   // sta già scritto in CLAUDE.md a proposito di `ombreMs`, ed è ricapitato.
   // ⚠ La guardia sta al PUNTO D'INGRESSO e non dove si legge, perché i lettori
   // sono cinque e l'ingresso è uno. (`partita/ritmo.js` ce l'ha dalla nascita.)
-  if (dt > 0 && dt < 10) { tempi.push(dt * 1000); if (tempi.length > 240) tempi.shift(); }
-  ritmo.campiona(dt * 1000);
+  // ⚠ SI MISURA `grezzo`, NON `dt`: quello con il tetto è per la fisica. Vedi la
+  // nota in cima al giro — è il difetto che rendeva l'omega test cieco proprio
+  // sulle macchine lente.
+  if (grezzo > 0 && grezzo < 10000) { tempi.push(grezzo); if (tempi.length > 240) tempi.shift(); }
+  ritmo.campiona(grezzo);
   if (js >= 0 && js < 10000) { jsMs.push(js); if (jsMs.length > 240) jsMs.shift(); }
   fotogrammi++;
-  if (banco) passoBanco(dt * 1000);
+  if (banco) passoBanco(grezzo);
   if (passoOfficina) passoOfficina();
   if (salvaFra > 0) { salvaFra -= dt * 1000; if (salvaFra <= 0) salva(); }
   if (adesso - ultimaStampa > 500) { ultimaStampa = adesso; stampa(); }

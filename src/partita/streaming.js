@@ -61,7 +61,10 @@ export class Streaming {
       },
     });
     this.coda = new Set();
-    this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0, inVolo: 0, rifattiPerLuce: 0, generaMs: 0, costruisciMs: 0 };
+    // ⚠ I CHUNK TORNATI DAI WORKER CHE ASPETTANO DI SALIRE SULLA GPU: il
+    // caricamento costa, e senza una fila si faceva tutto dentro un fotogramma.
+    this._daCaricare = [];
+    this.statistiche = { inCoda: 0, costruiti: 0, scaricati: 0, ultimaMs: 0, chunk: 0, inVolo: 0, rifattiPerLuce: 0, generaMs: 0, costruisciMs: 0, daCaricare: 0 };
     this._ordine = [];
   }
 
@@ -146,18 +149,39 @@ export class Streaming {
       this._vicini -= fatti;
     } else this._vicini = 0;
     // ── i chunk tornati dai Worker ───────────────────────────────────────────
+    //
+    // ⚠ ARRIVANO A RAFFICA E SI CARICANO A GOCCE, e prima non era così: si
+    // faceva `carica` per OGNI chunk tornato, senza nessun tetto. Ogni `carica`
+    // manda alla GPU i buffer del chunk (vertici, erba, acqua) e riscrive la
+    // tegola delle altezze: con quattro operai che consegnano insieme sono
+    // decine di caricamenti dentro un fotogramma solo.
+    // ⚠ NON SI VEDEVA finché l'avvio costruiva tutto in linea; appena la
+    // costruzione è passata ai Worker (10/09/2026) il costo si è spostato QUI, e
+    // dal Chromebook è arrivato **JS 29,7 ms su un fotogramma da 66** con
+    // novantacinque chunk ancora in coda. Il tetto sulla costruzione c'era e su
+    // questo no: il lavoro è passato dalla porta senza guardia.
     if (this.lavoro && this.lavoro.vivo) {
-      for (const { kc, dati, marca } of this.lavoro.raccogli()) {
-        if (!m.generati.has(kc)) continue;                       // scaricato nel frattempo
-        if (this._marca.get(kc) !== marca) { this.coda.add(kc); continue; }   // cambiato in volo: si rifà
-        if (this.coda.has(kc)) continue;                          // segnato di nuovo: arriva la versione nuova
-        r.carica(kc, dati); this.statistiche.costruiti++;
-      }
+      for (const x of this.lavoro.raccogli()) this._daCaricare.push(x);
       this.statistiche.inVolo = this.lavoro.inVolo.size;
     }
-    // ⚠ IN CODA = quelli ENTRO la resa ancora da costruire: i chunk oltre restano
-    // in coda apposta (si costruiranno avvicinandosi) e non sono lavoro arretrato.
-    this.statistiche.inCoda = this._vicini;
+    // ⚠ ALMENO UNO A GIRO, come per la costruzione: senza, su una macchina già
+    // in ritardo il budget è finito prima ancora di cominciare e la coda non si
+    // svuota MAI — il mondo smette di crescere e sembra un guasto dello
+    // streaming, non un budget stretto.
+    let caricati = 0;
+    while (this._daCaricare.length) {
+      if (caricati > 0 && performance.now() - t0 > budgetMs) break;
+      const { kc, dati, marca } = this._daCaricare.shift();
+      if (!m.generati.has(kc)) continue;                       // scaricato nel frattempo
+      if (this._marca.get(kc) !== marca) { this.coda.add(kc); continue; }   // cambiato in volo: si rifà
+      if (this.coda.has(kc)) continue;                          // segnato di nuovo: arriva la versione nuova
+      r.carica(kc, dati); this.statistiche.costruiti++; caricati++;
+    }
+    // ⚠ IN CODA = quelli ENTRO la resa ancora da costruire, PIÙ quelli già
+    // costruiti che aspettano di salire sulla GPU: se no un mondo ancora a metà
+    // si dichiarava finito, e il pannello diceva «coda 0» mentre arrivavano.
+    this.statistiche.inCoda = this._vicini + this._daCaricare.length;
+    this.statistiche.daCaricare = this._daCaricare.length;
     this.statistiche.ultimaMs = performance.now() - t0;
     this.statistiche.chunk = r.chunks.size;
   }
