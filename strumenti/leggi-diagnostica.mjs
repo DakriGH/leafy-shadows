@@ -22,8 +22,16 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile, readdir } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const RADICE = resolve(new URL('..', import.meta.url).pathname);
+// ⚠ `fileURLToPath`, NON `new URL(...).pathname`: su Windows quel campo vale
+// «/C:/Users/…» — con lo slash davanti e i %20 al posto degli spazi — e
+// `resolve` ci antepone la radice del disco, quindi la radice diventava un
+// percorso col disco DUE VOLTE e gli spazi ancora codificati. Il collettore in
+// casa non ha mai potuto aprire la chiave sulla macchina del committente:
+// moriva con un ENOENT su un percorso che nessuno ha mai scritto. Su Linux e
+// macOS il campo coincide col percorso, e per questo e' rimasto invisibile.
+const RADICE = fileURLToPath(new URL('..', import.meta.url));
 const CARTELLA = join(RADICE, 'diagnostica');
 const FILE_CHIAVE = join(RADICE, 'diagnostica.chiave');
 
