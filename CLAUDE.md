@@ -1655,6 +1655,61 @@ Il motore nuovo cresce accanto al vecchio (docs/RIFONDAZIONE.md). Regole:
   dentro `sole()` oscurava l'oggetto `giorno` del modulo prima di nascere
   (TDZ) e la pagina moriva bianca al primo fotogramma.
 
+### ⚠ LE ENTITÀ E IL CATALOGO (`partita/entita.js`, `partita/catalogo.js`, dal 10/09)
+
+Il committente, guardando l'Officina: *«rifarei totalmente l'officina, non è per
+niente l'editor stile Unity, è solo una lista buggata e brutta e complicata con
+slider, manca proprio il concetto di oggetto metadati ispector scene»*. Ha
+ragione, e **il difetto non era nell'interfaccia**: nel motore non esisteva
+l'OGGETTO. Una cosa posata era un blocco in una cella — niente id, niente giro,
+niente scala, niente dati suoi. Un pannello che non ha oggetti può solo
+diventare quello che era diventato: una lista di manopole globali. Un ispettore
+ispeziona un'entità; se l'entità non c'è, non c'è niente da selezionare.
+
+- **E il renderer era già pronto**: `nucleo/modelli.js` accetta **otto float per
+  istanza** (`x y z scala | r g b giro`) da quando ci sono i corpi del sandbox.
+  Era `registro-modelli.js` che ne sapeva scrivere solo quattro, con la scala
+  inchiodata a 1. Girare o ingrandire una cosa posata era impossibile **da
+  DIRE**, non da disegnare.
+- **`partita/catalogo.js` — una riga di dati per tipo** (modello, giro, scala,
+  ombra, classe di aggiornamento, ingombro, alone). È il «catalogo asset
+  dichiarativo» che R3 chiede da agosto. L'alone del lampione era un
+  `if (nome === 'lampione')` dentro il ciclo di disegno: adesso è una riga
+  accanto al lampione.
+- **`partita/entita.js` ha SOSTITUITO `registro-modelli.js`**, non gli si è
+  affiancato: due macchine che tengono la stessa verità è la malattia che
+  `docs/ARCHITETTURA.md` denuncia a pagina uno. Id stabili, posa libera,
+  metadati, nome, indice per chunk, `serializza()` (che è il pacco del diorama,
+  cioè dell'AR).
+- ⚠ **L'ID NON È L'INDICE**, e non è pignoleria: l'ispettore tiene in mano la
+  selezione mentre lo streaming scarica e ricarica chunk. Con l'indice,
+  l'oggetto selezionato cambierebbe sotto le dita di chi lo sta modificando.
+  Lo slot si riusa, l'id no.
+- ⚠ **LA POSA SI RICAVA DALLA CELLA, MAI DA `Math.random()`.** Con lo streaming
+  i chunk entrano e escono di continuo: con un numero a caso lo stesso albero
+  cambierebbe giro e statura ogni volta che si torna indietro di cento blocchi
+  — un bosco che si rimescola alle spalle di chi cammina, e un difetto che si
+  vede solo camminando avanti e indietro. C'è la prova apposta.
+- ⚠ **SPOSTARE VUOL DIRE RIMETTERE NELL'INDICE**: un oggetto trascinato oltre
+  il bordo del chunk resterebbe indicizzato dove non è più, e lo streaming lo
+  scaricherebbe guardando il chunk sbagliato.
+- ⚠ **I METADATI NON SPORCANO LA RESA**: scrivere una nota non tocca il
+  disegno. Sporcare vorrebbe dire ricomporre la lista e ricaricare un buffer
+  sulla GPU a ogni tasto premuto.
+- ⚠ **`serializza()` NON salva le entità nate da un blocco del mondo**: quelle
+  le rifà il mondo quando il chunk torna, e salvarle vorrebbe dire averne due.
+  Si salva quello che il mondo non sa rifare.
+- **Il VERDETTO sul look è una prova** (`test/catalogo.test.mjs`, in fondo).
+  Non difende il codice, difende una DECISIONE: quali righe variano e quali no.
+  Verdetto del 10/09: alberi **fermi** («per ora lasciali a parte»), ciuffo
+  **libero**. ⚠ E i ciuffi che si vedono a schermo **non sono** quel modello:
+  sono fili d'erba cotti nel mesh (`nucleo/erba.js`), che variano già per conto
+  loro. È il rimedio a «il look è scivolato senza che nessuno l'avesse deciso».
+- Da fare, in ordine: la resa che legge le entità anche per i corpi; l'Officina
+  a tre riquadri (scena / ispettore / le manopole di adesso, che restano perché
+  sono la taratura della resa); i gizmo sul `BusComandi`, che l'annulla/ripeti
+  ce l'ha già.
+
 ## «Desktop» non vuol dire «GPU da desktop»
 
 ⚠ **Il Chromebook del committente ha una Intel HD 400 del 2015, che è più debole
