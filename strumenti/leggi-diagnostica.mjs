@@ -43,6 +43,9 @@ const CARTELLA = join(RADICE, 'diagnostica');
 const { ARGOMENTO } = await import('../src/ui/canale.js');
 const segui = process.argv.includes('--segui');
 
+/** Perché l'ultimo giro non ha portato niente: si stampa QUELLO, non un'ipotesi. */
+let ultimoMotivo = '';
+
 console.log(`\n  argomento:  ${ARGOMENTO}`);
 console.log(`  (https://ntfy.sh/${ARGOMENTO})\n`);
 
@@ -50,7 +53,8 @@ await mkdir(CARTELLA, { recursive: true });
 const gia = new Set(await readdir(CARTELLA).catch(() => []));
 
 const primi = await giro();
-console.log(`  ${primi} nuovi, in  diagnostica/\n`);
+if (primi >= 0) console.log(`  ${primi} nuovi, in  diagnostica/\n`);
+else console.log(`  ⚠ ${ultimoMotivo}\n`);
 
 if (segui) {
   // ⚠ SI RICHIEDE, NON SI RESTA APPESI ALLO STREAM: quello di ntfy cade da solo
@@ -68,7 +72,7 @@ if (segui) {
     const n = await giro();
     // ⚠ E SE ARRIVA UN 429 SI RALLENTA invece di morire: raddoppia fino a cinque
     // minuti, e torna normale appena il servizio riprende a rispondere.
-    if (n < 0) { attesa = Math.min(attesa * 2, 300000); console.log(`  (ntfy chiede calma: riprovo fra ${attesa / 1000}s)`); continue; }
+    if (n < 0) { attesa = Math.min(attesa * 2, 300000); console.log(`  ⚠ ${ultimoMotivo} — riprovo fra ${attesa / 1000}s`); continue; }
     attesa = 30000;
     if (n) console.log(`  ${n} nuovi.\n`);
   }
@@ -83,12 +87,17 @@ async function giro() {
   try {
     r = await fetch(`https://ntfy.sh/${ARGOMENTO}/json?poll=1`);
   } catch (e) {
-    if (!segui) console.error('rete:', e.message);
-    return -1;   // si rallenta e si riprova, non si muore
+    // ⚠ E SI DICE QUALE DEI DUE È, che è tutto il punto: la prima stesura
+    // stampava «ntfy chiede calma» anche quando il servizio non rispondeva
+    // AFFATTO — cioè lo strumento raccontava un rallentamento mentre c'era un
+    // muro. Ci sono ricascato dentro il commit in cui denuncio gli strumenti
+    // bugiardi, il che dice quanto è facile.
+    ultimoMotivo = `la rete non risponde (${e.cause?.code || e.message})`;
+    return -1;
   }
   // ⚠ IL 429 NON È UN ERRORE FATALE, è «troppe richieste»: si torna -1 e chi
   // chiama rallenta. Trattarlo come gli altri faceva morire l'ascolto.
-  if (r.status === 429) return -1;
+  if (r.status === 429) { ultimoMotivo = 'ntfy chiede calma (429)'; return -1; }
   if (!r.ok) { console.error('ntfy ha detto no:', r.status); return 0; }
   const righe = (await r.text()).split('\n').filter(Boolean);
   if (!righe.length) { if (!segui) console.log('  nessun rapporto. (i messaggi durano 12 ore)'); return 0; }
